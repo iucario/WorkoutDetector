@@ -1,0 +1,8 @@
+.jupyter_checkpoints
+.DS_Store
+*.mp4
+tmp
+poses
+out
+detectron2_out
+datasets
