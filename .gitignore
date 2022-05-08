@@ -6,3 +6,6 @@ poses
 out
 detectron2_out
 datasets
+*.ipynb_checkpoints
+data
+__pycache__
