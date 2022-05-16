@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 *.pth
 .jupyter_checkpoints
 .DS_Store
@@ -11,3 +12,16 @@ datasets
 data
 *.pyc
 *.code-workspace
+=======
+.jupyter_checkpoints
+.DS_Store
+*.mp4
+tmp
+poses
+out
+detectron2_out
+datasets
+*.ipynb_checkpoints
+data
+__pycache__
+>>>>>>> 72a199eb4dcaa839515409b2b1367cef5f3ca1c8
