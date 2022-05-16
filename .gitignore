@@ -10,3 +10,4 @@ datasets
 *.ipynb_checkpoints
 data
 *.pyc
+*.code-workspace
