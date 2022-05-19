@@ -14,6 +14,9 @@ This project uses the [MMAction2](https://github.com/open-mmlab/mmaction2].)
 
 
 ```
+git clone --recursive https://github.com/iucario/WorkoutDetector.git
+cd WorkoutDetector
+
 conda env create -f conda_env.yml
 pip install openmim
 mim install mmcv
