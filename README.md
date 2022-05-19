@@ -29,9 +29,11 @@ pip install -r requirements/optional.txt
 
 ## Run Gradio demo
 
-`python WorkoutDetector/demo.py`
+1. Download weights. [OneDrive](https://1drv.ms/u/s!AiohV3HRf-34ipwMjFz1tADQH5U-2w)
+2. Copy to checkpoints
+3. `python WorkoutDetector/demo.py`
 
 
 ## Train
 
-Open `WorkoutDetector/tutorial.py` in [Google Colab](https://colab.research.google.com/github/iucario/WorkoutDetector/blob/main/WorkoutDetector/tutorial.ipynb)
+Check `WorkoutDetector/tutorial.py` in [Google Colab](https://colab.research.google.com/github/iucario/WorkoutDetector/blob/main/WorkoutDetector/tutorial.ipynb)
