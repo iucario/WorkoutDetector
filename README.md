@@ -1,6 +1,6 @@
 # Workout Detector
 
-This project uses the [MMAction2](https://github.com/open-mmlab/mmaction2].)
+This project uses the [MMAction2](https://github.com/open-mmlab/mmaction2])
 
 - [x] Clean and process datasets
 - [x] Action recognition
