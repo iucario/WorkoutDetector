@@ -4,6 +4,18 @@ Workout videos selected from Countix, haa500, RepCount.
 
 Didn't check the overlap between the datasets.
 
+## Workouts
+
+A dataset merged from Countix and RepCount.
+
+classes = [
+    'front_raise', 'pull_up', 'squat', 'bench_pressing', 'jumping_jack', 'situp',
+    'push_up', 'battle_rope', 'exercising_arm', 'lunge', 'mountain_climber',
+    'shoulder_press', ]
+
+Will add more fine-grained classes later.
+
+
 ## Countix
 
 https://www.deepmind.com/open-source/kinetics
