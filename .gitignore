@@ -1,5 +1,4 @@
 *.pth
-!checkpoints/tsm_r50_256h_1x1x16_50e_sthv2_rgb_20220517_best_top1_acc_epoch_58.pth
 .jupyter_checkpoints
 .DS_Store
 *.mp4
