@@ -133,6 +133,7 @@ if __name__ == '__main__':
         title="MMAction2 webcam demo",
         description="Input a video file. Output the recognition result.",
         live=False,
+        allow_flagging=False,
     )
 
     demo.launch()
