@@ -1,0 +1,16 @@
+battle-rope_wave
+bench_dip
+burpee
+gym_lift
+gym_lunges
+gym_plank
+gym_pull
+gym_push
+gym_ride
+gym_run
+jumping_jack
+pushup
+side_lunge
+situp
+workout_chest-pull
+workout_crunch

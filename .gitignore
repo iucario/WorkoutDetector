@@ -1,27 +1,19 @@
-<<<<<<< HEAD
 *.pth
+!checkpoints/tsm_r50_256h_1x1x16_50e_sthv2_rgb_20220517_best_top1_acc_epoch_58.pth
 .jupyter_checkpoints
 .DS_Store
 *.mp4
-tmp
-poses
-out
-detectron2_out
-datasets
+!example_videos/*
+tmp/
+poses/
+out/
+detectron2_out/
+
 *.ipynb_checkpoints
-data
+
+# data
+data/*
+
+
 *.pyc
 *.code-workspace
-=======
-.jupyter_checkpoints
-.DS_Store
-*.mp4
-tmp
-poses
-out
-detectron2_out
-datasets
-*.ipynb_checkpoints
-data
-__pycache__
->>>>>>> 72a199eb4dcaa839515409b2b1367cef5f3ca1c8

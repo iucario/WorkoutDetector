@@ -1,0 +1,10 @@
+front_raise
+pull_up
+squat
+bench_pressing
+jumping_jack
+situp
+push_up
+others
+battle_rope
+pommelhorse
