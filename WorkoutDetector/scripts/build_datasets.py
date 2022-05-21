@@ -18,21 +18,20 @@ with open(os.path.join(base, 'datasets/haa500/classes.txt')) as f:
 
 
 classes = [
-    'front_raise', 'pull_up', 'squat', 'bench_pressing', 'jumping_jack', 'situp',
-    'push_up', 'battle_rope', 'exercising_arm', 'lunge', 'mountain_climber',
-    'shoulder_press', ]
+    'front_raise', 'pull_up', 'squat', 'bench_pressing', 'jumping_jack',
+    'situp', 'push_up', 'battle_rope', 'exercising_arm', 'lunge',
+    'mountain_climber', 'shoulder_press', ]
 
-repcount_to = [
-    'front_raise', 'pull_up', 'squat', 'bench_pressing', 'jumping_jack', 'situp',
-    'push_up', 'battle_rope']
+repcount_to = ['front_raise', 'pull_up', 'squat', 'bench_pressing',
+               'jumping_jack', 'situp', 'push_up', 'battle_rope']
 repcount_d = {}
 for i, x in enumerate(repcount_class):
     if x in repcount_to:
         repcount_d[i] = classes.index(x)
 
 countix_to = [
-    'exercising_arm', 'bench_pressing', 'front_raise', 'squat', 'jumping_jack', 'lunge',
-    'mountain_climber', 'pull_up', 'push_up', 'situp']
+    'exercising_arm', 'bench_pressing', 'front_raise', 'squat', 'jumping_jack',
+    'lunge', 'mountain_climber', 'pull_up', 'push_up', 'situp']
 
 countix_d = dict()
 for i, x in enumerate(countix_class):
@@ -59,7 +58,7 @@ def build(label_map, prefix, input_txt, output_txt):
                 label = label_map[label]
             else:
                 continue
-            path = '/'.join([prefix,set_type, path])
+            path = '/'.join([prefix, set_type, path])
             f.write(f'{path} {length} {label}\n')
 
 

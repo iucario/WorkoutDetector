@@ -1,4 +1,5 @@
-checkpoints/*
+checkpoints
+work_dirs
 .jupyter_checkpoints
 .DS_Store
 *.mp4

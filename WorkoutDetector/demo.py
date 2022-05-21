@@ -1,5 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-import argparse
+import asyncio
+from random import choices
 import time
 import os
 from collections import deque
@@ -51,7 +52,7 @@ def sample_frames(data, num):
     return ret
 
 
-def inference(model, video,  device, cfg):
+def inference_video(model, video, device, cfg):
     print('Video:', video)
     capture = cv2.VideoCapture(video)
     if not capture.isOpened():
@@ -97,7 +98,7 @@ def main(inputs):
         print('No video input')
         return None
     video = inputs
-    results = inference(model, video, device, cfg)
+    results = inference_video(model, video, device, cfg)
     if not results:
         return None
     text = dict()
@@ -109,34 +110,101 @@ def main(inputs):
     return text
 
 
+def dummy(image):
+    return time.time()
+
+
+async def real_time_inference(model, device):
+    """Real-time inference"""
+    print('Real-time inference')
+    cur_windows = []
+    if len(cur_windows) == 0:
+        if len(frame_queue) == sample_length:
+            cur_windows = list(np.array(frame_queue))
+
+    cur_data = data.copy()
+    cur_data['imgs'] = cur_windows
+    cur_data = pipeline(cur_data)
+    cur_data = collate([cur_data], samples_per_gpu=1)
+    if next(model.parameters()).is_cuda:
+        cur_data = scatter(cur_data, [device])[0]
+    with torch.no_grad():
+        scores = model(return_loss=False, **cur_data)[0]
+        scores = list(enumerate(scores))
+    num_selected_labels = min(len(scores), 5)
+    scores.sort(key=lambda x: x[1], reverse=True)
+    text = dict()
+    for r in scores:
+        label = labels[r[0]]
+        score = r[1]
+        text[label] = float(score)
+    print(text)
+    result_queue.append(text)
+
+
+async def get_frame(frame):
+    """Insert new frame to the queue and return result.
+    frame: numpy array, HWC
+    Returns: result of inference"""
+    frame_queue.append(frame)
+    if data['img_shape'] is None:
+        data['img_shape'] = frame.shape[:2]
+        print(f'img_shape: {data["img_shape"]}')
+    if len(frame_queue) == sample_length:
+        await real_time_inference(model, device)  # its blocking
+    if result_queue:
+        return result_queue.popleft()
+    return {'no result': 1}
+
+
 if __name__ == '__main__':
+    global frame_queue, result_queue, data, pipeline, labels, sample_length
     home = 'mmaction2/'
     config = os.path.join(
         home,
         'configs/recognition/tsm/tsm_my_config.py')
-    checkpoint = 'checkpoints/tsm_r50_256h_1x1x16_50e_sthv2_rgb_' \
-        '20220517_best_top1_acc_epoch_58.pth'
+    checkpoint = 'checkpoints/tsm_r50_256h_1x1x16_50e_sthv2_rgb_20220517.pth'
     device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
     cfg = Config.fromfile(config)
-    labels = ['front_raise', 'pull_up', 'squat', 'bench_pressing', 'jumping_jack',
-              'situp', 'push_up', 'others', 'battle_rope', 'pommelhorse']
+    labels = [
+        'front_raise', 'pull_up', 'squat', 'bench_pressing', 'jumping_jack',
+        'situp', 'push_up', 'others', 'battle_rope', 'pommelhorse']
     cfg.model.cls_head.num_classes = len(labels)
     model = init_recognizer(cfg, checkpoint, device=device)
 
-    example_home = 'example_videos/'
-    example_videos = [os.path.join(example_home, x) for x in os.listdir(example_home)]
+    data = dict(img_shape=None, modality='RGB', label=-1)
+    data['num_clips'] = 16
+    data['clip_len'] = 1
+    sample_length = data['num_clips'] * data['clip_len']
+    pipeline = Compose(test_pipeline)
+    frame_queue = deque(maxlen=sample_length)
+    result_queue = deque(maxlen=1)
+
+    demo = gr.Blocks()
+    with demo:
+        with gr.Row():
+            inp = gr.Webcam(source='webcam', streaming=True, type="numpy")
+            out = gr.Label(num_top_classes=5)
+        btn = gr.Button("Run")
+        btn.click(fn=get_frame, inputs=inp, outputs=out)
+        
+
     demo = gr.Interface(
-        fn=main,
-        inputs=[gr.Video(source='upload')],  # or webcam
+        fn=get_frame,
+        inputs=[gr.Image(source='webcam', streaming=True,
+                         type="numpy")],
         outputs="label",
-        examples=example_videos,
+        # examples=example_videos,
         title="MMAction2 webcam demo",
         description="Input a video file. Output the recognition result.",
-        live=False,
-        allow_flagging=False,
+        live=True,
+        allow_flagging='never',
     )
-
     demo.launch()
+
+    # example_home = 'example_videos/'
+    # example_videos = [os.path.join(example_home, x)
+    #                   for x in os.listdir(example_home)]
 
     # video = 'example_videos/2jpteC44QKg.mp4'
     # main(video)

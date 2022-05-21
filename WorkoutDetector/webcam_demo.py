@@ -73,10 +73,7 @@ def parse_args():
 
 
 def show_results():
-    print('Press "Esc", "q" or "Q" to exit')
-
     print('Start showing results')
-    count = 0
     text_info = {}
     cur_time = time.time()
     while True:
@@ -111,7 +108,7 @@ def show_results():
         # cv2.imshow('camera', frame)
         # save to flv
         output_video.write(frame)
-        count += 1
+        
         ch = cv2.waitKey(1)
 
         if ch == 27 or ch == ord('q') or ch == ord('Q'):
