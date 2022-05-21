@@ -3,32 +3,33 @@ import "./App.css";
 import { io } from "socket.io-client";
 import Webcam from "react-webcam";
 import React from "react";
+import {
+  Button,
+  Grid,
+  ButtonGroup,
+  Box,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  Table,
+  Typography,
+  createTheme,
+  useTheme,
+  ThemeProvider,
+} from "@mui/material";
+
+import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
+import VideocamOutlinedIcon from "@mui/icons-material/VideocamOutlined";
+
+const ColorModeContext = React.createContext({ toggleColorMode: () => {} });
+const darkTheme = createTheme({
+  palette: {
+    mode: "dark",
+  },
+});
 
 const socket = new WebSocket("ws://localhost:8000/ws") as WebSocket;
-
-socket.onmessage = (msg) => {
-  console.log(msg.data);
-  showResult(msg.data);
-};
-
-const showResult = (data: string) => {
-  // Display confidene
-  const result = JSON.parse(data);
-  let div = document.getElementById("result") as HTMLDivElement;
-  div.innerHTML = "";
-  for (const [key, value] of Object.entries(result)) {
-    div.innerHTML += `${key}: ${value}<br>`;
-  }
-
-};
-
-async function fetchPrediction(data: FormData | null) {
-  const response = await fetch("http://localhost:8000/video", {
-    method: "POST",
-    body: data,
-  });
-  return response.json();
-}
 
 const WebcamStreamCapture = () => {
   const webcamRef = useRef(null) as React.MutableRefObject<any>;
@@ -62,6 +63,7 @@ const WebcamStreamCapture = () => {
   const handleStopCaptureClick = useCallback(() => {
     mediaRecorderRef.current.stop();
     setCapturing(false);
+    sendVideo();
   }, [mediaRecorderRef, webcamRef, setCapturing]);
 
   const handleDownload = useCallback(() => {
@@ -88,7 +90,11 @@ const WebcamStreamCapture = () => {
       });
       const formData = new FormData();
       formData.append("video", blob);
-      fetchPrediction(formData)
+      fetch("http://localhost:8000/video", {
+        method: "POST",
+        body: formData,
+      })
+        .then((response) => response.json())
         .then((res) => {
           console.log(res);
           console.log("Prediction success");
@@ -113,58 +119,186 @@ const WebcamStreamCapture = () => {
       window.clearInterval(intervalid);
     }
   };
-  const handleStream = () => {
-    if (streaming) {
-      const image = webcamRef.current.getScreenshot();
-      fetch("http://localhost:8000/image", {
-        headers: {
-          "Content-Type": "application/json",
-        },
-        method: "POST",
-        body: JSON.stringify({ image: image }),
-      })
-        .then((response) => response.json())
-        .then((result) => {
-          console.log("Success:", result);
-        })
-        .catch((error) => {
-          console.error("Error:", error);
-        });
-    }
-  };
-
-  useEffect(() => {
-    handleStream();
-  }, [recordedChunks]);
 
   return (
     <Fragment>
-      <Webcam audio={false} ref={webcamRef} />
-      {streaming ? (
-        <button onClick={handleStopStream}>Stop Streaming</button>
-      ) : (
-        <button onClick={handleStartStream}>Start Streaming</button>
-      )}
-      {capturing ? (
-        <button onClick={handleStopCaptureClick}>Stop Capture</button>
-      ) : (
-        <button onClick={handleStartCaptureClick}>Start Capture</button>
-      )}
-      {recordedChunks.length > 0 && (
-        <button onClick={sendVideo}>Send video</button>
-      )}
+      <meta name="viewport" content="initial-scale=1, width=device-width" />
+      <Grid
+        container
+        spacing={2}
+        columns={{ xs: 4, md: 12 }}
+        direction="column"
+        justifyContent="center"
+        alignItems="center"
+      >
+        <Grid item xs={4} sm={6}>
+          <Webcam audio={false} ref={webcamRef} />
+        </Grid>
+        <ButtonGroup variant="outlined">
+          {streaming ? (
+            <Button variant="outlined" onClick={handleStopStream}>
+              <PlayCircleOutlineIcon />
+              Stop Stream
+            </Button>
+          ) : (
+            <Button variant="outlined" onClick={handleStartStream}>
+              <PlayCircleOutlineIcon />
+              Start Stream
+            </Button>
+          )}
+
+          {capturing ? (
+            <Button variant="outlined" onClick={handleStopCaptureClick}>
+              <VideocamOutlinedIcon />
+              Stop Capture
+            </Button>
+          ) : (
+            <Button variant="outlined" onClick={handleStartCaptureClick}>
+              <VideocamOutlinedIcon />
+              Start Capture
+            </Button>
+          )}
+        </ButtonGroup>
+      </Grid>
     </Fragment>
   );
 };
 
 const App = () => {
-  return (
-    <div>
-      <WebcamStreamCapture />
-      <div id="result">
+  let theme = useTheme() as any;
+  const colorMode = React.useContext(ColorModeContext);
+  const dummy = {
+    mountain_climber: 0,
+    lunge: 0,
+    exercising_arm: 0,
+    front_raise: 0,
+    squat: 0,
+    push_up: 0,
+    jumping_jack: 0,
+    pull_up: 0,
+    situp: 0,
+    bench_pressing: 0,
+    battle_rope: 0,
+  };
+  const [result, setResult] = useState(dummy);
 
-      </div>
-    </div>
+  socket.onmessage = (msg) => {
+    console.log(msg.data);
+    setResult(JSON.parse(msg.data));
+  };
+
+  theme = createTheme({
+    typography: {
+      htmlFontSize: 15,
+      h3: {
+        fontSize: "1.5rem",
+        "@media (min-width:600px)": {
+          fontSize: "2rem",
+        },
+      },
+      h4: {
+        fontSize: "1.2rem",
+        "@media (min-width:600px)": {
+          fontSize: "1.5rem",
+        },
+      },
+      body1: {
+        fontSize: "1rem",
+        "@media (min-width:600px)": {
+          fontSize: "1.2rem",
+        },
+      },
+      fontFamily: [
+        "-apple-system",
+        "BlinkMacSystemFont",
+        "Roboto",
+        '"Helvetica Neue"',
+        '"Segoe UI"',
+        "Arial",
+        "sans-serif",
+        '"Apple Color Emoji"',
+        '"Segoe UI Emoji"',
+        '"Segoe UI Symbol"',
+      ].join(","),
+    },
+    palette: {
+      primary: {
+        light: "#757ce8",
+        main: "#673ab7",
+        dark: "#002884",
+        contrastText: "#fff",
+      },
+      secondary: {
+        light: "#ff7961",
+        main: "#2979ff",
+        dark: "#ba000d",
+        contrastText: "#000",
+      },
+    },
+    components: {
+      MuiTypography: {
+        defaultProps: {
+          variantMapping: {
+            h1: "h3",
+            h2: "h3",
+            h3: "h3",
+            h4: "h4",
+            h5: "h5",
+            h6: "h6",
+            subtitle1: "h2",
+            subtitle2: "h2",
+            body1: "span",
+            body2: "span",
+          },
+        },
+      },
+    },
+  });
+
+  return (
+    <>
+      <ThemeProvider theme={theme}>
+        <Box alignContent="center" margin={2}>
+          <Typography variant="h3" component="h1">
+            Workout Detector
+          </Typography>
+          <Typography variant="h4" component="h2">
+            Click "start streaming" to show real time inference results. Click
+            "start capture" to record a video and get results of that video.
+          </Typography>
+        </Box>
+        <Grid
+          container
+          spacing={2}
+          columns={{ xs: 4, md: 12 }}
+          direction="row"
+          justifyContent="center"
+          alignItems="center"
+        >
+          <Grid item xs={4} md={7}>
+            <WebcamStreamCapture />
+          </Grid>
+          <Grid item xs={4} md={3} alignItems="center" sx={{ maxWidth: 300 }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell align="center">Workout</TableCell>
+                  <TableCell align="center">Confidence</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {Object.entries(result).map(([k, v]) => (
+                  <TableRow key={k}>
+                    <TableCell align="center">{k}</TableCell>
+                    <TableCell align="center">{v.toFixed(3)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Grid>
+        </Grid>
+      </ThemeProvider>
+    </>
   );
 };
 
