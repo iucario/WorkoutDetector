@@ -5,7 +5,8 @@ This project uses the [MMAction2](https://github.com/open-mmlab/mmaction2)
 - [x] Clean and process datasets
 - [x] Action recognition
 - [ ] Train on more datasets
-- [ ] Action detection
+- [x] Action detection
+- [ ] Use pose estimation
 - [ ] Repetition counting
 - [ ] Action accessment
 

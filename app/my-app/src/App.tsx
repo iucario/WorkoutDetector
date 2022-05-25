@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback, Fragment } from "react";
 import "./App.css";
-import { io } from "socket.io-client";
 import Webcam from "react-webcam";
 import React from "react";
 import {
@@ -22,14 +21,7 @@ import {
 import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
 import VideocamOutlinedIcon from "@mui/icons-material/VideocamOutlined";
 
-const ColorModeContext = React.createContext({ toggleColorMode: () => {} });
-const darkTheme = createTheme({
-  palette: {
-    mode: "dark",
-  },
-});
-
-const socket = new WebSocket("ws://localhost:8000/ws") as WebSocket;
+const socket = new WebSocket("ws://"+ window.location.hostname + ":8000/ws") as WebSocket;
 
 const WebcamStreamCapture = () => {
   const webcamRef = useRef(null) as React.MutableRefObject<any>;
@@ -66,23 +58,6 @@ const WebcamStreamCapture = () => {
     sendVideo();
   }, [mediaRecorderRef, webcamRef, setCapturing]);
 
-  const handleDownload = useCallback(() => {
-    if (recordedChunks.length) {
-      const blob = new Blob(recordedChunks, {
-        type: "video/webm",
-      });
-      const url = URL.createObjectURL(blob);
-      let a = document.createElement("a");
-      document.body.appendChild(a);
-      // a.style = "display: none";
-      a.href = url;
-      a.download = "react-webcam-stream-capture.webm";
-      a.click();
-      window.URL.revokeObjectURL(url);
-      setRecordedChunks([]);
-    }
-  }, [recordedChunks]);
-
   const sendVideo = () => {
     if (recordedChunks.length) {
       const blob = new Blob(recordedChunks, {
@@ -90,7 +65,8 @@ const WebcamStreamCapture = () => {
       });
       const formData = new FormData();
       formData.append("video", blob);
-      fetch("http://localhost:8000/video", {
+      const url = "http://" + window.location.hostname + ":8000/video";
+      fetch(url, {
         method: "POST",
         body: formData,
       })
@@ -166,7 +142,6 @@ const WebcamStreamCapture = () => {
 
 const App = () => {
   let theme = useTheme() as any;
-  const colorMode = React.useContext(ColorModeContext);
   const dummy = {
     mountain_climber: 0,
     lunge: 0,
