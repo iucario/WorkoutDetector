@@ -45,8 +45,6 @@ labels = [
 # model = init_recognizer(cfg, checkpoint, device=device)
 
 sample_length = 16
-frame_queue = deque(maxlen=sample_length)
-result_queue = deque(maxlen=1)
 
 data = dict(img_shape=None, modality='RGB', label=-1)
 data['num_clips'] = 16
@@ -61,7 +59,7 @@ def onnx_inference(inputs: Tensor) -> List[float]:
     """Inference with ONNX Runtime.
     Args: inputs: Tensor, shape=(1, 16, 3, 224, 224)
     """
-    print('onnx_inference', 'inputs', inputs.shape)
+    # print('onnx_inference', 'inputs', inputs.shape)
     onnx.checker.check_model(onnx_model)
     # get onnx output
     input_all = [node.name for node in onnx_model.graph.input]
@@ -80,7 +78,7 @@ def onnx_inference(inputs: Tensor) -> List[float]:
     for i, r in onnx_scores:
         label = labels[i]
         onnx_text[label] = float(r)
-    print(onnx_text)
+    # print(onnx_text)
     return onnx_text
 
 
@@ -112,17 +110,19 @@ async def real_time_inference(frame_queue, result_queue):
     result_queue.append(onnx_scores)
 
 
-async def get_frame(frame: Tensor):
+async def get_frame(frame: Tensor, frame_queue, result_queue):
     """Insert new frame to the queue and return result.
     frame: numpy array, HWC
     Returns: result of inference"""
+
     frame_queue.append(frame)
 
     if len(frame_queue) == sample_length:
         await real_time_inference(frame_queue, result_queue)
     if result_queue:
-        return result_queue.popleft()
-    return {'no result': 1}
+        ret = result_queue.popleft()
+        return {'success': True, 'data': ret}
+    return {'success': False, 'msg': 'No result'}
 
 
 def sample_frames(data, num):
@@ -152,7 +152,7 @@ def inference_video(video):
     capture = cv2.VideoCapture(video)
     if not capture.isOpened():
         print('Could not open video')
-        return None
+        return {'success': False, 'msg': 'Could not open video'}
 
     width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -181,7 +181,7 @@ def inference_video(video):
     #     scores = list(enumerate(srs))
     onnx_scores = onnx_inference(torch.unsqueeze(cur_data['imgs'], 0))
 
-    return onnx_scores
+    return {'success': True, 'data': onnx_scores}
 
 
 if __name__ == '__main__':
