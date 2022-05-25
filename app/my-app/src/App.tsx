@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useCallback, Fragment } from "react";
-import "./App.css";
-import Webcam from "react-webcam";
-import React from "react";
+import { useState, useEffect, useRef, useCallback, Fragment } from 'react'
+import './App.css'
+import Webcam from 'react-webcam'
+import React from 'react'
+import {v4 as uuid } from 'uuid'
 import {
   Button,
   Grid,
@@ -16,89 +17,118 @@ import {
   createTheme,
   useTheme,
   ThemeProvider,
-} from "@mui/material";
+} from '@mui/material'
 
-import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
-import VideocamOutlinedIcon from "@mui/icons-material/VideocamOutlined";
+import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
+import VideocamOutlinedIcon from '@mui/icons-material/VideocamOutlined'
 
-const socket = new WebSocket("ws://"+ window.location.hostname + ":8000/ws") as WebSocket;
+const clientId = uuid()
+console.log(clientId)
+const socket = new WebSocket(
+  `ws://${window.location.hostname}:8000/ws/${clientId}`,
+) as WebSocket
 
-const WebcamStreamCapture = () => {
-  const webcamRef = useRef(null) as React.MutableRefObject<any>;
-  const mediaRecorderRef = useRef(null) as React.MutableRefObject<any>;
-  const [capturing, setCapturing] = useState(false);
-  const [streaming, setStreaming] = useState(false);
-  const [intervalid, setIntervalid] = useState(null);
-  const [recordedChunks, setRecordedChunks] = useState([]);
+const WebcamStreamCapture = ({ setResult }: any) => {
+  const webcamRef = useRef(null) as React.MutableRefObject<any>
+  const mediaRecorderRef = useRef(null) as React.MutableRefObject<any>
+  const [capturing, setCapturing] = useState(false)
+  const [streaming, setStreaming] = useState(false)
+  const [intervalid, setIntervalid] = useState(null)
+  const [recordedChunks, setRecordedChunks] = useState([])
+
+  const postVideo = (blob: Blob) => {
+    const formData = new FormData()
+    formData.append('video', blob)
+    const url = 'http://' + window.location.hostname + ':8000/video'
+    fetch(url, {
+      method: 'POST',
+      body: formData,
+    })
+      .then((response) => response.json())
+      .then((res) => {
+        console.log(res)
+        console.log('Prediction success')
+        setResult(res)
+      })
+      .catch((error) => {
+        console.log(error)
+        console.log('Failed to fetch')
+      })
+  }
 
   const handleStartCaptureClick = useCallback(() => {
-    setCapturing(true);
+    setCapturing(true)
     mediaRecorderRef.current = new MediaRecorder(webcamRef.current.stream, {
-      mimeType: "video/webm",
-    });
+      mimeType: 'video/webm',
+    })
     mediaRecorderRef.current.addEventListener(
-      "dataavailable",
+      'dataavailable',
       handleDataAvailable
-    );
-    mediaRecorderRef.current.start();
-  }, [webcamRef, setCapturing, mediaRecorderRef]);
+    )
+    mediaRecorderRef.current.start()
+  }, [webcamRef, setCapturing, mediaRecorderRef])
 
   const handleDataAvailable = useCallback(
     ({ data }: any) => {
       if (data.size > 0) {
-        setRecordedChunks((prev) => prev.concat(data));
+        setRecordedChunks((prev) => prev.concat(data))
       }
     },
     [setRecordedChunks]
-  );
+  )
 
   const handleStopCaptureClick = useCallback(() => {
-    mediaRecorderRef.current.stop();
-    setCapturing(false);
-    sendVideo();
-  }, [mediaRecorderRef, webcamRef, setCapturing]);
+    mediaRecorderRef.current.stop()
+    setCapturing(false)
+    sendVideo()
+  }, [mediaRecorderRef, webcamRef, setCapturing])
 
   const sendVideo = () => {
     if (recordedChunks.length) {
       const blob = new Blob(recordedChunks, {
-        type: "video/webm",
-      });
-      const formData = new FormData();
-      formData.append("video", blob);
-      const url = "http://" + window.location.hostname + ":8000/video";
-      fetch(url, {
-        method: "POST",
-        body: formData,
+        type: 'video/webm',
       })
-        .then((response) => response.json())
-        .then((res) => {
-          console.log(res);
-          console.log("Prediction success");
-        })
-        .catch((error) => {
-          console.log(error);
-          console.log("Failed to fetch");
-        });
+      postVideo(blob)
     }
-  };
+  }
   const sendImage = () => {
-    socket.send(webcamRef.current.getScreenshot());
-  };
+    socket.send(webcamRef.current.getScreenshot())
+  }
   const handleStartStream = () => {
-    setStreaming(true);
-    setIntervalid(window.setInterval(sendImage, 200) as any);
-  };
+    setStreaming(true)
+    setIntervalid(window.setInterval(sendImage, 200) as any)
+  }
 
   const handleStopStream = () => {
-    setStreaming(false);
+    setStreaming(false)
     if (intervalid) {
-      window.clearInterval(intervalid);
+      window.clearInterval(intervalid)
     }
-  };
+  }
+
+  const handleUploadVideoClick = () => {
+    const uploadVideo = document.getElementById(
+      'upload-video'
+    ) as HTMLInputElement
+    uploadVideo.click()
+  }
+
+  const handleUploadVideoChange = (e: any) => {
+    const file = e.target.files[0]
+    if (file != null) {
+      postVideo(file)
+    }
+  }
 
   return (
     <Fragment>
       <meta name="viewport" content="initial-scale=1, width=device-width" />
+      <input
+        id="upload-video"
+        type="file"
+        hidden
+        onChange={handleUploadVideoChange}
+      ></input>
       <Grid
         container
         spacing={2}
@@ -134,14 +164,17 @@ const WebcamStreamCapture = () => {
               Start Capture
             </Button>
           )}
+          <Button variant="outlined" onClick={handleUploadVideoClick}>
+            Upload Video
+          </Button>
         </ButtonGroup>
       </Grid>
     </Fragment>
-  );
-};
+  )
+}
 
 const App = () => {
-  let theme = useTheme() as any;
+  let theme = useTheme() as any
   const dummy = {
     mountain_climber: 0,
     lunge: 0,
@@ -154,81 +187,81 @@ const App = () => {
     situp: 0,
     bench_pressing: 0,
     battle_rope: 0,
-  };
-  const [result, setResult] = useState(dummy);
+  }
+  const [result, setResult] = useState(dummy)
 
   socket.onmessage = (msg) => {
-    console.log(msg.data);
-    setResult(JSON.parse(msg.data));
-  };
+    console.log(msg.data)
+    setResult(JSON.parse(msg.data))
+  }
 
   theme = createTheme({
     typography: {
       htmlFontSize: 15,
       h3: {
-        fontSize: "1.5rem",
-        "@media (min-width:600px)": {
-          fontSize: "2rem",
+        fontSize: '1.5rem',
+        '@media (min-width:600px)': {
+          fontSize: '2rem',
         },
       },
       h4: {
-        fontSize: "1.2rem",
-        "@media (min-width:600px)": {
-          fontSize: "1.5rem",
+        fontSize: '1.2rem',
+        '@media (min-width:600px)': {
+          fontSize: '1.5rem',
         },
       },
       body1: {
-        fontSize: "1rem",
-        "@media (min-width:600px)": {
-          fontSize: "1.2rem",
+        fontSize: '1rem',
+        '@media (min-width:600px)': {
+          fontSize: '1.2rem',
         },
       },
       fontFamily: [
-        "-apple-system",
-        "BlinkMacSystemFont",
-        "Roboto",
+        '-apple-system',
+        'BlinkMacSystemFont',
+        'Roboto',
         '"Helvetica Neue"',
         '"Segoe UI"',
-        "Arial",
-        "sans-serif",
+        'Arial',
+        'sans-serif',
         '"Apple Color Emoji"',
         '"Segoe UI Emoji"',
         '"Segoe UI Symbol"',
-      ].join(","),
+      ].join(','),
     },
     palette: {
       primary: {
-        light: "#757ce8",
-        main: "#673ab7",
-        dark: "#002884",
-        contrastText: "#fff",
+        light: '#757ce8',
+        main: '#673ab7',
+        dark: '#002884',
+        contrastText: '#fff',
       },
       secondary: {
-        light: "#ff7961",
-        main: "#2979ff",
-        dark: "#ba000d",
-        contrastText: "#000",
+        light: '#ff7961',
+        main: '#2979ff',
+        dark: '#ba000d',
+        contrastText: '#000',
       },
     },
     components: {
       MuiTypography: {
         defaultProps: {
           variantMapping: {
-            h1: "h3",
-            h2: "h3",
-            h3: "h3",
-            h4: "h4",
-            h5: "h5",
-            h6: "h6",
-            subtitle1: "h2",
-            subtitle2: "h2",
-            body1: "span",
-            body2: "span",
+            h1: 'h3',
+            h2: 'h3',
+            h3: 'h3',
+            h4: 'h4',
+            h5: 'h5',
+            h6: 'h6',
+            subtitle1: 'h2',
+            subtitle2: 'h2',
+            body1: 'span',
+            body2: 'span',
           },
         },
       },
     },
-  });
+  })
 
   return (
     <>
@@ -251,7 +284,7 @@ const App = () => {
           alignItems="center"
         >
           <Grid item xs={4} md={7}>
-            <WebcamStreamCapture />
+            <WebcamStreamCapture setResult={setResult} />
           </Grid>
           <Grid item xs={4} md={3} alignItems="center" sx={{ maxWidth: 300 }}>
             <Table size="small">
@@ -274,7 +307,7 @@ const App = () => {
         </Grid>
       </ThemeProvider>
     </>
-  );
-};
+  )
+}
 
-export default App;
+export default App
