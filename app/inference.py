@@ -52,8 +52,8 @@ data = dict(img_shape=None, modality='RGB', label=-1)
 data['num_clips'] = 16
 data['clip_len'] = 1
 
-onnx_ckpt = '/home/umi/projects/WorkoutDetector/checkpoints/'\
-    'tmp.onnx'
+onnx_ckpt = '../checkpoints/'\
+    'tsm_r50_1x1x16_50e_sthv2_20220521.onnx'
 onnx_model = onnx.load(onnx_ckpt)
 
 
