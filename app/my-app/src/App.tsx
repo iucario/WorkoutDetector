@@ -22,10 +22,10 @@ import {
 import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
 import VideocamOutlinedIcon from "@mui/icons-material/VideocamOutlined";
 
-const clientId = uuid();
+const clientId = uuid().substring(0, 8);
 console.log(clientId);
 const socket = new WebSocket(
-  `ws://172.25.175.113:8000/ws/${clientId}`
+  `ws://localhost:8000/ws/${clientId}`
 ) as WebSocket;
 
 const WebcamStreamCapture = ({ setResult }: any) => {
@@ -33,13 +33,13 @@ const WebcamStreamCapture = ({ setResult }: any) => {
   const mediaRecorderRef = useRef(null) as any;
   const [capturing, setCapturing] = useState(false);
   const [streaming, setStreaming] = useState(false);
-  const [intervalid, setIntervalid] = useState(null);
+  const [intervalId, setIntervalId] = useState(null);
   const [recordedChunks, setRecordedChunks] = useState([]);
 
   const postVideo = (blob: Blob) => {
     const formData = new FormData();
     formData.append("video", blob);
-    const url = "http://" + "172.25.175.113" + ":8000/video";
+    const url = "http://localhost:8000/video";
     fetch(url, {
       method: "POST",
       body: formData,
@@ -82,34 +82,31 @@ const WebcamStreamCapture = ({ setResult }: any) => {
   const handleStopCaptureClick = useCallback(() => {
     mediaRecorderRef.current.stop();
     setCapturing(false);
-    sendVideo();
   }, [mediaRecorderRef, webcamRef, setCapturing]);
 
-  const sendVideo = () => {
-    console.log("Sending video", recordedChunks);
+  useEffect(() => {
     if (recordedChunks.length) {
-      // const blob = new Blob(recordedChunks[0], {
-      //   type: 'video/webm',
-      // })
-      const blob = recordedChunks[recordedChunks.length - 1];
-      console.log(blob);
+      const blob = new Blob(recordedChunks, {
+        type: 'video/webm',
+      })
       postVideo(blob);
+      setRecordedChunks([]);
     }
-  };
+  }, [recordedChunks]);
   const sendImage = () => {
     socket.send(webcamRef.current.getScreenshot());
   };
   const handleStartStream = () => {
     setStreaming(true);
     socket.send("start");
-    setIntervalid(window.setInterval(sendImage, 200) as any);
+    setIntervalId(window.setInterval(sendImage, 200) as any);
   };
 
   const handleStopStream = () => {
     setStreaming(false);
     socket.send("stop");
-    if (intervalid) {
-      window.clearInterval(intervalid);
+    if (intervalId) {
+      window.clearInterval(intervalId);
     }
   };
 
@@ -126,7 +123,7 @@ const WebcamStreamCapture = ({ setResult }: any) => {
       postVideo(file);
     }
   };
-
+  const videoConstraints ={height: 720};
   return (
     <Fragment>
       <meta name="viewport" content="initial-scale=1, width=device-width" />
@@ -145,7 +142,7 @@ const WebcamStreamCapture = ({ setResult }: any) => {
         alignItems="center"
       >
         <Grid item xs={4} sm={6}>
-          <Webcam audio={false} ref={webcamRef} />
+          <Webcam audio={false} ref={webcamRef} videoConstraints={videoConstraints} />
         </Grid>
         <ButtonGroup variant="outlined">
           {streaming ? (
@@ -202,7 +199,6 @@ const App = () => {
     const json = JSON.parse(msg.data);
     if (json.success) {
       setResult(json.data);
-      console.log(result);
     }
   };
 

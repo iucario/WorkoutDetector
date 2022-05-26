@@ -46,6 +46,8 @@ class ConnectionManager:
 
         # ws: [state, frame_queue, result_queue]
         self.active_connections: Dict(WebSocket) = {}
+        self.num_recv = 0
+        self.num_pred = 0
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -81,9 +83,11 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                 manager.active_connections[websocket][0] = False
                 manager.active_connections[websocket][1].clear()
                 manager.active_connections[websocket][2].clear()
+                print(f"Client {client_id} stopped.\nTotal recv {manager.num_recv}, pred {manager.num_pred}")
+                manager.num_recv = 0
+                manager.num_pred = 0
                 await manager.send_personal_message(
                     json.dumps({'success': False, 'msg': 'Stopped'}), websocket)
-                print(f"Client {client_id} stopped")
             elif recv == 'start':
                 manager.active_connections[websocket][0] = True
                 print(f"Client {client_id} started")
@@ -91,11 +95,13 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                 if manager.active_connections[websocket][0] and recv.startswith(
                         'data:image/webp;base64,'):
                     recv = recv.split(',')[1]  # base64
+                    manager.num_recv += 1
                     img = b64decode(recv)
                     image = np.array(Image.open(io.BytesIO(img)))
                     pred = await get_frame(image, manager.active_connections[websocket][1],
                                            manager.active_connections[websocket][2])
-                    print(pred)
+                    manager.num_pred += 1
+                    # print(pred)
                     await manager.send_personal_message(json.dumps(pred), websocket)
 
     except WebSocketDisconnect:
