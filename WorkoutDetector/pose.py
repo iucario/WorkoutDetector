@@ -7,29 +7,17 @@ import decord
 import mmcv
 import numpy as np
 from tqdm import tqdm
-
+import mmdet
+from mmdet.apis import inference_detector, init_detector
+import mmpose
+from mmpose.apis import inference_top_down_pose_model, init_pose_model
 import warnings
 warnings.filterwarnings("ignore")
 
-try:
-    import mmdet
-    from mmdet.apis import inference_detector, init_detector
-except (ImportError, ModuleNotFoundError):
-    raise ImportError('Failed to import `inference_detector` and '
-                      '`init_detector` form `mmdet.apis`. These apis are '
-                      'required in this script! ')
-
-try:
-    import mmpose
-    from mmpose.apis import inference_top_down_pose_model, init_pose_model
-except (ImportError, ModuleNotFoundError):
-    raise ImportError('Failed to import `inference_top_down_pose_model` and '
-                      '`init_pose_model` form `mmpose.apis`. These apis are '
-                      'required in this script! ')
 
 default_mmdet_root = '/home/umi/projects/mmdetection'
 default_mmpose_root = '/home/umi/projects/mmpose'
-default_tmpdir = './tmp'
+default_tmpdir = '/home/umi/projects/WorkoutDetector/tmp'
 
 default_det_config = (
     f'{default_mmdet_root}/configs/faster_rcnn/'
@@ -105,7 +93,7 @@ def process_detection(det_results, threshold=0.5):
     return det_results
 
 
-def inference_one_video(filepath, det_model, pose_model, tmpdir=None):
+def inference_one_video(filepath, det_model, pose_model):
     if not os.path.exists(filepath):
         print(f'{filepath} does not exist. Skip.')
         return None
@@ -118,10 +106,16 @@ def inference_one_video(filepath, det_model, pose_model, tmpdir=None):
     # * Extract pose
     pose_results = pose_inference(pose_model, frames, det_results)
     # * Save to pickle
-    if tmpdir:
-        out_path = osp.join(tmpdir, osp.basename(filepath)+'.pkl')
-        mmcv.dump(pose_results, out_path)
-    return pose_results
+    shape = frames[0].shape[:2]
+    anno = dict(
+        img_shape=shape,
+        total_frames=len(frames),
+        num_person=pose_results.shape[0],
+        keypoint=pose_results[..., :2].astype(np.float16),
+        keypoint_score=pose_results[..., 2].astype(np.float16),
+    )
+    
+    return anno
 
 
 def main():
@@ -136,13 +130,13 @@ def main():
         det_model = init_detector(det_config, det_ckpt, 'cuda')
         assert det_model.CLASSES[0] == 'person', 'A detector trained on COCO is required'
         pose_model = init_pose_model(pose_config, pose_ckpt, 'cuda')
-        pose_results = inference_one_video(
+        anno = inference_one_video(
             args.input, det_model, pose_model, args.tmpdir)
+        print(anno)
 
     else:
         assert osp.exists(args.video_list), f'{args.video_list} not exists'
         assert osp.exists(args.base_dir), f'{args.base_dir} not exists'
-        assert osp.exists(args.out), f'{args.out} not exists'
         os.makedirs(args.tmpdir, exist_ok=True)
 
         # Read video list
@@ -154,21 +148,20 @@ def main():
             video_list = [osp.join(args.base_dir, x) for x in video_list]
         elif len(video_list[0]) == 2:
             labels = [x[1] for x in video_list]
+        
 
         det_model = init_detector(det_config, det_ckpt, 'cuda')
         assert det_model.CLASSES[0] == 'person', 'A detector trained on COCO is required'
         pose_model = init_pose_model(pose_config, pose_ckpt, 'cuda')
 
         # Inference
-        for idx, filename in enumerate(tqdm(video_list)):
-            if len(labels) > 0:
-                label = labels[idx]
-            else:
-                label = filename
-            pose_results = inference_one_video(
-                filename, det_model, pose_model, args.tmpdir)
-
-    print(pose_results)
+        for idx, line in enumerate(tqdm(video_list)):
+            filepath = osp.join(args.base_dir, line[0])
+            anno = inference_one_video(filepath, det_model, pose_model)
+            if args.tmpdir:
+                out_path = osp.join(args.tmpdir, osp.basename(filepath)+'.pkl')
+                mmcv.dump(anno, out_path)
+            
 
 
 if __name__ == '__main__':

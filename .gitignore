@@ -6,6 +6,7 @@ work_dirs
 !example_videos/*
 tmp/
 poses/
+exp/
 out/
 detectron2_out/
 
