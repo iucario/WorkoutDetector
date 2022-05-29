@@ -1,3 +1,5 @@
+import asyncio
+from fastapi import WebSocket
 import onnx
 import onnxruntime
 
@@ -46,20 +48,17 @@ labels = [
 
 sample_length = 16
 
-data = dict(img_shape=None, modality='RGB', label=-1)
-data['num_clips'] = 16
-data['clip_len'] = 1
-
 onnx_ckpt = '../checkpoints/'\
     'tsm_r50_1x1x16_50e_sthv2_20220521.onnx'
 onnx_model = onnx.load(onnx_ckpt)
+onnx_sess = onnxruntime.InferenceSession(onnx_ckpt)
 
 
 def onnx_inference(inputs: Tensor) -> List[float]:
     """Inference with ONNX Runtime.
     Args: inputs: Tensor, shape=(1, 16, 3, 224, 224)
     """
-    # print('onnx_inference', 'inputs', inputs.shape)
+    print('onnx_inference', 'inputs', inputs.shape)
     onnx.checker.check_model(onnx_model)
     # get onnx output
     input_all = [node.name for node in onnx_model.graph.input]
@@ -68,8 +67,8 @@ def onnx_inference(inputs: Tensor) -> List[float]:
     ]
     net_feed_input = list(set(input_all) - set(input_initializer))
     assert len(net_feed_input) == 1
-    sess = onnxruntime.InferenceSession(onnx_ckpt)
-    onnx_scores = sess.run(
+
+    onnx_scores = onnx_sess.run(
         None, {net_feed_input[0]: inputs.cpu().detach().numpy()})[0]
     # print(onnx_scores[0])
     onnx_scores = list(enumerate(onnx_scores[0]))
@@ -82,11 +81,13 @@ def onnx_inference(inputs: Tensor) -> List[float]:
     return onnx_text
 
 
-def dummy(image):
-    return time.time()
+async def dummy(image):
+    print('func dummy', image.shape)
+    time.sleep(1)
+    return {'dummy': 1}
 
 
-async def real_time_inference(frame_queue, result_queue):
+async def real_time_inference(data, frame_queue):
     """Real-time inference"""
 
     cur_windows = []
@@ -107,22 +108,34 @@ async def real_time_inference(frame_queue, result_queue):
     #     scores = model(return_loss=False, **cur_data)[0]
     #     scores = list(enumerate(scores))
     onnx_scores = onnx_inference(torch.unsqueeze(cur_data['imgs'], 0))
-    result_queue.append(onnx_scores)
+    return onnx_scores
 
 
-async def get_frame(frame: Tensor, frame_queue, result_queue):
+async def get_frame(websocket: WebSocket, queue: asyncio.Queue):
     """Insert new frame to the queue and return result.
     frame: numpy array, HWC
     Returns: result of inference"""
 
-    frame_queue.append(frame)
-
-    if len(frame_queue) == sample_length:
-        await real_time_inference(frame_queue, result_queue)
-    if result_queue:
-        ret = result_queue.popleft()
-        return {'success': True, 'data': ret}
-    return {'success': False, 'msg': 'No result'}
+    frame_queue = []
+    data = dict(img_shape=None, modality='RGB', label=-1)
+    data['num_clips'] = 16
+    data['clip_len'] = 1
+    while True:
+        frame = await queue.get()
+        frame_queue.append(frame)
+        if len(frame_queue) == sample_length:
+            if data['img_shape'] is None:
+                data['img_shape'] = frame_queue[0].shape[:2]
+                print(f'img_shape: {data["img_shape"]}')
+            cur_data = data.copy()
+            cur_data['imgs'] = list(np.array(frame_queue))
+            cur_data = pipeline(cur_data)
+            res = onnx_inference(torch.unsqueeze(cur_data['imgs'], 0))
+            # res = await dummy(cur_data['imgs'])
+            if res:
+                print(res)
+                await websocket.send_json({'success': True, 'data': res})
+            frame_queue.clear()
 
 
 def sample_frames(data, num):

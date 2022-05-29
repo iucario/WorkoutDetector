@@ -3,6 +3,7 @@ import asyncio
 from collections import deque
 import json
 import os
+from time import sleep
 from typing import Dict, List, Set
 import numpy as np
 
@@ -69,44 +70,54 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+class Stop(Exception):
+    pass
+
+
+async def detect(websocket: WebSocket, queue: asyncio.Queue):
+    que = []
+    while True:
+        data = await queue.get()
+        que.append(data)
+        if len(que) == sample_length:
+            sleep(1)
+            que.clear()
+            await websocket.send_text('ok')
+
+
+async def receive(websocket: WebSocket, queue: asyncio.Queue):
+    recv = await websocket.receive_text()
+    if recv.startswith('data:image/webp;base64,'):
+        recv = recv.split(',')[1]  # base64
+        manager.num_recv += 1
+        img = b64decode(recv)
+        image = np.array(Image.open(io.BytesIO(img)))
+        print(f'got {image.shape} from client')
+        await queue.put(image)
+        manager.num_pred += 1
+        # print(pred)
+        # await manager.send_personal_message(json.dumps(pred), websocket)
+    if recv == 'stop':
+        raise Stop()
+
+
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
     await manager.connect(websocket)
     print(f"Client {client_id} connected")
+    queue = asyncio.Queue(maxsize=16)
+    detect_task = asyncio.create_task(get_frame(websocket, queue))
+    # detect_task = asyncio.create_task(detect(websocket, queue))
     try:
         while True:
-            recv = await websocket.receive_text()  # Fix: blocking
-            if recv == 'close':
-                await websocket.close()
-                break
-            elif recv == 'stop':
-                manager.active_connections[websocket][0] = False
-                manager.active_connections[websocket][1].clear()
-                manager.active_connections[websocket][2].clear()
-                print(f"Client {client_id} stopped.\nTotal recv {manager.num_recv}, pred {manager.num_pred}")
-                manager.num_recv = 0
-                manager.num_pred = 0
-                await manager.send_personal_message(
-                    json.dumps({'success': False, 'msg': 'Stopped'}), websocket)
-            elif recv == 'start':
-                manager.active_connections[websocket][0] = True
-                print(f"Client {client_id} started")
-            else:
-                if manager.active_connections[websocket][0] and recv.startswith(
-                        'data:image/webp;base64,'):
-                    recv = recv.split(',')[1]  # base64
-                    manager.num_recv += 1
-                    img = b64decode(recv)
-                    image = np.array(Image.open(io.BytesIO(img)))
-                    pred = await get_frame(image, manager.active_connections[websocket][1],
-                                           manager.active_connections[websocket][2])
-                    manager.num_pred += 1
-                    # print(pred)
-                    await manager.send_personal_message(json.dumps(pred), websocket)
+            await receive(websocket, queue)
+    except Stop:
+        print('stopping')
+        detect_task.cancel()
 
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
-        print(f'{websocket} disconnected')
+        detect_task.cancel()
+        await manager.disconnect(websocket)
 
 
 @app.post("/image")

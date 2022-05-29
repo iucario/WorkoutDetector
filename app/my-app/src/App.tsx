@@ -23,7 +23,6 @@ import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
 import VideocamOutlinedIcon from "@mui/icons-material/VideocamOutlined";
 
 const clientId = uuid().substring(0, 8);
-console.log(clientId);
 const socket = new WebSocket(
   `ws://localhost:8000/ws/${clientId}`
 ) as WebSocket;
@@ -99,6 +98,13 @@ const WebcamStreamCapture = ({ setResult }: any) => {
   const handleStartStream = () => {
     setStreaming(true);
     socket.send("start");
+    socket.onmessage = (msg) => {
+      console.log(msg.data);
+      const json = JSON.parse(msg.data);
+      if (json.success) {
+        setResult(json.data);
+      }
+    };
     setIntervalId(window.setInterval(sendImage, 200) as any);
   };
 
@@ -194,13 +200,7 @@ const App = () => {
   };
   const [result, setResult] = useState(dummy);
 
-  socket.onmessage = (msg) => {
-    console.log(msg.data);
-    const json = JSON.parse(msg.data);
-    if (json.success) {
-      setResult(json.data);
-    }
-  };
+  
 
   theme = createTheme({
     typography: {
