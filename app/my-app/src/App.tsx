@@ -105,7 +105,7 @@ const WebcamStreamCapture = ({ setResult }: any) => {
         setResult(json.data);
       }
     };
-    setIntervalId(window.setInterval(sendImage, 200) as any);
+    setIntervalId(window.setInterval(sendImage, 100) as any);
   };
 
   const handleStopStream = () => {

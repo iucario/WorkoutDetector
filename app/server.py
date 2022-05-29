@@ -92,7 +92,7 @@ async def receive(websocket: WebSocket, queue: asyncio.Queue):
         manager.num_recv += 1
         img = b64decode(recv)
         image = np.array(Image.open(io.BytesIO(img)))
-        print(f'got {image.shape} from client')
+        # print(f'got {image.shape} from client')
         await queue.put(image)
         manager.num_pred += 1
         # print(pred)

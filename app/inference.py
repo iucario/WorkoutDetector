@@ -58,7 +58,7 @@ def onnx_inference(inputs: Tensor) -> List[float]:
     """Inference with ONNX Runtime.
     Args: inputs: Tensor, shape=(1, 16, 3, 224, 224)
     """
-    print('onnx_inference', 'inputs', inputs.shape)
+    # print('onnx_inference', 'inputs', inputs.shape)
     onnx.checker.check_model(onnx_model)
     # get onnx output
     input_all = [node.name for node in onnx_model.graph.input]
@@ -87,30 +87,6 @@ async def dummy(image):
     return {'dummy': 1}
 
 
-async def real_time_inference(data, frame_queue):
-    """Real-time inference"""
-
-    cur_windows = []
-    if len(cur_windows) == 0:
-        if len(frame_queue) == sample_length:
-            if data['img_shape'] is None:
-                data['img_shape'] = frame_queue[0].shape[:2]
-                print(f'img_shape: {data["img_shape"]}')
-            cur_windows = list(np.array(frame_queue))
-
-    cur_data = data.copy()
-    cur_data['imgs'] = cur_windows
-    cur_data = pipeline(cur_data)
-    # cur_data = collate([cur_data], samples_per_gpu=1)
-    # if next(model.parameters()).is_cuda:
-    #     cur_data = scatter(cur_data, [device])[0]
-    # with torch.no_grad():
-    #     scores = model(return_loss=False, **cur_data)[0]
-    #     scores = list(enumerate(scores))
-    onnx_scores = onnx_inference(torch.unsqueeze(cur_data['imgs'], 0))
-    return onnx_scores
-
-
 async def get_frame(websocket: WebSocket, queue: asyncio.Queue):
     """Insert new frame to the queue and return result.
     frame: numpy array, HWC
@@ -126,14 +102,14 @@ async def get_frame(websocket: WebSocket, queue: asyncio.Queue):
         if len(frame_queue) == sample_length:
             if data['img_shape'] is None:
                 data['img_shape'] = frame_queue[0].shape[:2]
-                print(f'img_shape: {data["img_shape"]}')
+                # print(f'img_shape: {data["img_shape"]}')
             cur_data = data.copy()
             cur_data['imgs'] = list(np.array(frame_queue))
             cur_data = pipeline(cur_data)
             res = onnx_inference(torch.unsqueeze(cur_data['imgs'], 0))
             # res = await dummy(cur_data['imgs'])
             if res:
-                print(res)
+                # print(res)
                 await websocket.send_json({'success': True, 'data': res})
             frame_queue.clear()
 
