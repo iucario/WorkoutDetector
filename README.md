@@ -9,6 +9,7 @@ This project uses the [MMAction2](https://github.com/open-mmlab/mmaction2)
 - [ ] Use pose estimation
 - [ ] Repetition counting
 - [ ] Action accessment
+- [ ] Replace Openmmlab's code
 
 
 ## Installation
@@ -27,6 +28,18 @@ cd mmaction2
 pip install -e .
 pip install -r requirements/optional.txt
 ```
+
+## React demo
+
+1. Download onnx model. [OneDrive](https://1drv.ms/u/s!AiohV3HRf-34i_VY0jVJGvLeayIdjQ?e=XqAvLa)
+2. `cd app && uvicorn server:app --port 8000`
+3. open http://localhost:8000/
+
+![demo](images/demo.gif)
+
+Kown issue: After stopping streaming, WebSocket will disconnect. You need to refresh to restart streaming.
+
+Going to fix the frontend React code.
 
 ## Run Gradio demo
 

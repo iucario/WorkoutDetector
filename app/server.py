@@ -19,10 +19,10 @@ from base64 import b64decode
 
 from inference import inference_video, get_frame
 
-sample_length = 16
+sample_length = 8
 app = FastAPI()
 origins = [
-    "*",
+    "http://localhost",
 ]
 
 app.add_middleware(
@@ -32,14 +32,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-app.mount("/static", StaticFiles(directory="my-app/build/static"), name="static")
-
-
-@app.get("/")
-@app.get("/index")
-async def read_root():
-    return FileResponse(path="my-app/build/index.html", media_type="text/html")
 
 
 class ConnectionManager:
@@ -74,17 +66,6 @@ class Stop(Exception):
     pass
 
 
-async def detect(websocket: WebSocket, queue: asyncio.Queue):
-    que = []
-    while True:
-        data = await queue.get()
-        que.append(data)
-        if len(que) == sample_length:
-            sleep(1)
-            que.clear()
-            await websocket.send_text('ok')
-
-
 async def receive(websocket: WebSocket, queue: asyncio.Queue):
     recv = await websocket.receive_text()
     if recv.startswith('data:image/webp;base64,'):
@@ -107,16 +88,15 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     print(f"Client {client_id} connected")
     queue = asyncio.Queue(maxsize=16)
     detect_task = asyncio.create_task(get_frame(websocket, queue))
-    # detect_task = asyncio.create_task(detect(websocket, queue))
     try:
         while True:
             await receive(websocket, queue)
     except Stop:
         print('stopping')
         detect_task.cancel()
-
     except WebSocketDisconnect:
         detect_task.cancel()
+    finally:
         await manager.disconnect(websocket)
 
 
@@ -136,9 +116,4 @@ async def read_video(video: bytes = File(...)):
     return pred
 
 
-# example_home = 'example_videos/'
-# example_videos = [os.path.join(example_home, x)
-#                   for x in os.listdir(example_home)]
-
-# video = 'example_videos/2jpteC44QKg.mp4'
-# main(video)
+app.mount("/", StaticFiles(directory="my-app/build", html=True), name="static")

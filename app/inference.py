@@ -33,23 +33,20 @@ test_pipeline = [
 ]
 pipeline = Compose(test_pipeline)
 device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-home = '~/projects/WorkoutDetector/mmaction2/'
+home = '../mmaction2/'
 config = os.path.join(
     home, 'configs/recognition/tsm/tsm_my_config.py')
-checkpoint = '~/projects/WorkoutDetector/checkpoints/'\
-    'tsm_r50_1x1x16_50e_sthv2_20220521.pth'
+checkpoint = '../checkpoints/tsm_r50_1x1x8_50e_sthv2_rgb_20220522.pth'
+sample_length = 8
 
 cfg = Config.fromfile(config)
 labels = [
     'front_raise', 'pull_up', 'squat', 'bench_pressing', 'jumping_jack',
     'situp', 'push_up', 'battle_rope', 'exercising_arm', 'lunge',
     'mountain_climber', ]
-# model = init_recognizer(cfg, checkpoint, device=device)
 
-sample_length = 16
 
-onnx_ckpt = '../checkpoints/'\
-    'tsm_r50_1x1x16_50e_sthv2_20220521.onnx'
+onnx_ckpt = '../checkpoints/tsm_1x1x8_sthv2_20220522.onnx'
 onnx_model = onnx.load(onnx_ckpt)
 onnx_sess = onnxruntime.InferenceSession(onnx_ckpt)
 
