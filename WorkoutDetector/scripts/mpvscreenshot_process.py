@@ -1,7 +1,10 @@
 import os
 import csv
 import argparse
-from config import BASEDIR
+import yaml
+
+config = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), '../config.yml')))
+BASEDIR = config.proj_root
 
 test = {
     'mpv-3VcKaXpzqRo.mp4-00_00_35.png': '3VcKaXpzqRo_00_00_35.png',

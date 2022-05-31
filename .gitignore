@@ -1,10 +1,13 @@
-checkpoints/*
+checkpoints
+work_dirs
 .jupyter_checkpoints
 .DS_Store
 *.mp4
+!images/*
 !example_videos/*
 tmp/
 poses/
+exp/
 out/
 detectron2_out/
 

@@ -10,7 +10,7 @@ import torch.nn as nn
 import torchvision
 import torchvision.transforms as T
 import torch.optim as optim
-from torchvision import datasets, models
+from torchvision import models
 from torchvision.io import read_image
 from torch.utils.data import DataLoader, Dataset
 
