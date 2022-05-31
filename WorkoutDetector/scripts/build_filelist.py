@@ -1,17 +1,25 @@
-train = '/home/umi/projects/WorkoutDetector/data/Countix/rawframes/train.txt'
-val = '/home/umi/projects/WorkoutDetector/data/Countix/rawframes/val.txt'
-
+import pandas as pd
+import yaml
 import os
-base = '/home/umi/projects/WorkoutDetector/'
+
+
+config = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), '../config.yml')))
+base = config.proj_root
+
+train = os.path.join(base, 'data/Countix/rawframes/train.txt')
+val = os.path.join('data/Countix/rawframes/val.txt')
+
+
 traindir = os.path.join(base, 'data/Workouts/rawframes/Countix/train')
 valdir = os.path.join(base, 'data/Workouts/rawframes/Countix/val')
 
-import pandas as pd
 
-traindf = pd.read_csv('/home/umi/projects/WorkoutDetector/datasets/Countix/workouts_train.csv')
-valdf = pd.read_csv('/home/umi/projects/WorkoutDetector/datasets/Countix/workouts_val.csv')
+traindf = pd.read_csv(
+    os.path.join(base, 'datasets/Countix/workouts_train.csv'))
+valdf = pd.read_csv(
+    os.path.join(base, 'datasets/Countix/workouts_val.csv'))
 classes = []
-with open('/home/umi/projects/WorkoutDetector/datasets/Countix/classes.txt') as f:
+with open(os.path.join(base, 'datasets/Countix/classes.txt')) as f:
     classes = [line.rstrip() for line in f]
 
 with open(train, 'w') as f:

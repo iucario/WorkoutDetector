@@ -1,7 +1,12 @@
 import os
+import yaml
+
+
+config = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), '../config.yml')))
+base = config.proj_root
 
 repcount_class = []
-base = os.path.join(os.path.expanduser("~"), 'projects', 'WorkoutDetector')
+
 with open(os.path.join(base, 'datasets/RepCount/classes.txt')) as f:
     for line in f:
         repcount_class.append(line.strip())
@@ -20,7 +25,7 @@ with open(os.path.join(base, 'datasets/haa500/classes.txt')) as f:
 classes = [
     'front_raise', 'pull_up', 'squat', 'bench_pressing', 'jumping_jack',
     'situp', 'push_up', 'battle_rope', 'exercising_arm', 'lunge',
-    'mountain_climber', 'shoulder_press', ]
+    'mountain_climber' ]
 
 repcount_to = ['front_raise', 'pull_up', 'squat', 'bench_pressing',
                'jumping_jack', 'situp', 'push_up', 'battle_rope']

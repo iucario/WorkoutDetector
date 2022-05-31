@@ -29,10 +29,11 @@ classes = [
     'front_raise', 'pull_up', 'squat', 'bench_pressing', 'jumping_jack',
     'situp', 'push_up', 'battle_rope', 'exercising_arm', 'lunge',
     'mountain_climber']
-
-config = '/home/umi/projects/WorkoutDetector/mmaction2/configs/recognition/tsm/tsm_my_config.py'
-checkpoint = '/home/umi/projects/WorkoutDetector/checkpoints/'\
-    'tsm_r50_256h_1x1x16_50e_sthv2_rgb_20220517_best_top1_acc_epoch_58.pth'
+BASE_DIR = '/home/umi/projects/WorkoutDetector/'
+config = osp.join(BASE_DIR, 'mmaction2/configs/recognition/tsm/tsm_my_config.py')
+checkpoint = 'https://download.openmmlab.com/mmaction/recognition/'\
+    'tsm/tsm_r50_1x1x16_50e_sthv2_rgb/'\
+    'tsm_r50_256h_1x1x16_50e_sthv2_rgb_20210331-0a45549c.pth'
 
 cfg = Config.fromfile(config)
 
@@ -98,6 +99,8 @@ model = build_model(cfg.model, train_cfg=cfg.get(
 
 # Create work_dir
 mmcv.mkdir_or_exist(osp.abspath(cfg.work_dir))
+
+## train model
 train_model(model, datasets, cfg, distributed=False, validate=True)
 
 
