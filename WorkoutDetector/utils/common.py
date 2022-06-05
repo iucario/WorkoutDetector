@@ -8,6 +8,12 @@ import numpy as np
 import yaml
 import sklearn.metrics.pairwise
 import seaborn as sns
+import torch
+from torch import Tensor, nn
+import torchvision
+import torchvision.transforms as T
+from torchvision.models.feature_extraction import create_feature_extractor
+
 
 # sys.path.append(osp.join(osp.dirname(__file__), '..'))
 from utils.visualize import Vis2DPose
@@ -61,9 +67,46 @@ def plot_pose_heatmap(item):
     plt.plot('heatmap.png')
 
 
-def plot_cnn_heatmap(item):
-    """CNN heatmap"""
-    pass
+def cnn_feature(model, img: Tensor, device='cuda') -> Tensor:
+    """CNN feature extractor"""
+    data_transforms = {
+        'val': T.Compose([
+            T.Resize(256),
+            T.CenterCrop(224),
+            T.ToTensor(),
+            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ]),
+    }
+    fx = create_feature_extractor(model, return_nodes={'flatten': 'flatten'})
+    img = data_transforms['val'](img)
+    img = img.unsqueeze(0)
+    img = img.to(device)
+    fx = fx(img)
+    return fx['flatten'].detach().cpu().numpy()
+
+
+def video_feature(model, video_path, device='cuda'):
+    """Video feature extractor"""
+    vid = torchvision.io.VideoReader(video_path)
+    num_frame = vid['video']['duration'] * vid['video']['fps']
+    feat = torch.zeros((num_frame, 2048))
+    for i in range(num_frame):
+        img = vid.read()[0]
+        feat[i] = cnn_feature(model, img, device)
+    return feat
+
+
+def plot_cnn_heatmap(feats: torch.Tensor, count=0, reps=None):
+    sim = sklearn.metrics.pairwise.pairwise_distances(feats, metric='euclidean')
+    # row-wise softmax. Repnet did this.
+    # maxes = np.tile(np.max(sim, axis=1),(sim.shape[0], 1))
+    # sim = np.exp(sim-maxes)/(np.sum(np.exp(sim-maxes), axis=1, keepdims=True))
+    sns.heatmap(sim, cmap='viridis')
+    plt.title(f'CNN {count} reps')
+    if reps is not None:
+        plt.vlines(reps[::2], colors='r', ymin=0, ymax=len(sim), lw=0.5)
+        # plt.vlines(reps[1::2], colors='b', xmin=0, xmax=len(sim))
+    plt.show()
 
 
 def pose_info(item):
