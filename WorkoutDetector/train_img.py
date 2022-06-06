@@ -32,7 +32,7 @@ data_transforms = {
 class ImagenetTransferLearning(pl.LightningModule):
     def __init__(self):
         super().__init__()
-
+        self.example_input_array = torch.randn(1, 3, 224, 224)
         # init a pretrained resnet
         backbone = models.resnet18(pretrained=True)
         num_filters = backbone.fc.in_features
@@ -41,7 +41,6 @@ class ImagenetTransferLearning(pl.LightningModule):
         num_target_classes = 2
         self.classifier = nn.Linear(num_filters, num_target_classes)
         self.loss_module = nn.CrossEntropyLoss()
-
 
     def forward(self, x):
         self.feature_extractor.eval()
@@ -67,7 +66,7 @@ class ImagenetTransferLearning(pl.LightningModule):
         self.log("val_acc", acc, on_step=False, on_epoch=True)
         self.log('val_loss', loss, prog_bar=True)
         return loss
-    
+
     def test_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self.forward(x)
@@ -80,6 +79,19 @@ class ImagenetTransferLearning(pl.LightningModule):
     def configure_optimizers(self):
         return optim.Adam(self.parameters(), lr=0.001)
 
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        return self(batch)
+
+
+def train_model(model, train_loader, val_loader, test_loader, epochs=10):
+    trainer = pl.Trainer(limit_train_batches=100, max_epochs=epochs,
+                         default_root_dir='.', accelerator="gpu", devices=1)
+    trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader)
+    val_result = trainer.test(model, val_dataloaders=val_loader)
+    test_result = trainer.test(model, test_dataloaders=test_loader)
+    print(val_result)
+    print(test_result)
+
 
 if __name__ == '__main__':
     batch_size = 32
@@ -89,17 +101,14 @@ if __name__ == '__main__':
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
     val_set = ImageDataset(classname='squat', split='val',
                            transform=data_transforms['val'])
-    val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False)
     test_set = ImageDataset(classname='squat', split='test',
                             transform=data_transforms['val'])
-    test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False)
     print(len(train_set), len(val_set), len(test_set))
 
-    model = ImagenetTransferLearning()
-    trainer = pl.Trainer(limit_train_batches=100, max_epochs=10,
-                         default_root_dir='.', accelerator="gpu", devices=1)
-    trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader,)
-    val_result = trainer.test(val_dataloaders=val_loader)
-    test_result = trainer.test(test_dataloaders=test_loader)
-    print(val_result)
-    print(test_result)
+    model = ImagenetTransferLearning.load_from_checkpoint(
+        "lightning_logs/version_2/checkpoints/epoch=49-step=5000.ckpt")
+    model.eval()
+    onnx_path = 'lightning_logs/version_2/squat.onnx'
+    model.to_onnx(onnx_path, export_params=True)
