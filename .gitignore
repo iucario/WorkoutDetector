@@ -10,6 +10,7 @@ poses/
 exp/
 out/
 detectron2_out/
+lightning_logs/
 
 *.ipynb_checkpoints
 
