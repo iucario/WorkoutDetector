@@ -2,18 +2,19 @@ import random
 import sys
 import os
 import os.path as osp
+from typing import List
+import PIL
+import cv2
 from matplotlib import pyplot as plt
 import pandas as pd
 import numpy as np
 import yaml
-import sklearn.metrics.pairwise
+import sklearn.metrics.pairwise as pw
 import seaborn as sns
 import torch
 from torch import Tensor, nn
-import torchvision
 import torchvision.transforms as T
-from torchvision.models.feature_extraction import create_feature_extractor
-
+import timm
 
 # sys.path.append(osp.join(osp.dirname(__file__), '..'))
 from utils.visualize import Vis2DPose
@@ -59,7 +60,7 @@ def plot_pose_heatmap(item):
     num_frame = kp.shape[0]
     mat = np.zeros((num_frame, num_frame))
     feat = kp.reshape(num_frame, -1)
-    mat = sklearn.metrics.pairwise.pairwise_distances(feat, metric='cosine')
+    mat = pw.pairwise_distances(feat, metric='cosine')
     sns.heatmap(mat, cmap='viridis')
     plt.title(f"pose {item['frame_dir']} {item['count']} reps")
     if 'reps' in item:
@@ -67,45 +68,52 @@ def plot_pose_heatmap(item):
     plt.plot('heatmap.png')
 
 
-def cnn_feature(model, img: Tensor, device='cuda') -> Tensor:
-    """CNN feature extractor"""
-    data_transforms = {
-        'val': T.Compose([
-            T.Resize(256),
-            T.CenterCrop(224),
-            T.ToTensor(),
-            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ]),
-    }
-    fx = create_feature_extractor(model, return_nodes={'flatten': 'flatten'})
-    img = data_transforms['val'](img)
-    img = img.unsqueeze(0)
-    img = img.to(device)
-    fx = fx(img)
-    return fx['flatten'].detach().cpu().numpy()
+def cnn_feature(fx, imgs: List, device='cuda') -> Tensor:
+    """CNN feature extractor
+        img: list of PIL.Image
+        return: torch.Tensor of shape (num_img, feature_dim)"""
+    batch_size = 10
+    fx.to(device)
+    transforms = T.Compose([
+        T.ToTensor(),
+        T.Resize(224),
+        T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
+    imgs = [transforms(img) for img in imgs]
+    imgs = torch.stack(imgs)
+    imgs = imgs.to(device)
+    features = torch.zeros((len(imgs), 512))
+    with torch.no_grad():
+        for i in range(0, len(imgs), batch_size):
+            o = fx(imgs[i:i+batch_size])
+            features[i:i+batch_size] = o.cpu()
+    return features
 
 
-def video_feature(model, video_path, device='cuda'):
+def video_feature(timm_model, video_path):
     """Video feature extractor"""
-    vid = torchvision.io.VideoReader(video_path)
-    num_frame = vid['video']['duration'] * vid['video']['fps']
-    feat = torch.zeros((num_frame, 2048))
-    for i in range(num_frame):
-        img = vid.read()[0]
-        feat[i] = cnn_feature(model, img, device)
-    return feat
+    cap = cv2.VideoCapture(video_path)
+    ret, frame = cap.read()
+    frames = []
+    while ret:
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frames.append(PIL.Image.fromarray(frame))
+        ret, frame = cap.read()
+    if not frames:
+        return
+    fx = timm.create_model(timm_model, pretrained=True, num_classes=0)
+    return cnn_feature(fx, frames)
 
 
-def plot_cnn_heatmap(feats: torch.Tensor, count=0, reps=None):
-    sim = sklearn.metrics.pairwise.pairwise_distances(feats, metric='euclidean')
+def plot_sim(feats: Tensor, count=0, reps=None):
+    sim = pw.pairwise_distances(feats.numpy(), metric='euclidean')
     # row-wise softmax. Repnet did this.
     # maxes = np.tile(np.max(sim, axis=1),(sim.shape[0], 1))
     # sim = np.exp(sim-maxes)/(np.sum(np.exp(sim-maxes), axis=1, keepdims=True))
     sns.heatmap(sim, cmap='viridis')
     plt.title(f'CNN {count} reps')
     if reps is not None:
-        plt.vlines(reps[::2], colors='r', ymin=0, ymax=len(sim), lw=0.5)
-        # plt.vlines(reps[1::2], colors='b', xmin=0, xmax=len(sim))
+        plt.vlines(reps[0::2], colors='r', ymin=0, ymax=len(sim), lw=0.3)
+        plt.vlines(reps[1::2], colors='g', ymin=0, ymax=len(sim), lw=0.3)
     plt.show()
 
 
@@ -281,12 +289,6 @@ class Countix:
 
 
 if __name__ == '__main__':
-    repcount = Repcount()
-    # print(repcount)
-    # countix = Countix()
-    # item = countix.get_random_pose()
-    item = repcount.get_random_pose()
-    pose_info(item)
-    # plot_time_series(item)
-    # gen_gif(countix.get_video(item['frame_dir']), item)
-    plot_pose_heatmap(item)
+    v = '/home/umi/projects/WorkoutDetector/data/RepCount/videos/val/stu5_9.mp4'
+    model = 'resnet18'
+    feats = video_feature(model, v)
