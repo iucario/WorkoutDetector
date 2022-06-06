@@ -157,7 +157,8 @@ class Repcount:
     def get_count(self, name):
         """Input: name, without .mp4
         Returns: list of frames in order of [start_1, end_1, start_2, end_2, ...]"""
-        name = name+'.mp4'
+        if not name.endswith('.mp4'):
+            name = name+'.mp4'
         if name not in self.anno_all.name.unique():
             raise ValueError(f'Video {name} not found in annotation')
         isnum = self.anno_all[self.anno_all['name']
