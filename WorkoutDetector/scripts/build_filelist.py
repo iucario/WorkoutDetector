@@ -3,8 +3,8 @@ import yaml
 import os
 
 
-config = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), '../config.yml')))
-base = config.proj_root
+config = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), '../utils/config.yml')))
+base = config['proj_root']
 
 train = os.path.join(base, 'data/Countix/rawframes/train.txt')
 val = os.path.join('data/Countix/rawframes/val.txt')

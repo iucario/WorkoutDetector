@@ -4,7 +4,7 @@ import argparse
 import subprocess
 import yaml
 
-config = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), '../config.yml')))
+config = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), '../utils/config.yml')))
 
 
 def cut_video(label, vid, start_sec, end_sec, output_folder):

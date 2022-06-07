@@ -17,7 +17,7 @@ import torchvision.transforms as T
 import timm
 
 # sys.path.append(osp.join(osp.dirname(__file__), '..'))
-from utils.visualize import Vis2DPose
+from WorkoutDetector.utils.visualize import Vis2DPose
 
 config = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), 'config.yml')))
 

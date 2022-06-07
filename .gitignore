@@ -1,5 +1,6 @@
 checkpoints
-work_dirs
+work_dirs/
+wandb/
 .jupyter_checkpoints
 .DS_Store
 *.mp4
@@ -21,3 +22,5 @@ datasets/kinetics700_2020/*
 
 *.pyc
 *.code-workspace
+
+*.egg-info

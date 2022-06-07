@@ -1,4 +1,4 @@
-from utils.common import Repcount
+from WorkoutDetector.utils.common import Repcount
 import random
 import sys
 import os
@@ -37,10 +37,8 @@ class ImageDataset(torch.utils.data.Dataset):
                 mid = (start + end) // 2
                 images.append(f'{vid}/img_{start:05}.jpg')
                 images.append(f'{vid}/img_{mid:05}.jpg')
-                images.append(f'{vid}/img_{end:05}.jpg')
                 labels.append(0)
                 labels.append(1)
-                labels.append(0)
         self.images = images
         self.labels = labels
 
@@ -60,4 +58,4 @@ class ImageDataset(torch.utils.data.Dataset):
 if __name__ == '__main__':
     dataset = ImageDataset(classname='squat', split='train')
     print(len(dataset))
-    print(dataset[0])
+    print(dataset[0].shape)
