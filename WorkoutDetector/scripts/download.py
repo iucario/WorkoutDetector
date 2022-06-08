@@ -25,7 +25,9 @@ def download_repcount(csv_path, folder='~'):
     for i, row in df.iterrows():
         vid = row['vid']
         st = row['st']
-        url = f'https://www.youtube.com/watch?v={vid}&t={st}'
+        if vid == 'nan':
+            continue
+        url = f'https://www.youtube.com/watch?v={vid}'
         download_ytb(url, folder)
 
 if __name__ == '__main__':

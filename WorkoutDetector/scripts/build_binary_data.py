@@ -4,32 +4,36 @@ import shutil
 import yaml
 import tqdm
 
-
-config = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), '../utils/config.yml')))
+config = yaml.safe_load(
+    open(os.path.join(os.path.dirname(__file__), '../utils/config.yml')))
 base = config['proj_root']
 
 class_name = 'squat'
 
 repcount = Repcount()
 
+
 def build_split(classname, split='train'):
     """Copy images to binary classification directory.
-    
-    |- data/Binary/squat
-        |- train
-            |- vid_1_start-frame
-               |- img_00001.jpg
-               |- img_00002.jpg
-        |- val
-           |- vid_2_start-frame
 
-    start - mid: 0, mid - end: 1"""
+    Example:
+        |- data/Binary/squat
+            |- train
+                |- vid_1_start-frame
+                |- img_00001.jpg
+                |- img_00002.jpg
+            |- val
+            |- vid_2_start-frame
+
+        start - mid: 0, mid - end: 1
+    """
+
     dst_data_dir = os.path.join(base, f'data/Binary/{classname}')
     df = repcount.get_anno(split)
     df = df[df['type'] == classname]
     data_root = os.path.join(repcount.data_root, 'rawframes', split)
     vids = df['name'].values
-    
+
     # for vid in tqdm(vids):
     #     vid = vid.split('.')[0]
     #     count, reps = repcount.get_count(vid)

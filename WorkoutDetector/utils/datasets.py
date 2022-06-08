@@ -15,14 +15,24 @@ from torchvision.io import read_image
 import torchvision.transforms as T
 import einops
 
-
 config = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), 'config.yml')))
 
-CLASSES = ['front_raise', 'pull_up', 'squat', 'bench_pressing', 'jumping_jack', 'situp',
-           'push_up', 'battle_rope', 'exercising_arm', 'lunge', 'mountain_climber']
+CLASSES = [
+    'front_raise', 'pull_up', 'squat', 'bench_pressing', 'jumping_jack', 'situp',
+    'push_up', 'battle_rope', 'exercising_arm', 'lunge', 'mountain_climber'
+]
 
 
 class ImageDataset(torch.utils.data.Dataset):
+    """Binary class image dataset from Repcount dataset. Start state is 0, mid state is 1.
+    Number of 2*counts images are returned for each video.
+
+    Args:
+        classname: str, action class name.
+        split: str, train or val or test.
+        transform: torchvision.transforms.Compose, transform to apply to image.
+    """
+
     def __init__(self, classname='squat', split='train', transform=None):
         self.classname = classname
         self.transform = transform
@@ -79,22 +89,26 @@ def sample_frames(total: int, num: int, offset=0):
         rand = np.random.randint(0, interval)
         if i == num - 1:
             upper = total
-            rand = np.random.randint(0, upper-x)
+            rand = np.random.randint(0, upper - x)
         else:
-            upper = min(interval*(i+1), total)
+            upper = min(interval * (i + 1), total)
         indices[i] = (x + rand) % upper
     assert len(indices) == num, f'len(indices)={len(indices)}'
     for i in range(1, len(indices)):
-        assert indices[i] > indices[i-1], f'indices[{i}]={indices[i]}'
-    return [data[i]+offset for i in indices]
+        assert indices[i] > indices[i - 1], f'indices[{i}]={indices[i]}'
+    return [data[i] + offset for i in indices]
 
 
 class SuperImageDataset(torch.utils.data.Dataset):
-    """
+    """Rearrange the images to make a super image.
     Fan, Q. and Panda, R. 2022. CAN AN IMAGE CLASSIFIER SUFFICE FOR ACTION RECOGNITION?
     https://openreview.net/pdf?id=qhkFX-HLuHV
 
-    Rearrange the images to make a super image.
+    Args:
+        classname: str, action class name.
+        split: str, train or val or test.
+        num_image: int, number of images in a super image.
+        transform: torchvision.transforms.Compose, transform to apply to image.
     """
 
     def __init__(self, classname='squat', split='train', num_image=9, transform=None):
@@ -114,8 +128,8 @@ class SuperImageDataset(torch.utils.data.Dataset):
                 start += 1
                 end += 1
                 mid = (start + end) // 2
-                samples_start = sample_frames(mid-start, num_image, start)
-                samples_end = sample_frames(end-mid, num_image, mid)
+                samples_start = sample_frames(mid - start, num_image, start)
+                samples_end = sample_frames(end - mid, num_image, mid)
                 # concat 9 image into 1 super image
                 imgs_start = []
                 for i in samples_start:
@@ -138,11 +152,15 @@ class SuperImageDataset(torch.utils.data.Dataset):
             images = [self.transform(img) for img in images]
         super_image = torch.stack(images, dim=1)
         if self.num_image == 9:
-            super_image = einops.rearrange(
-                super_image, 'c (sh sw) h w -> c (sh h) (sw w)', sh=3, sw=3)
+            super_image = einops.rearrange(super_image,
+                                           'c (sh sw) h w -> c (sh h) (sw w)',
+                                           sh=3,
+                                           sw=3)
         elif self.num_image == 4:
-            super_image = einops.rearrange(
-                super_image, 'c (sh sw) h w -> c (sh h) (sw w)', sh=2, sw=2)
+            super_image = einops.rearrange(super_image,
+                                           'c (sh sw) h w -> c (sh h) (sw w)',
+                                           sh=2,
+                                           sw=2)
         else:
             raise ValueError(f'num_image={self.num_image}. Only support 4 or 9')
         super_image = T.Resize((224, 224))(super_image)
@@ -153,8 +171,10 @@ class SuperImageDataset(torch.utils.data.Dataset):
 
 
 if __name__ == '__main__':
-    dataset = SuperImageDataset(classname='squat', split='train',
-                                num_image=9, transform=None)
+    dataset = SuperImageDataset(classname='squat',
+                                split='train',
+                                num_image=9,
+                                transform=None)
     print(len(dataset))
     plt.imshow(dataset[np.random.randint(len(dataset))][0].permute(1, 2, 0))
     plt.show()
