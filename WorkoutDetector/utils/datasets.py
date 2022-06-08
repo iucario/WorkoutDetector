@@ -12,6 +12,7 @@ import torch
 from matplotlib import pyplot as plt
 from torch import Tensor, nn
 from torchvision.io import read_image
+import torchvision.transforms as T
 import einops
 
 
@@ -134,7 +135,7 @@ class SuperImageDataset(torch.utils.data.Dataset):
         images = [read_image(img) for img in self.images[index]]
         label = self.labels[index]
         if self.transform:
-            images = self.transform(images)
+            images = [self.transform(img) for img in images]
         super_image = torch.stack(images, dim=1)
         if self.num_image == 9:
             super_image = einops.rearrange(
@@ -143,8 +144,8 @@ class SuperImageDataset(torch.utils.data.Dataset):
             super_image = einops.rearrange(
                 super_image, 'c (sh sw) h w -> c (sh h) (sw w)', sh=2, sw=2)
         else:
-            super_image = einops.rearrange(
-                super_image, 'c (sh sw) h w -> c (sh h) (sw w)', sh=1, sw=len(images))
+            raise ValueError(f'num_image={self.num_image}. Only support 4 or 9')
+        super_image = T.Resize((224, 224))(super_image)
         return super_image, label
 
     def __len__(self):

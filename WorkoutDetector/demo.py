@@ -10,6 +10,10 @@ import torch
 from mmcv import Config
 from torch import Tensor
 from mmaction.datasets.pipelines import Compose
+from mmaction.apis import init_recognizer
+from mmcv.parallel import collate, scatter
+
+import tempfile
 
 import gradio as gr
 import warnings
@@ -54,10 +58,16 @@ onnx_ckpt = os.path.join(home, 'checkpoints/tsm_1x1x8_sthv2_20220522.onnx')
 onnx_model = onnx.load(onnx_ckpt)
 onnx_sess = onnxruntime.InferenceSession(onnx_ckpt)
 
+torch_ckpt = os.path.join(
+    home,
+    'WorkoutDetector/work_dirs/tsm_8_binary_squat_20220607_1956/best_top1_acc_epoch_16.pth')
+cfg.model.cls_head.num_classes = 2
+torch_model = init_recognizer(cfg, torch_ckpt, device=device)
+
 
 def onnx_inference(inputs: Tensor) -> List[float]:
     """Inference with ONNX Runtime.
-    Args: inputs: Tensor, shape=(1, 16, 3, 224, 224)
+    Args: inputs: Tensor, shape=(1, 8, 3, 224, 224)
     """
     # print('onnx_inference', 'inputs', inputs.shape)
     onnx.checker.check_model(onnx_model)
@@ -104,7 +114,25 @@ def sample_frames(data, num):
     return ret
 
 
-def inference_video(video):
+def torch_inference(cur_data, labels: List[str] = ['down', 'up']) -> dict:
+    """Inference with PyTorch.
+    Args: cur_data: Tensor, shape=(1, 8, 3, 224, 224)
+    """
+    cur_data = collate([cur_data], samples_per_gpu=1)
+    if next(torch_model.parameters()).is_cuda:
+        cur_data = scatter(cur_data, [device])[0]
+    with torch.no_grad():
+        scores = torch_model(return_loss=False, **cur_data)[0]
+    scores = list(enumerate(scores))
+    scores.sort(key=lambda x: x[1], reverse=True)
+    text = OrderedDict()
+    for i, r in scores:
+        label = labels[i]
+        text[label] = float(r)
+    return text
+
+
+def inference_video(video, single_class=True):
     print('Video:', video)
     capture = cv2.VideoCapture(video)
     if not capture.isOpened():
@@ -125,57 +153,96 @@ def inference_video(video):
     video_data = dict(img_shape=(height, width), modality='RGB',
                       label=-1, start_index=0, total_frames=len(frames))
     frames = np.array(frames)
-    video_data['imgs'] = sample_frames(frames, sample_length)
-    print(video_data['imgs'].shape)  # (16, W, H, 3)
     pipeline = Compose(test_pipeline)
-    cur_data = pipeline(video_data)  # (16, 3, 224, 224)
-    print(cur_data['imgs'].shape)
-    onnx_scores = onnx_inference(torch.unsqueeze(cur_data['imgs'], 0))
+    if single_class:
+        video_data['imgs'] = sample_frames(frames, sample_length)
+        print(video_data['imgs'].shape)  # (8, W, H, 3)
+        cur_data = pipeline(video_data)  # (8, 3, 224, 224)
+        print(cur_data['imgs'].shape)
+        scores = onnx_inference(torch.unsqueeze(cur_data['imgs'], 0))
 
-    return {'success': True, 'data': onnx_scores}
+    else:
+        scores = []
+        for i in range(len(frames)-sample_length*2):
+            video_data['imgs'] = frames[i:i+2*sample_length:2]  # step=2
+            cur_data = pipeline(video_data)
+            score = torch_inference(cur_data)
+            scores += [score]*2
+
+    return {'success': True, 'data': scores}
 
 
-def main(inputs):
-    print('Inputs:', inputs)
-    if not inputs:
+def create_video(video, scores: List[OrderedDict]):
+    vcap = cv2.VideoCapture(video)
+    width = vcap.get(cv2.CAP_PROP_FRAME_WIDTH)
+    height = vcap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    fps = vcap.get(cv2.CAP_PROP_FPS)
+    tmpfile = os.path.join(home, 'exp', video.split('/')[-1].split('.')[0] + '.webm')
+    output_video = cv2.VideoWriter(
+        tmpfile, cv2.VideoWriter_fourcc(*'vp80'), fps, (int(width), int(height)))
+
+    for i, score in enumerate(scores):
+        ret, frame = vcap.read()
+        if not ret:
+            break
+        label = list(score.keys())[0]
+        if label == 'down':
+            color = (0, 0, 255)
+        elif label == 'up':
+            color = (0, 255, 0)
+        else:
+            color = (255, 0, 0)
+        cv2.putText(frame, f'{label}: {score[label]}', (int(width*0.2), int(height*0.2)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+        output_video.write(frame)
+    vcap.release()
+    output_video.release()
+    return tmpfile
+
+
+def main(video, mode):
+    print('video:', video)
+    if mode == 'single':
+        single_class = True
+    elif mode == 'multi':
+        single_class = False
+    if not video:
         print('No video input')
         return None
-    video = inputs
-    results = inference_video(video)
+    results = inference_video(video, single_class)
     if not results:
-        return None
+        return None, None
     if not results['success']:
-        return None
-    return results['data']
+        return None, None
+    if single_class:
+        return results['data'], None
+    output_video = create_video(video, results['data'])
+    print('output_video:', output_video)
+    return None, output_video
 
 
 if __name__ == '__main__':
 
-    # demo = gr.Blocks()
-    # with demo:
-    #     with gr.Row():
-    #         inp = gr.Webcam(source='webcam', streaming=True, type="numpy")
-    #         out = gr.Label(num_top_classes=5)
-    #     btn = gr.Button("Run")
-    #     btn.click(fn=main, inputs=inp, outputs=out)
+    example_dir = os.path.join(home, 'example_videos')
+    example_videos = [os.path.join(example_dir, x)
+                      for x in os.listdir(example_dir)]
 
     demo = gr.Interface(
         fn=main,
         # inputs=[gr.Image(source='webcam', streaming=True,
         #                  type="numpy")],
-        inputs=[gr.Video(source='upload')],
-        outputs="label",
-        # examples=example_videos,
+        inputs=[
+            gr.Video(source='upload'),
+            gr.Radio(
+                label='Classes in the video', choices=['single', 'multi'],
+                value='single')],
+        outputs=["label", "video"],
+        examples=[[vid, 'single'] for vid in example_videos],
         title="MMAction2 webcam demo",
         description="Input a video file. Output the recognition result.",
-        live=True,
+        live=False,
         allow_flagging='never',
+
     )
+
     demo.launch()
-
-    # example_home = 'example_videos/'
-    # example_videos = [os.path.join(example_home, x)
-    #                   for x in os.listdir(example_home)]
-
-    # video = 'example_videos/2jpteC44QKg.mp4'
-    # main(video)

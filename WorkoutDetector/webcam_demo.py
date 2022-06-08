@@ -184,9 +184,14 @@ def main():
         output_video, closed
 
     closed = False
-    output_video = cv2.VideoWriter(
-        'output.avi', cv2.VideoWriter_fourcc(*'FLV1'), 30, (640, 360))
     args = parse_args()
+    vid = args.camera_id.split('/')[-1].split('.')[0]
+    vcap = cv2.VideoCapture(args.camera_id)
+    width = vcap.get(cv2.CAP_PROP_FRAME_WIDTH )
+    height = vcap.get(cv2.CAP_PROP_FRAME_HEIGHT )
+    fps =  vcap.get(cv2.CAP_PROP_FPS)
+    output_video = cv2.VideoWriter(
+        f'output-{vid}.avi', cv2.VideoWriter_fourcc(*'FLV1'), fps, (int(width), int(height)))
     average_size = args.average_size
     threshold = args.threshold
     drawing_fps = args.drawing_fps
@@ -196,6 +201,9 @@ def main():
 
     cfg = Config.fromfile(args.config)
     cfg.merge_from_dict(args.cfg_options)
+    with open(args.label, 'r') as f:
+        label = [line.strip() for line in f]
+    cfg.model.cls_head.num_classes = len(label)
 
     model = init_recognizer(cfg, args.checkpoint, device=device)
     camera = cv2.VideoCapture(args.camera_id)
@@ -203,8 +211,7 @@ def main():
         raise IOError('Camera/video not found', args.camera_id)
     data = dict(img_shape=None, modality='RGB', label=-1)
 
-    with open(args.label, 'r') as f:
-        label = [line.strip() for line in f]
+    
 
     # prepare test pipeline from non-camera pipeline
     cfg = model.cfg

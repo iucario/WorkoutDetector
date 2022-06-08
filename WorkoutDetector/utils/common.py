@@ -171,7 +171,7 @@ class Repcount:
         """Input: name
         Returns: video_path"""
         video_dir = osp.join(self.data_root, 'videos')
-        name = name+'.mp4'
+        name = name+'.mp4' if not name.endswith('.mp4') else name
         split = self.anno_all[self.anno_all['name'] == name.strip()]['split'].values[0]
         video_path = osp.join(video_dir, f'{split}/{name}')
         return video_path
@@ -290,6 +290,10 @@ class Countix:
 
 
 if __name__ == '__main__':
-    v = '/home/umi/projects/WorkoutDetector/data/RepCount/videos/val/stu5_9.mp4'
-    model = 'resnet18'
-    feats = video_feature(model, v)
+    repcount = Repcount()
+    df  = repcount.get_anno('test')
+    df = df[df['type'] == 'squat']
+    names = df['name'].values
+    print(names)
+    for name in names:
+        print(repcount.get_video(name))
