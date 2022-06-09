@@ -15,7 +15,7 @@ def download_ytb(url, folder='~'):
         'quiet': True,
         'ignoreerrors': True,
         'remux-video': 'mp4',
-        'format': '136',  # 136 for mp4 1280x720 30fps no audio
+        'format': 'bv[height<=720]',  # 136 for mp4 1280x720 30fps no audio
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
@@ -25,9 +25,12 @@ def download_repcount(csv_path, folder='~'):
     for i, row in df.iterrows():
         vid = row['vid']
         st = row['st']
-        if vid == 'nan':
+        if pd.isna(vid):
             continue
         url = f'https://www.youtube.com/watch?v={vid}'
+        if os.path.exists(f'{folder}/{vid}.mp4'):
+            print('skip', vid)
+            continue
         download_ytb(url, folder)
 
 if __name__ == '__main__':

@@ -71,11 +71,16 @@ class ImageDataset(torch.utils.data.Dataset):
 
 
 def sample_frames(total: int, num: int, offset=0):
+    """Uniformly sample num frames from video
+    
+    Args:
+        total: int, total frames, 
+        num: int, number of frames to sample
+        offset: int, offset from start of video
+    Returns: 
+        list of frame indices starting from offset
     """
-    Uniformly sample num frames from video
-    Input: total frames, number of frames to sample
-    Returns: list of frame indices starting from offset
-    """
+
     if total < num:
         # repeat frames if total < num
         repeats = math.ceil(num / total)
@@ -171,10 +176,6 @@ class SuperImageDataset(torch.utils.data.Dataset):
 
 
 if __name__ == '__main__':
-    dataset = SuperImageDataset(classname='squat',
-                                split='train',
-                                num_image=9,
-                                transform=None)
+    dataset = ImageDataset('squat', 'train', transform=None)
     print(len(dataset))
-    plt.imshow(dataset[np.random.randint(len(dataset))][0].permute(1, 2, 0))
-    plt.show()
+    print(dataset.data_root)

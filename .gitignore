@@ -24,3 +24,4 @@ datasets/kinetics700_2020/*
 *.code-workspace
 
 *.egg-info
+.*
