@@ -71,7 +71,7 @@ class RepcountDataset(torch.utils.data.Dataset):
         self.transform = transform
 
     def __getitem__(self, index: int) -> tuple:
-        
+
         pass
 
     def __len__(self) -> int:
@@ -129,14 +129,20 @@ class RepcountImageDataset(RepcountDataset):
         if self.transform is not None:
             img = self.transform(img)
         return img, label
+    
+    def __len__(self) -> int:
+        return len(self.images)
 
 
 if __name__ == '__main__':
+    import matplotlib.pyplot as plt
     data_root = '/home/umi/projects/WorkoutDetector/data'
     # dataset = RepcountDataset(data_root, split='test')
-    imageset = RepcountImageDataset(data_root, action='squat', split='train')
+    imageset = RepcountImageDataset(data_root, action='squat', split='test')
     print(len(imageset))
-    random_idx = np.random.randint(0, len(imageset))
-    random_img, random_label = imageset[random_idx]
-    print(random_img.shape)
-    print(random_label)
+    print(imageset.classes)
+    random_index = np.random.randint(0, len(imageset))
+    img, label = imageset[random_index]
+    plt.imshow(img.permute(1, 2, 0))
+    print(label)
+    plt.show()
