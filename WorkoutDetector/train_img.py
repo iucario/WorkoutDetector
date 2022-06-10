@@ -1,4 +1,5 @@
 import argparse
+from typing import Tuple
 import cv2
 from WorkoutDetector.datasets import RepcountDataset, RepcountImageDataset
 import matplotlib.pyplot as plt
@@ -38,6 +39,39 @@ data_transforms = {
 }
 
 
+def get_data_loaders(action: str,
+                     batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
+    data_root = os.path.join(proj_root, 'data')
+    train_set = RepcountImageDataset(root=data_root,
+                                     action=action,
+                                     split='train',
+                                     transform=data_transforms['train'])
+    train_loader = DataLoader(train_set,
+                              batch_size=batch_size,
+                              shuffle=True,
+                              num_workers=4,
+                              pin_memory=True)
+    val_set = RepcountImageDataset(root=data_root,
+                                   action=action,
+                                   split='val',
+                                   transform=data_transforms['val'])
+    val_loader = DataLoader(val_set,
+                            batch_size=batch_size,
+                            shuffle=False,
+                            num_workers=4,
+                            pin_memory=True)
+    test_set = RepcountImageDataset(root=data_root,
+                                    action=action,
+                                    split='test',
+                                    transform=data_transforms['val'])
+    test_loader = DataLoader(test_set,
+                             batch_size=batch_size,
+                             shuffle=False,
+                             num_workers=4,
+                             pin_memory=True)
+    return train_loader, val_loader, test_loader
+
+
 class MyModel(nn.Module):
 
     def __init__(self, input_dim):
@@ -72,7 +106,7 @@ class LitImageModel(pl.LightningModule):
         # acc = (classes == y).float().mean()
         acc = (y_hat.argmax(dim=1) == y).float().mean()
         self.log("train/acc", acc, prog_bar=True, on_step=False, on_epoch=True)
-        self.log('train/loss', loss, prog_bar=True)
+        self.log('train/loss', loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -82,8 +116,8 @@ class LitImageModel(pl.LightningModule):
         # classes = (y_hat > 0.5).float()
         # acc = (classes == y).float().mean()
         acc = (y_hat.argmax(dim=1) == y).float().mean()
-        self.log("val/acc", acc, on_step=False, on_epoch=True)
-        self.log('val/loss', loss, prog_bar=True)
+        self.log("val/acc", acc, prog_bar=True, on_step=False, on_epoch=True)
+        self.log('val/loss', loss)
 
     def test_step(self, batch, batch_idx):
         x, y = batch
@@ -102,65 +136,14 @@ class LitImageModel(pl.LightningModule):
                               momentum=0.9,
                               weight_decay=0.0001)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer)
-        return [optimizer], [scheduler]
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": scheduler,
+            "monitor": "val/loss",
+        }
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         return self(batch)
-
-
-def main():
-    batch_size = 32
-    lr = 5e-4
-    epochs = 10
-    pl.seed_everything(0)
-
-    action = 'situp'
-    wandb_logger = pl.loggers.WandbLogger(project="binary-action-classification",
-                                          name=action)
-    backbone = 'mobilenetv3_small_050'
-    hparams = {
-        'accelerator': 'gpu',
-        'action': action,
-        'batch_size': batch_size,
-        'lr': lr,
-        'max-epochs': epochs
-    }
-    torch.backends.cudnn.determinstic = True
-    torch.backends.cudnn.benchmark = False
-    data_root = os.path.join(proj_root, 'data')
-    train_set = RepcountImageDataset(root=data_root,
-                                     action=action,
-                                     split='train',
-                                     transform=data_transforms['train'])
-    train_loader = DataLoader(train_set,
-                              batch_size=batch_size,
-                              shuffle=True,
-                              num_workers=4,
-                              pin_memory=True)
-    val_set = RepcountImageDataset(root=data_root,
-                                   action=action,
-                                   split='val',
-                                   transform=data_transforms['val'])
-    val_loader = DataLoader(val_set,
-                            batch_size=batch_size,
-                            shuffle=False,
-                            num_workers=4,
-                            pin_memory=True)
-    test_set = RepcountImageDataset(root=data_root,
-                                    action=action,
-                                    split='test',
-                                    transform=data_transforms['val'])
-    test_loader = DataLoader(test_set,
-                             batch_size=batch_size,
-                             shuffle=False,
-                             num_workers=4,
-                             pin_memory=True)
-    print(len(train_set), len(val_set), len(test_set))
-
-    model = LitImageModel(backbone, lr)
-    wandb_logger.watch(model, log="all")
-    trainer = pl.Trainer(hparams)
-    trainer.fit(model, train_loader, val_loader)
 
 
 def export_model(ckpt):
@@ -170,12 +153,79 @@ def export_model(ckpt):
     model.to_onnx(onnx_path, export_params=True)
 
 
+def main(args):
+    batch_size = args.batch_size
+    lr = args.lr
+    epochs = args.epochs
+    backbone = args.backbone
+    action = args.action
+
+    pl.seed_everything(0)
+    # callbacks
+    lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval='step')
+    early_stop = pl.callbacks.early_stopping.EarlyStopping(monitor='val/acc',
+                                                           mode='max',
+                                                           patience=10)
+    # loggers
+    wandb_logger = pl.loggers.WandbLogger(save_dir=os.path.join(proj_root, 'logs'),
+                                          project="binary-action-classification",
+                                          name=f'{action}-{backbone}')
+    wandb_logger.log_hyperparams(args)
+    tensorboard_logger = pl.loggers.TensorBoardLogger(save_dir=os.path.join(
+        proj_root, 'logs/tensorboard'),
+                                                      name=action,
+                                                      default_hp_metric=False)
+    tensorboard_logger.log_hyperparams(args,
+                                       metrics={
+                                           'train/acc': 0,
+                                           'val/acc': 0,
+                                           'test/acc': 0,
+                                           'train/loss': 1,
+                                           'val/loss': 1,
+                                           'test/loss': 1
+                                       })
+
+    torch.backends.cudnn.determinstic = True
+    torch.backends.cudnn.benchmark = False
+
+    model = LitImageModel(backbone, lr)
+    wandb_logger.watch(model, log="all")
+
+    trainer = pl.Trainer(
+        max_epochs=epochs,
+        accelerator='gpu',
+        devices=1,
+        logger=[tensorboard_logger, wandb_logger],
+        callbacks=[lr_monitor, early_stop],
+        auto_lr_find=True,
+    )
+    train_loader, val_loader, test_loader = get_data_loaders(action, batch_size)
+    # lr_finder = trainer.tuner.lr_find(model, train_loader, val_loader)
+    # new_lr = lr_finder.suggestion()
+    # model.hparams.learning_rate = new_lr
+    trainer.fit(model, train_loader, val_loader)
+    trainer.test(model, test_loader)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--train', action='store_true', help='train or export')
-    parser.add_argument('--ckpt', type=str, default=None, help='checkpoint to load')
+    parser.add_argument('-t', '--train', action='store_true', help='train or export')
+    parser.add_argument('-ck',
+                        '--ckpt',
+                        type=str,
+                        default=None,
+                        help='checkpoint to load')
+    parser.add_argument('-lr', '--lr', type=float, default=5e-3, help='learning rate')
+    parser.add_argument('-e', '--epochs', type=int, default=100, help='epochs')
+    parser.add_argument('-b',
+                        '--backbone',
+                        type=str,
+                        default='mobilenetv3_large_100',
+                        help='backbone')
+    parser.add_argument('-a', '--action', type=str, default='situp', help='action')
+    parser.add_argument('-bs', '--batch_size', type=int, default=16, help='batch size')
     args = parser.parse_args()
     if args.train:
-        main()
+        main(args)
     else:
         export_model(args.ckpt)

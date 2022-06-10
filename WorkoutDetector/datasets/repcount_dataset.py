@@ -108,6 +108,8 @@ class RepcountImageDataset(RepcountDataset):
         images = []
         labels = []
         for row in self.df.itertuples():
+            if row.count == 0:
+                continue
             name = row.name.split('.')[0]
             reps = list(map(int, row.reps.split()))
             for start, end in zip(reps[::2], reps[1::2]):
@@ -138,11 +140,11 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
     data_root = '/home/umi/projects/WorkoutDetector/data'
     # dataset = RepcountDataset(data_root, split='test')
-    imageset = RepcountImageDataset(data_root, action='squat', split='test')
+    imageset = RepcountImageDataset(data_root, action='bench_pressing', split='test')
     print(len(imageset))
     print(imageset.classes)
-    random_index = np.random.randint(0, len(imageset))
-    img, label = imageset[random_index]
-    plt.imshow(img.permute(1, 2, 0))
-    print(label)
-    plt.show()
+    # random_index = np.random.randint(0, len(imageset))
+    # img, label = imageset[random_index]
+    # plt.imshow(img.permute(1, 2, 0))
+    # print(label)
+    # plt.show()

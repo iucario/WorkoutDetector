@@ -12,6 +12,7 @@ exp/
 out/
 detectron2_out/
 lightning_logs/
+logs/
 
 *.ipynb_checkpoints
 
