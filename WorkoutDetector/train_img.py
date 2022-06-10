@@ -1,16 +1,12 @@
 import argparse
 from typing import Tuple
-import cv2
 from WorkoutDetector.datasets import RepcountDataset, RepcountImageDataset
-import matplotlib.pyplot as plt
 import torch
 from torch.utils.data import DataLoader
 import os
 from torch import optim, nn, utils, Tensor
 import pytorch_lightning as pl
-from torchvision import models
 import torchvision.transforms as T
-from pytorch_lightning.utilities.cli import LightningCLI
 import timm
 import yaml
 
@@ -167,12 +163,13 @@ def main(args):
                                                            mode='max',
                                                            patience=10)
     # loggers
-    wandb_logger = pl.loggers.WandbLogger(save_dir=os.path.join(proj_root, 'logs'),
+    wandb_logger = pl.loggers.WandbLogger(save_dir=os.path.join(
+        proj_root, 'lightning_logs'),
                                           project="binary-action-classification",
                                           name=f'{action}-{backbone}')
     wandb_logger.log_hyperparams(args)
     tensorboard_logger = pl.loggers.TensorBoardLogger(save_dir=os.path.join(
-        proj_root, 'logs/tensorboard'),
+        proj_root, 'lightning_logs/tensorboard'),
                                                       name=action,
                                                       default_hp_metric=False)
     tensorboard_logger.log_hyperparams(args,
@@ -192,6 +189,7 @@ def main(args):
     wandb_logger.watch(model, log="all")
 
     trainer = pl.Trainer(
+        default_root_dir=os.path.join(proj_root, 'lightning_logs'),
         max_epochs=epochs,
         accelerator='gpu',
         devices=1,

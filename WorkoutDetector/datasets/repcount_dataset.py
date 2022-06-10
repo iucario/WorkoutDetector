@@ -139,10 +139,10 @@ class RepcountImageDataset(RepcountDataset):
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     data_root = '/home/umi/projects/WorkoutDetector/data'
-    # dataset = RepcountDataset(data_root, split='test')
-    imageset = RepcountImageDataset(data_root, action='bench_pressing', split='test')
-    print(len(imageset))
-    print(imageset.classes)
+    dataset = RepcountDataset(data_root, split='test')
+    print(dataset.classes)
+    print(dataset[0])
+    # imageset = RepcountImageDataset(data_root, action='jump_jack', split='test')
     # random_index = np.random.randint(0, len(imageset))
     # img, label = imageset[random_index]
     # plt.imshow(img.permute(1, 2, 0))
