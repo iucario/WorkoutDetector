@@ -1,1 +1,1 @@
-from .repcount_dataset import RepcountDataset, RepcountImageDataset
+from .repcount_dataset import RepcountDataset, RepcountImageDataset, RepcountVideoDataset

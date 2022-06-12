@@ -1,3 +1,4 @@
+import math
 import os
 from typing import List, Tuple
 import torch
@@ -23,6 +24,40 @@ def parse_onedrive(link) -> str:
     s = b.decode('ascii')
     res = f'https://api.onedrive.com/v1.0/shares/u!{s}/root/content'
     return res
+
+
+def sample_frames(total: int, num: int, offset=0):
+    """Uniformly sample num frames from video
+    
+    Args:
+        total: int, total frames, 
+        num: int, number of frames to sample
+        offset: int, offset from start of video
+    Returns: 
+        list of frame indices starting from offset
+    """
+
+    if total < num:
+        # repeat frames if total < num
+        repeats = math.ceil(num / total)
+        data = [x for x in range(total) for _ in range(repeats)]
+        total = len(data)
+    else:
+        data = list(range(total))
+    interval = total // num
+    indices = np.arange(0, total, interval)[:num]
+    for i, x in enumerate(indices):
+        rand = np.random.randint(0, interval)
+        if i == num - 1:
+            upper = total
+            rand = np.random.randint(0, upper - x)
+        else:
+            upper = min(interval * (i + 1), total)
+        indices[i] = (x + rand) % upper
+    assert len(indices) == num, f'len(indices)={len(indices)}'
+    for i in range(1, len(indices)):
+        assert indices[i] > indices[i - 1], f'indices[{i}]={indices[i]}'
+    return [data[i] + offset for i in indices]
 
 
 class RepcountDataset(torch.utils.data.Dataset):
@@ -165,11 +200,16 @@ class RepcountVideoDataset(RepcountDataset):
     """Binary classification of start and end state in specific action. Using video as input.
     
     It's like `RepcountImageDataset`, but using multiple frames rather than only two images.
+
+    Args:
+        action: str
+        num_frames: int, number of frames in one video
     """
 
     def __init__(self,
                  root: str,
                  action: str,
+                 num_segments: int = 8,
                  split='train',
                  transform=None,
                  download=False) -> None:
@@ -177,6 +217,7 @@ class RepcountVideoDataset(RepcountDataset):
         verify_str_arg(action, "action", self.classes)
         self.df = self.df[self.df['class_'] == action]
         self.video_list = self.setup()
+        self.num_segments = num_segments
 
     def setup(self) -> List[dict]:
         """
@@ -233,8 +274,10 @@ class RepcountVideoDataset(RepcountDataset):
 
     def __getitem__(self, index: int) -> Tuple[Tensor, int]:
         frame_list = []
-        for i in range(self.video_list[index]['start'],
-                       self.video_list[index]['end'] + 1):
+        start = self.video_list[index]['start']
+        length = self.video_list[index]['length']
+        samples = sample_frames(length, self.num_segments, start)
+        for i in samples:
             frame_path = os.path.join(self.video_list[index]['video_path'],
                                       f'img_{i:05}.jpg')
             frame = read_image(frame_path)
@@ -242,6 +285,9 @@ class RepcountVideoDataset(RepcountDataset):
         if self.transform is not None:
             frame_list = [self.transform(frame) for frame in frame_list]
         frame_list = torch.stack(frame_list, 0)
+        assert frame_list.shape[0] == self.num_segments, \
+            f'frame_list.shape[0] = {frame_list.shape[0]}, ' \
+            f'but self.num_segments = {self.num_segments}'
         return frame_list, self.video_list[index]['label']
 
     def __len__(self) -> int:
