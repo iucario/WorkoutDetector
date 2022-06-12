@@ -1,6 +1,7 @@
 from bisect import bisect_left
 from collections import deque
 import os
+from typing import Tuple
 import cv2
 import numpy as np
 import torch
@@ -59,7 +60,8 @@ def inference_video(ort_session, video_path, output_path):
     out.release()
 
 
-def evaluate_video(ort_session, video_path, output_path, ground_truth: list):
+def evaluate_video(ort_session, video_path, output_path,
+                   ground_truth: list) -> Tuple[int, int]:
     """Evaluate repetition count on a video, using image classification model."""
 
     cap = cv2.VideoCapture(video_path)
@@ -79,7 +81,7 @@ def evaluate_video(ort_session, video_path, output_path, ground_truth: list):
             break
         curr_pred = inference_image(ort_session, frame)
         result.append(curr_pred)
-        pred = sum(result) > len(result)//2  # vote of frames
+        pred = sum(result) > len(result) // 2  # vote of frames
         if not states:
             states.append(pred)
         elif states[-1] != pred:
@@ -99,26 +101,32 @@ def evaluate_video(ort_session, video_path, output_path, ground_truth: list):
         cv2.putText(frame, f'true {gt_count}', (int(width * 0.2), int(height * 0.6)),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (180, 235, 52), 2)
         out.write(frame)
-    if abs(count - len(ground_truth)//2) <= 1:
-        print(f'{video_path} Prediction is correct!')
+    error = abs(count - len(ground_truth) // 2)
+    print(f'=====error: {error}\terror rate: {error/max(1, (len(ground_truth)//2)):.2}=====')
     cap.release()
     out.release()
+    return error, len(ground_truth) // 2
 
 
 if __name__ == '__main__':
+    action_name = 'jump_jack'
     data_root = '/home/umi/projects/WorkoutDetector/data'
     dataset = RepcountDataset(root=data_root, split='test')
-    action = dataset.df[dataset.df['class'] == 'jump_jack']
+    action = dataset.df[dataset.df['class'] == action_name]
     l = action['name'].values
     print(l)
 
     ort_session = onnxruntime.InferenceSession(
-        '/home/umi/projects/WorkoutDetector/checkpoints/jump_jack_1x3x224x224_20220610.onnx'
-    )
+        f'/home/umi/projects/WorkoutDetector/checkpoints/{action_name}_20220610.onnx')
 
     labels = ['start', 'mid']
+    total_error = 0
+    total_count = 0
     for i in range(len(l)):
         rand_video = os.path.join(data_root, 'RepCount/videos/test', l[i])
         print(rand_video)
-        gt = list(map(int, action['reps'].values[i].split(' ')))
-        evaluate_video(ort_session, rand_video, f'/mnt/d/infer/{l[i]}', gt)
+        gt = list(map(int, action['reps'].values[i].split(' '))) if action['count'].values[i] else []
+        error, count = evaluate_video(ort_session, rand_video, f'/mnt/d/infer/{action_name}/{l[i]}', gt)
+        total_error += error
+        total_count += count
+    print(f'===== Total error: {total_error}\terror rate: {total_error/total_count:.2} =====')

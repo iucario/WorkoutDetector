@@ -159,8 +159,8 @@ def main(args):
     pl.seed_everything(0)
     # callbacks
     lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval='step')
-    early_stop = pl.callbacks.early_stopping.EarlyStopping(monitor='val/acc',
-                                                           mode='max',
+    early_stop = pl.callbacks.early_stopping.EarlyStopping(monitor='train/loss',
+                                                           mode='min',
                                                            patience=10)
     # loggers
     wandb_logger = pl.loggers.WandbLogger(save_dir=os.path.join(
