@@ -6,6 +6,7 @@ import PIL
 import cv2
 from cv2 import transform
 import numpy as np
+import pandas as pd
 import torch
 import torchvision.transforms as T
 from WorkoutDetector.datasets import RepcountDataset, RepcountImageDataset
@@ -193,7 +194,7 @@ def onnx_inference(ort_session, inputs: torch.Tensor) -> int:
 def evaluate(ort_session,
              video_path,
              ground_truth: list,
-             output_path=None) -> Tuple[int, int]:
+             output_dir=None) -> Tuple[int, int]:
     """Evaluate repetition count on a video, using video classification model.
     
     Args:
@@ -202,12 +203,14 @@ def evaluate(ort_session,
     Returns:
         Tuple[int, int]: count and ground truth count.
     """
-
+    video_name = os.path.basename(video_path)
+    output_path = os.path.join(output_dir, video_name)
     cap = cv2.VideoCapture(video_path)
     input_queue = deque(maxlen=8)
     result = []
     count = 0
     states = []
+    reps = []  # frame indices of action end state, start from 1
     frame_idx = 0
     while True:
         ret, frame = cap.read()
@@ -223,17 +226,23 @@ def evaluate(ort_session,
             if states and states[-1] != pred:
                 if pred != states[0]:
                     count += 1
+                    reps.append(frame_idx)
             states.append(pred)
             input_queue.clear()
     gt_count = len(ground_truth) // 2
     error = abs(count - gt_count)
     print(
-        f'count: {count}, gt_count: {gt_count} '\
-            f'error: {error} error rate: {error/max(1, gt_count):.2}'
+        f'count={count}, gt_count={gt_count} '\
+            f'error={error} error rate={error/max(1, gt_count):.2}'
     )
     cap.release()
     if output_path is not None:
         write_to_video(video_path, output_path, result)
+        with open(output_path + '.txt', 'w') as f:
+            f.write('result ' + ' '.join(map(str, result)) + '\n')
+            f.write('reps ' + ' '.join(map(str, reps)) + '\n')
+            f.write(f'count={count} gt_count={gt_count}\n')
+            f.write(f'error={error} error rate={error/max(1, gt_count):.2}\n')
     return count, gt_count
 
 
@@ -248,7 +257,7 @@ def main():
         }),
         'CPUExecutionProvider',
     ]
-    action_name = 'push_up'
+    action_name = 'front_raise'
     data_root = '/home/umi/projects/WorkoutDetector/data'
     dataset = RepcountDataset(root=data_root, split='test')
     action = dataset.df[dataset.df['class'] == action_name]
@@ -266,11 +275,10 @@ def main():
         gt = list(map(
             int,
             action['reps'].values[i].split(' '))) if action['count'].values[i] else []
-        count, gt_count = evaluate(
-            ort_session=ort_session,
-            video_path=rand_video,
-            ground_truth=gt,
-            output_path=f'/mnt/d/infer/video_cls_{action_name}/{l[i]}.mp4')
+        count, gt_count = evaluate(ort_session=ort_session,
+                                   video_path=rand_video,
+                                   ground_truth=gt,
+                                   output_dir=f'/mnt/d/infer/video_cls_{action_name}/')
         total_count += count
         total_gt_count += gt_count
     print(

@@ -1,6 +1,7 @@
 import os
 from typing import List, Tuple
 import torch
+from torch import Tensor
 import cv2
 import pandas as pd
 import numpy as np
@@ -70,6 +71,7 @@ class RepcountDataset(torch.utils.data.Dataset):
                 "Dataset not found or corrupted. You can use download=True to download it"
             )
         verify_str_arg(split, "split", ("train", "val", "test"))
+        self.split = split
         anno_path = os.path.join(self._data_path, 'annotation.csv')
         if not os.path.exists(anno_path):
             raise OSError(
@@ -77,7 +79,7 @@ class RepcountDataset(torch.utils.data.Dataset):
                     '`/datasets/RepCount/all_data.csv` to `{anno_path}`')
         anno_df = pd.read_csv(anno_path, index_col=0)
         self.df = anno_df[anno_df['split'] == split]
-        self.classes = self.df['class'].unique().tolist()
+        self.classes = self.df['class_'].unique().tolist()
         self.transform = transform
 
     def __getitem__(self, index: int) -> Tuple[str, int]:
@@ -127,7 +129,7 @@ class RepcountImageDataset(RepcountDataset):
                  download=False) -> None:
         super(RepcountImageDataset, self).__init__(root, split, transform, download)
         verify_str_arg(action, "action", self.classes)
-        self.df = self.df[self.df['class'] == action]
+        self.df = self.df[self.df['class_'] == action]
         images = []
         labels = []
         for row in self.df.itertuples():
@@ -173,16 +175,86 @@ class RepcountVideoDataset(RepcountDataset):
                  download=False) -> None:
         super(RepcountVideoDataset, self).__init__(root, split, transform, download)
         verify_str_arg(action, "action", self.classes)
-        self.df = self.df[self.df['class'] == action]
-        pass
+        self.df = self.df[self.df['class_'] == action]
+        self.video_list = self.setup()
+
+    def setup(self) -> List[dict]:
+        """
+        Returns:
+            list of dict: videos, 
+                {
+                    video_path: path_to_raw_frames_dir, 
+                    start: start_frame_index, start from 1,
+                    end: end_frame_index
+                    length: end_frame_index - start_frame_index + 1
+                    class: action class,
+                    label: 0 or 1
+                }
+        """
+
+        videos = []
+        for row in self.df.itertuples():
+            name = row.name.split('.')[0]
+            count = row.count
+            reps = list(map(int, row.reps.split())) if count > 0 else []
+            for start, end in zip(reps[0::2], reps[1::2]):
+                start += 1  # plus 1 because img index starts from 1
+                end += 1  # but annotated frame index starts from 0
+                mid = (start + end) // 2
+                videos.append({
+                    'video_path':
+                        os.path.join(self._data_path, 'rawframes', self.split, name),
+                    'start':
+                        start,
+                    'end':
+                        mid,
+                    'length':
+                        mid - start + 1,
+                    'class':
+                        row.class_,
+                    'label':
+                        0
+                })
+                videos.append({
+                    'video_path':
+                        os.path.join(self._data_path, 'rawframes', self.split, name),
+                    'start':
+                        mid + 1,
+                    'end':
+                        end,
+                    'length':
+                        end - mid,
+                    'class':
+                        row.class_,
+                    'label':
+                        1
+                })
+        return videos
+
+    def __getitem__(self, index: int) -> Tuple[Tensor, int]:
+        frame_list = []
+        for i in range(self.video_list[index]['start'],
+                       self.video_list[index]['end'] + 1):
+            frame_path = os.path.join(self.video_list[index]['video_path'],
+                                      f'img_{i:05}.jpg')
+            frame = read_image(frame_path)
+            frame_list.append(frame)
+        if self.transform is not None:
+            frame_list = [self.transform(frame) for frame in frame_list]
+        frame_list = torch.stack(frame_list, 0)
+        return frame_list, self.video_list[index]['label']
+
+    def __len__(self) -> int:
+        return len(self.video_list)
 
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     data_root = '/home/umi/projects/WorkoutDetector/data'
-    dataset = RepcountDataset(data_root, split='test')
+    dataset = RepcountVideoDataset(data_root, split='test', action='push_up')
     print(dataset.classes)
-    print(dataset[0])
+    frames, label = dataset[11]
+    print(frames.shape, label)
     # imageset = RepcountImageDataset(data_root, action='jump_jack', split='test')
     # random_index = np.random.randint(0, len(imageset))
     # img, label = imageset[random_index]

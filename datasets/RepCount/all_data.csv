@@ -1,4 +1,4 @@
-,class,split,name,vid,start,end,count,reps
+,class_,split,name,vid,start,end,count,reps
 0,front_raise,train,train951.mp4,,,,4.0,6 72 72 132 132 204 204 271
 1,front_raise,train,train952.mp4,,,,10.0,13 62 62 103 103 126 126 146 146 171 171 194 194 215 215 239 239 260 260 281
 2,pull_up,train,test1463.mp4,,,,7.0,21 60 60 98 98 132 132 172 172 210 210 246 246 279
