@@ -27,24 +27,25 @@ optimizer = dict(
     type='SGD',
     constructor='TSMOptimizerConstructor',
     paramwise_cfg=dict(fc_lr5=True),
-    lr=0.0001,
+    lr=0.00001,
     momentum=0.9,
     weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=20, norm_type=2))
 
 # learning policy
-lr_config = dict(policy='step', step=[10, 20])
+lr_config = dict(policy='step', step=[5, 10])
+
 total_epochs = 5
 
 # dataset settings
-dataset_type = 'RawframeDataset'
+dataset_type = 'MyDataset'
 data_root = '/home/umi/projects/WorkoutDetector/data/Binary/'
 data_root_train = data_root
 data_root_val = data_root
 data_root_test = data_root
-ann_file_train = os.path.join(data_root, 'squat-train.txt')
-ann_file_val = os.path.join(data_root, 'squat-val.txt')
-ann_file_test = os.path.join(data_root, 'squat-test.txt')
+ann_file_train = os.path.join(data_root, 'train.txt')
+ann_file_val = os.path.join(data_root, 'val.txt')
+ann_file_test = os.path.join(data_root, 'test.txt')
 
 img_norm_cfg = dict(mean=[123.675, 116.28, 103.53],
                     std=[58.395, 57.12, 57.375],
