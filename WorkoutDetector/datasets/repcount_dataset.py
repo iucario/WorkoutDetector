@@ -1,6 +1,7 @@
 import math
 import os
 from typing import List, Tuple
+import einops
 import torch
 from torch import Tensor
 import cv2
@@ -299,11 +300,12 @@ if __name__ == '__main__':
     data_root = '/home/umi/projects/WorkoutDetector/data'
     dataset = RepcountVideoDataset(data_root, split='test', action='push_up')
     print(dataset.classes)
-    frames, label = dataset[11]
-    print(frames.shape, label)
     # imageset = RepcountImageDataset(data_root, action='jump_jack', split='test')
-    # random_index = np.random.randint(0, len(imageset))
-    # img, label = imageset[random_index]
-    # plt.imshow(img.permute(1, 2, 0))
-    # print(label)
-    # plt.show()
+    random_index = np.random.randint(0, len(dataset))
+    img, label = dataset[random_index]
+    plt.figure(figsize=(8, 4),dpi=200)
+    img = einops.rearrange(img, '(b1 b2) c h w -> (b1 h) (b2 w) c', b1=2)
+    plt.title(f'label: {label}')
+    print(img.shape)
+    plt.imshow(img)
+    plt.show()

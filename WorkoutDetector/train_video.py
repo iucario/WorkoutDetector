@@ -9,8 +9,9 @@ import pytorch_lightning as pl
 import torchvision.transforms as T
 import timm
 import yaml
+import einops
+import time
 
-import mmaction
 from mmaction.models.backbones import ResNetTSM
 from mmaction.models.heads import TSMHead
 
@@ -73,15 +74,28 @@ def get_data_loaders(action: str,
 
 
 class VideoModel(nn.Module):
+    """mmaction2 TSM model"""
 
-    def __init__(self, num_classes=2, resnet_depth=18, in_channels=512, num_segments=8):
+    def __init__(
+        self,
+        backbone_model: str = 'resnet18',
+        num_classes=2,
+        num_segments=8,
+    ):
         super().__init__()
-        self.backbone = ResNetTSM(depth=resnet_depth)
+        resnet_map = {
+            'resnet18': [18, 512],
+            'resnet34': [34, 512],
+            'resnet50': [50, 2048],
+        }
+        depth, num_features = resnet_map[backbone_model]
+        self.backbone = ResNetTSM(depth=depth)
         self.head = TSMHead(num_classes=num_classes,
-                       in_channels=in_channels,
-                       num_segments=num_segments)
+                            in_channels=num_features,
+                            num_segments=num_segments)
 
     def forward(self, x):
+        x = einops.rearrange(x, 'N S C H W -> (N S) C H W')
         o = self.backbone(x)
         return self.head(o, num_segs=1)
 
@@ -90,9 +104,11 @@ class LitModel(pl.LightningModule):
 
     def __init__(self, backbone_model, learning_rate):
         super().__init__()
-        self.example_input_array = torch.randn(1, 3, 224, 224)
+        self.example_input_array = torch.randn(1, 8, 3, 224, 224)
         self.save_hyperparameters()
-        self.model = VideoModel()
+        self.model = VideoModel(backbone_model=backbone_model,
+                                num_classes=2,
+                                num_segments=8)
         self.loss_module = nn.CrossEntropyLoss()
         self.learning_rate = learning_rate
 
@@ -125,16 +141,16 @@ class LitModel(pl.LightningModule):
         self.log('test/loss', loss, prog_bar=True)
 
     def configure_optimizers(self):
-        # optimizer = optim.AdamW(self.parameters(), lr=self.hparams.lr)
-        optimizer = optim.SGD(self.parameters(),
-                              lr=self.learning_rate,
-                              momentum=0.9,
-                              weight_decay=0.0001)
+        optimizer = optim.AdamW(self.parameters(), lr=self.learning_rate)
+        # optimizer = optim.SGD(self.parameters(),
+        #                       lr=self.learning_rate,
+        #                       momentum=0.9,
+        #                       weight_decay=0.0001)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer)
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,
-            "monitor": "val/loss",
+            "monitor": "train/loss",
         }
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
@@ -163,29 +179,31 @@ def main(args):
                                                            patience=10)
     model = LitModel(backbone, lr)
     # loggers
-    if args.logger:
+    PROJECT = 'binary_video_model'
+    NAME = f'{action}_{backbone}'
+    tensorboard_logger = pl.loggers.TensorBoardLogger(
+        save_dir=os.path.join(proj_root, f'lightning_logs/tensorboard/{PROJECT}'),
+        name=NAME,
+        default_hp_metric=False)
+    tensorboard_logger.log_hyperparams(args,
+                                       metrics={
+                                           'train/acc': 0,
+                                           'val/acc': 0,
+                                           'test/acc': 0,
+                                           'train/loss': 1,
+                                           'val/loss': 1,
+                                           'test/loss': 1
+                                       })
+    loggers = [tensorboard_logger]
+    if args.wandb:
         wandb_logger = pl.loggers.WandbLogger(save_dir=os.path.join(
             proj_root, 'lightning_logs'),
-                                              project="binary-action-classification",
-                                              name=f'{action}-{backbone}')
+                                              project=PROJECT,
+                                              name=NAME)
         wandb_logger.log_hyperparams(args)
         wandb_logger.watch(model, log="all")
-        tensorboard_logger = pl.loggers.TensorBoardLogger(save_dir=os.path.join(
-            proj_root, 'lightning_logs/tensorboard'),
-                                                          name=action,
-                                                          default_hp_metric=False)
-        tensorboard_logger.log_hyperparams(args,
-                                           metrics={
-                                               'train/acc': 0,
-                                               'val/acc': 0,
-                                               'test/acc': 0,
-                                               'train/loss': 1,
-                                               'val/loss': 1,
-                                               'test/loss': 1
-                                           })
-        loggers = [wandb_logger, tensorboard_logger]
-    else:
-        loggers = []
+
+        loggers.append(wandb_logger)
 
     torch.backends.cudnn.determinstic = True
     torch.backends.cudnn.benchmark = False
@@ -212,18 +230,18 @@ if __name__ == '__main__':
                         type=str,
                         default=None,
                         help='checkpoint to load')
-    parser.add_argument('-lr', '--lr', type=float, default=5e-3, help='learning rate')
+    parser.add_argument('-lr', '--lr', type=float, default=5e-6, help='learning rate')
     parser.add_argument('-e', '--epochs', type=int, default=100, help='epochs')
     parser.add_argument('-b',
                         '--backbone',
                         type=str,
-                        default='resnet18',
+                        default='resnet50',
                         help='backbone of the TSM model')
-    parser.add_argument('-a', '--action', type=str, default='situp', help='action')
+    parser.add_argument('-a', '--action', type=str, default='push_up', help='action')
     parser.add_argument('-bs', '--batch_size', type=int, default=2, help='batch size')
-    parser.add_argument('-l', '--logger', action='store_true', help='log to wandb and Tensorboard')
+    parser.add_argument('--wandb', action='store_true', help='add logger wandb')
     args = parser.parse_args()
     if args.train:
         main(args)
-    else:
+    elif args.ckpt:
         export_model(args.ckpt)
