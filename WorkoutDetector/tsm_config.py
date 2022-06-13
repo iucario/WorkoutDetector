@@ -9,7 +9,7 @@ model = dict(
                   norm_eval=False,
                   shift_div=8),
     cls_head=dict(type='TSMHead',
-                  num_classes=400,
+                  num_classes=11,
                   in_channels=2048,
                   spatial_type='avg',
                   consensus=dict(type='AvgConsensus', dim=1),
@@ -23,22 +23,21 @@ model = dict(
 gpu_ids = range(1)
 
 # optimizer
-optimizer = dict(
-    type='SGD',
-    constructor='TSMOptimizerConstructor',
-    paramwise_cfg=dict(fc_lr5=True),
-    lr=0.00001,
-    momentum=0.9,
-    weight_decay=0.0001)
+optimizer = dict(type='SGD',
+                 constructor='TSMOptimizerConstructor',
+                 paramwise_cfg=dict(fc_lr5=True),
+                 lr=0.001,
+                 momentum=0.9,
+                 weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=20, norm_type=2))
 
 # learning policy
-lr_config = dict(policy='step', step=[5, 10])
+lr_config = dict(policy='step', step=[5, 15])
 
-total_epochs = 5
+total_epochs = 30
 
 # dataset settings
-dataset_type = 'MyDataset'
+dataset_type = 'ActionDataset'
 data_root = '/home/umi/projects/WorkoutDetector/data/Binary/'
 data_root_train = None
 data_root_val = None
@@ -110,7 +109,9 @@ log_level = 'INFO'
 load_from = 'https://download.openmmlab.com/mmaction/recognition/tsm/'\
     'tsm_r50_1x1x8_50e_sthv2_rgb/tsm_r50_256h_1x1x8_50e_sthv2_rgb_20210816-032aa4da.pth'
 resume_from = None
-workflow = [('train', 1),]
+workflow = [
+    ('train', 1),
+]
 
 # disable opencv multithreading to avoid system being overloaded
 opencv_num_threads = 0
@@ -119,7 +120,8 @@ mp_start_method = 'fork'
 
 work_dir = '/home/umi/projects/WorkoutDetector/work_dirs/playground_tsm'
 
-log_config = dict(interval=50, hooks=[
-    dict(type='TextLoggerHook'),
-    dict(type='TensorboardLoggerHook'),
-])
+log_config = dict(interval=20,
+                  hooks=[
+                      dict(type='TextLoggerHook'),
+                      dict(type='TensorboardLoggerHook'),
+                  ])

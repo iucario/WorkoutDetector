@@ -79,6 +79,57 @@ class MyDataset(BaseDataset):
         return self.pipeline(results)
 
 
+@DATASETS.register_module()
+class ActionDataset(BaseDataset):  # sanity check. why is MyDataset val acc always near 1?
+    """
+    Note:
+        label.txt has the following format:
+            `dir/to/video/frames start_index total_frames label`
+    """
+
+    def __init__(self,
+                 ann_file,
+                 pipeline,
+                 data_prefix=None,
+                 test_mode=False,
+                 modality='RGB',
+                 filename_tmpl='img_{:05}.jpg'):
+        super(ActionDataset, self).__init__(ann_file, pipeline, data_prefix, test_mode,
+                                            modality)
+
+        self.filename_tmpl = filename_tmpl
+        self.data_prefix = data_prefix
+        print("data_prefix: ", data_prefix)
+
+    def load_annotations(self):
+        video_infos = []
+        with open(self.ann_file, 'r') as fin:
+            for line in fin:
+                if line.startswith("directory"):
+                    continue
+                frame_dir, total_frames, label = line.split()
+                if self.data_prefix is not None:
+                    frame_dir = os.path.join(self.data_prefix, frame_dir)
+                video_infos.append(
+                    dict(frame_dir=frame_dir,
+                         start_index=1,
+                         total_frames=int(total_frames),
+                         label=int(label)))
+        return video_infos
+
+    def prepare_train_frames(self, idx):
+        results = copy.deepcopy(self.video_infos[idx])
+        results['filename_tmpl'] = self.filename_tmpl
+        results['modality'] = self.modality
+        return self.pipeline(results)
+
+    def prepare_test_frames(self, idx):
+        results = copy.deepcopy(self.video_infos[idx])
+        results['filename_tmpl'] = self.filename_tmpl
+        results['modality'] = self.modality
+        return self.pipeline(results)
+
+
 def train(cfg: Config) -> None:
     # Build the dataset
     datasets = [build_dataset(cfg.data.train)]
@@ -87,7 +138,7 @@ def train(cfg: Config) -> None:
     model = build_model(cfg.model, train_cfg=None, test_cfg=dict(average_clips='prob'))
 
     # Create work_dir
-    mmcv.mkdir_or_exist(os.path.abspath(cfg.work_dir))
+    mmcv.mkdir_or_exist(cfg.work_dir)
     train_model(model, datasets, cfg, distributed=False, validate=True)
 
 
@@ -98,23 +149,44 @@ def main():
     ]
     parser = argparse.ArgumentParser()
     parser.add_argument('-a', '--action', type=str, default='jump_jack', choices=ACTIONS)
+    parser.add_argument('--check', action='store_true', help='sanity check')
     args = parser.parse_args()
 
     # configs
     config = os.path.join(PROJ_ROOT, 'WorkoutDetector/tsm_config.py')
     cfg = Config.fromfile(config)
-
     cfg.setdefault('omnisource', False)
-
     cfg.seed = 0
     set_random_seed(0, deterministic=False)
-    cfg.data.train.ann_file = os.path.join(PROJ_ROOT, 'data/Binary', f'{args.action}-train.txt')
-    cfg.data.val.ann_file = os.path.join(PROJ_ROOT, 'data/Binary', f'{args.action}-val.txt')
-    cfg.data.test.ann_file = os.path.join(PROJ_ROOT, 'data/Binary', f'{args.action}-test.txt')
+    if args.check:
+        cfg.data.train.ann_file = '/home/umi/projects/WorkoutDetector/data/RepCount/rawframes/train.txt'
+        cfg.data.val.ann_file = '/home/umi/projects/WorkoutDetector/data/RepCount/rawframes/val.txt'
+        cfg.data.test.ann_file = '/home/umi/projects/WorkoutDetector/data/RepCount/rawframes/test.txt'
+        cfg.data.train.data_prefix = os.path.join(PROJ_ROOT,
+                                                  'data/RepCount/rawframes/train')
+        cfg.data.val.data_prefix = os.path.join(PROJ_ROOT, 'data/RepCount/rawframes/val')
+        cfg.data.test.data_prefix = os.path.join(PROJ_ROOT,
+                                                 'data/RepCount/rawframes/test')
+        cfg.log_config = dict(interval=20,
+                              hooks=[
+                                  dict(type='TextLoggerHook'),
+                                  dict(type='TensorboardLoggerHook'),
+                                  dict(type='WandbLoggerHook',
+                                       init_kwargs=dict(project='playground-tsm',
+                                                        config={**cfg}))
+                              ])
+    else:
+        cfg.data.train.ann_file = os.path.join(PROJ_ROOT, 'data/Binary',
+                                               f'{args.action}-train.txt')
+        cfg.data.val.ann_file = os.path.join(PROJ_ROOT, 'data/Binary',
+                                             f'{args.action}-val.txt')
+        cfg.data.test.ann_file = os.path.join(PROJ_ROOT, 'data/Binary',
+                                              f'{args.action}-test.txt')
+    cfg.work_dir = os.path.join(PROJ_ROOT, 'WorkoutDetector/work_dirs', args.action)
 
     # cfg.resume_from = osp.join(cfg.work_dir, 'latest.pth')
     print(cfg.pretty_text)
-    
+
     train(cfg)
 
 

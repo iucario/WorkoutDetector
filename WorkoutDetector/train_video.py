@@ -12,13 +12,14 @@ import yaml
 import einops
 import time
 
+from mmcv import Config
 from mmaction.models.backbones import ResNetTSM
 from mmaction.models.heads import TSMHead
 from mmaction.models import build_model
 
 proj_config = yaml.safe_load(
     open(os.path.join(os.path.dirname(__file__), 'utils/config.yml')))
-proj_root = proj_config['proj_root']
+PROJ_ROOT = proj_config['proj_root']
 
 data_transforms = {
     'train':
@@ -43,7 +44,7 @@ data_transforms = {
 
 def get_data_loaders(action: str,
                      batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
-    data_root = os.path.join(proj_root, 'data')
+    data_root = os.path.join(PROJ_ROOT, 'data')
     train_set = RepcountVideoDataset(root=data_root,
                                      action=action,
                                      split='train',
@@ -108,11 +109,35 @@ class VideoModel(nn.Module):
             is_shift=True,
             temporal_pool=False,
         )
+        config = os.path.join(PROJ_ROOT, 'WorkoutDetector/tsm_config.py')
+        cfg = Config.fromfile(config)
+        mm_model = build_model(cfg.model,
+                               train_cfg=None,
+                               test_cfg=dict(average_clips='prob'))
+        tsm_ckpt = '/home/umi/.cache/torch/hub/checkpoints/'\
+            'tsm_r50_256h_1x1x8_50e_sthv2_rgb_20210816-032aa4da.pth'
+
+        tsm_state = torch.load(tsm_ckpt)
+        meta = tsm_state['meta']
+        state_dict = tsm_state['state_dict']
+        # modify cls head
+        state_dict['cls_head.fc_cls.weight'] = mm_model.state_dict(
+        )['cls_head.fc_cls.weight']
+        state_dict['cls_head.fc_cls.bias'] = mm_model.state_dict()['cls_head.fc_cls.bias']
+
+        mm_model.load_state_dict(state_dict)
+        for i, k in enumerate(mm_model.state_dict().keys()):
+            if i + 2 >= len(state_dict.keys()): # last two are for cls head
+                break
+            bk = list(self.backbone.state_dict().keys())[i]
+            v = mm_model.state_dict()[k]
+            self.backbone.state_dict()[bk] = v
+        self.tsm = mm_model
 
     def forward(self, x):
         x = einops.rearrange(x, 'N S C H W -> (N S) C H W')
         o = self.backbone(x)
-        return self.head(o, num_segs=1)
+        return self.head(o, num_segs=8)
         # return self.tsm(x)
 
 
@@ -199,7 +224,7 @@ def main(args):
     PROJECT = 'binary_video_model'
     NAME = f'{action}_{backbone}'
     tensorboard_logger = pl.loggers.TensorBoardLogger(save_dir=os.path.join(
-        proj_root, f'lightning_logs/tensorboard/{PROJECT}'),
+        PROJ_ROOT, f'lightning_logs/tensorboard/{PROJECT}'),
                                                       name=NAME,
                                                       default_hp_metric=False)
     tensorboard_logger.log_hyperparams(args,
@@ -214,7 +239,7 @@ def main(args):
     loggers = [tensorboard_logger]
     if args.wandb:
         wandb_logger = pl.loggers.WandbLogger(save_dir=os.path.join(
-            proj_root, 'lightning_logs'),
+            PROJ_ROOT, 'lightning_logs'),
                                               project=PROJECT,
                                               name=NAME)
         wandb_logger.log_hyperparams(args)
@@ -226,7 +251,7 @@ def main(args):
     torch.backends.cudnn.benchmark = False
 
     trainer = pl.Trainer(
-        default_root_dir=os.path.join(proj_root, 'lightning_logs'),
+        default_root_dir=os.path.join(PROJ_ROOT, 'lightning_logs'),
         max_epochs=epochs,
         accelerator='gpu',
         devices=1,

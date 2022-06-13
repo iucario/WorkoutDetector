@@ -1,3 +1,4 @@
+import argparse
 from bisect import bisect_left
 from collections import deque
 import os
@@ -9,9 +10,11 @@ import numpy as np
 import pandas as pd
 import torch
 import torchvision.transforms as T
-from WorkoutDetector.datasets import RepcountDataset, RepcountImageDataset
+from WorkoutDetector.datasets import RepcountDataset
 import onnx
 import onnxruntime
+
+from mmaction.apis import inference_recognizer, init_recognizer
 
 onnxruntime.set_default_logger_severity(3)
 
@@ -55,7 +58,7 @@ def inference_image(ort_session, frame) -> int:
     return pred
 
 
-def inference_video(ort_session, video_path, output_path):
+def inference_video(ort_session, video_path, output_path) -> None:
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -81,16 +84,33 @@ def inference_video(ort_session, video_path, output_path):
     out.release()
 
 
-def evaluate_video(ort_session, video_path, output_path,
-                   ground_truth: list) -> Tuple[int, int]:
-    """Evaluate repetition count on a video, using image classification model."""
+def evaluate_by_image(ort_session: onnxruntime.InferenceSession,
+                      video_path: str,
+                      ground_truth: list,
+                      output_path: str = None) -> Tuple[int, int]:
+    """Evaluate repetition count on a video, using image classification model.
+    
+    Args:
+        ort_session: ONNX Runtime session.
+        video_path: video to be evaluated.
+        ground_truth: list, column `reps` in `annotation.csv`.
+        output_path: path to save the output video. If None, no video will be saved.
 
+    Returns:
+        Tuple[int, int]: (repetition count, number of frames of action).
+
+    Note:
+        Voting is used to determine the repetition count.
+    """
+
+    print(f'{video_path}')
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps,
-                          (width, height))
+    if output_path:
+        out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps,
+                              (width, height))
     result = deque(maxlen=7)
     count = 0
     states = []
@@ -109,34 +129,40 @@ def evaluate_video(ort_session, video_path, output_path,
             states.append(pred)
             if pred != states[0]:
                 count += 1
-        text = str(curr_pred)
-        if pred == 1:
-            color = (0, 0, 255)
-        else:
-            color = (0, 255, 0)
-        cv2.putText(frame, text, (int(width * 0.2), int(height * 0.2)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-        cv2.putText(frame, f'pred {count}', (int(width * 0.2), int(height * 0.4)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (52, 235, 177), 2)
-        gt_count = bisect_left(ground_truth[1::2], frame_idx)
-        cv2.putText(frame, f'true {gt_count}', (int(width * 0.2), int(height * 0.6)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (180, 235, 52), 2)
-        out.write(frame)
+        if output_path:
+            text = str(curr_pred)
+            if pred == 1:
+                color = COLORS['red']
+            else:
+                color = COLORS['green']
+            cv2.putText(frame, text, (int(width * 0.2), int(height * 0.2)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+            cv2.putText(frame, f'pred {count}', (int(width * 0.2), int(height * 0.4)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (52, 235, 177), 2)
+            gt_count = bisect_left(ground_truth[1::2], frame_idx)
+            cv2.putText(frame, f'true {gt_count}', (int(width * 0.2), int(height * 0.6)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (180, 235, 52), 2)
+            out.write(frame)
     error = abs(count - len(ground_truth) // 2)
-    print(
-        f'=====error: {error}\terror rate: {error/max(1, (len(ground_truth)//2)):.2}====='
-    )
+    gt_count = len(ground_truth) // 2
+
+    print(f'{error=} {count=} {gt_count=}')
+
     cap.release()
-    out.release()
-    return error, len(ground_truth) // 2
+    if output_path:
+        out.release()
+    return count, gt_count
 
 
 def pred_to_count(preds: List[int]) -> Tuple[int, List[int]]:
     """Convert a list of predictions to a repetition count.
     
+    Args:
+        preds: list of size total_frames in the video.
     Returns:
         A tuple of (repetition count, list of frame indices of action end state).
     """
+
     count = 0
     reps = []
     states = []
@@ -181,6 +207,7 @@ def onnx_inference(ort_session, inputs: torch.Tensor) -> int:
     Returns:
         int: prediction. 0 or 1.
     """
+
     inputs = np.stack([data_transform(x) for x in inputs])
     inputs = np.expand_dims(inputs, axis=0)
     input_name = ort_session.get_inputs()[0].name
@@ -246,7 +273,7 @@ def evaluate(ort_session,
     return count, gt_count
 
 
-def main():
+def main(args):
     providers = [
         ('CUDAExecutionProvider', {
             'device_id': 0,
@@ -257,35 +284,62 @@ def main():
         }),
         'CPUExecutionProvider',
     ]
-    action_name = 'front_raise'
+    action_name = args.action
+    if args.image:
+        onnx_path = os.path.join('/home/umi/projects/WorkoutDetector/checkpoints/',
+                                 f'{action_name}_20220610.onnx')
     data_root = '/home/umi/projects/WorkoutDetector/data'
     dataset = RepcountDataset(root=data_root, split='test')
-    action = dataset.df[dataset.df['class'] == action_name]
+    action = dataset.df[dataset.df['class_'] == action_name]
     l = action['name'].values
 
-    ort_session = onnxruntime.InferenceSession(
-        f'/home/umi/projects/WorkoutDetector/checkpoints/tsm_video_binary_{action_name}.onnx',
-        providers=providers)
+    ort_session = onnxruntime.InferenceSession(onnx_path, providers=providers)
 
     total_count = 0
     total_gt_count = 0
     for i in range(len(l)):
         rand_video = os.path.join(data_root, 'RepCount/videos/test', l[i])
-        print(rand_video)
+
         gt = list(map(
             int,
             action['reps'].values[i].split(' '))) if action['count'].values[i] else []
-        count, gt_count = evaluate(ort_session=ort_session,
-                                   video_path=rand_video,
-                                   ground_truth=gt,
-                                   output_dir=f'/mnt/d/infer/video_cls_{action_name}/')
+        if args.image:
+            count, gt_count = evaluate_by_image(ort_session,
+                                                rand_video,
+                                                gt,
+                                                output_path=None)
+        else:
+            count, gt_count = evaluate(
+                ort_session=ort_session,
+                video_path=rand_video,
+                ground_truth=gt,
+                output_dir=f'/mnt/d/infer/video_cls_{action_name}/')
         total_count += count
         total_gt_count += gt_count
-    print(
-        f'====={action_name}\tTotal count: {total_count}'\
-            f'\terror rate: {total_count/total_gt_count:.2} ====='
-    )
+
+
+def mmlab_infer(args):
+    cfg_path = '/home/umi/projects/WorkoutDetector/WorkoutDetector/tsm_config.py'
+    model = init_recognizer(cfg_path, args.checkpoint, device='cuda')
+    results = inference_recognizer(model, args.video)
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description='Evaluate RepCount')
+    parser.add_argument('-ckpt', '--checkpoint', help='checkpoint path', required=False)
+    parser.add_argument('--video', help='video path', required=False)
+    parser.add_argument('-im',
+                        '--image-model',
+                        dest='image',
+                        action='store_true',
+                        help='evaluate using image model')
+    parser.add_argument(
+        '-a',
+        '--action',
+        help='action name',
+        default='situp',
+        choices=['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise'])
+    args = parser.parse_args()
+
+    main(args)
+    # mmlab_infer(args)
