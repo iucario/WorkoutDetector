@@ -1,4 +1,5 @@
 from WorkoutDetector.utils.common import Repcount
+from WorkoutDetector.datasets import RepcountVideoDataset
 import os
 import shutil
 import yaml
@@ -6,7 +7,7 @@ import tqdm
 
 config = yaml.safe_load(
     open(os.path.join(os.path.dirname(__file__), '../utils/config.yml')))
-base = config['proj_root']
+BASE = config['proj_root']
 
 class_name = 'squat'
 
@@ -28,7 +29,7 @@ def build_split(classname, split='train'):
         start - mid: 0, mid - end: 1
     """
 
-    dst_data_dir = os.path.join(base, f'data/Binary/{classname}')
+    dst_data_dir = os.path.join(BASE, f'data/Binary/{classname}')
     df = repcount.get_anno(split)
     df = df[df['type'] == classname]
     data_root = os.path.join(repcount.data_root, 'rawframes', split)
@@ -54,7 +55,7 @@ def build_split(classname, split='train'):
     #             dst_path = os.path.join(dst_data_dir, f'{vid}_{mid}/img_{j:05}.jpg')
     #             shutil.copy(src_path, dst_path)
 
-    label_file = os.path.join(base, f'data/Binary/{classname}-{split}.txt')
+    label_file = os.path.join(BASE, f'data/Binary/{classname}-{split}.txt')
     with open(label_file, 'w') as f:
         for vid in vids:
             vid = vid.split('.')[0]
@@ -68,7 +69,7 @@ def build_split(classname, split='train'):
 
 
 def rename_images():
-    data_dir = os.path.join(base, f'data/Binary/{class_name}')
+    data_dir = os.path.join(BASE, f'data/Binary/{class_name}')
     for d in os.listdir(data_dir):
         for img in os.listdir(os.path.join(data_dir, d)):
             offset = int(d.split('_')[2])
@@ -79,9 +80,34 @@ def rename_images():
             new_name = f'img_{img}'
             os.rename(os.path.join(data_dir, d, img), os.path.join(data_dir, d, new_name))
 
+def build_with_start():
+    CLASSES = ['situp', 'push_up', 'pull_up', 'bench_pressing', 'jump_jack', 'squat', 'front_raise']
+    data_root = os.path.join(BASE, 'data')
+    DEST_DIR = os.path.join(data_root, 'Binary')
+    for action in CLASSES:
+        train_set =RepcountVideoDataset(root=data_root,
+                                        action=action,
+                                        split='train',
+                                        transform=None)
+        val_set = RepcountVideoDataset(root=data_root,
+                                        action=action,      
+                                        split='val',
+                                        transform=None)
+        test_set = RepcountVideoDataset(root=data_root,
+                                        action=action,
+                                        split='test',
+                                        transform=None)
+        
+        with open(os.path.join(DEST_DIR, f'{action}-train.txt'), 'w') as f:
+            for v in train_set.video_list:
+                f.write(f'{v["video_path"]} {v["start"]} {v["length"]} {v["label"]}\n')
+        with open(os.path.join(DEST_DIR, f'{action}-val.txt'), 'w') as f:
+            for v in val_set.video_list:
+                f.write(f'{v["video_path"]} {v["start"]} {v["length"]} {v["label"]}\n')
+        with open(os.path.join(DEST_DIR, f'{action}-test.txt'), 'w') as f:
+            for v in test_set.video_list:
+                f.write(f'{v["video_path"]} {v["start"]} {v["length"]} {v["label"]}\n')
+        
 
 if __name__ == '__main__':
-    build_split(class_name, split='train')
-    build_split(class_name, split='val')
-    build_split(class_name, split='test')
-# rename_images()
+    build_with_start()

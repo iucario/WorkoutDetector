@@ -205,6 +205,17 @@ class RepcountVideoDataset(RepcountDataset):
     Args:
         action: str
         num_frames: int, number of frames in one video
+    
+    Properties:
+        video_list: list of dict, each dict contains:
+        ::
+        
+            video_path: path_to_raw_frames_dir, 
+            start: start_frame_index, start from 1,
+            end: end_frame_index
+            length: end_frame_index - start_frame_index + 1
+            class: action class,
+            label: 0 or 1
     """
 
     def __init__(self,

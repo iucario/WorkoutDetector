@@ -1,6 +1,6 @@
 import argparse
 from typing import Tuple
-# from WorkoutDetector.datasets import RepcountVideoDataset
+from WorkoutDetector.datasets import RepcountVideoDataset
 import torch
 from torch.utils.data import DataLoader
 import os
@@ -12,12 +12,20 @@ import yaml
 import einops
 import time
 
-from mmaction.models.backbones import ResNetTSM
-from mmaction.models.heads import TSMHead
+from mmaction.datasets import build_dataset
+from mmaction.models import build_model
+from mmaction.apis import train_model
+import copy
+import mmcv
+from mmcv import Config
+from mmcv.runner import set_random_seed
+
+from mmaction.datasets.base import BaseDataset
+from mmaction.datasets.builder import DATASETS
 
 proj_config = yaml.safe_load(
     open(os.path.join(os.path.dirname(__file__), 'utils/config.yml')))
-proj_root = proj_config['proj_root']
+PROJ_ROOT = proj_config['proj_root']
 
 data_transforms = {
     'train':
@@ -42,7 +50,7 @@ data_transforms = {
 
 def get_data_loaders(action: str,
                      batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
-    data_root = os.path.join(proj_root, 'data')
+    data_root = os.path.join(PROJ_ROOT, 'data')
     train_set = RepcountVideoDataset(root=data_root,
                                      action=action,
                                      split='train',
@@ -73,15 +81,6 @@ def get_data_loaders(action: str,
     return train_loader, val_loader, test_loader
 
 
-import copy
-import os.path as osp
-
-import mmcv
-
-from mmaction.datasets.base import BaseDataset
-from mmaction.datasets.builder import DATASETS
-
-
 @DATASETS.register_module()
 class MyDataset(BaseDataset):
     """
@@ -97,10 +96,7 @@ class MyDataset(BaseDataset):
                  test_mode=False,
                  modality='RGB',
                  filename_tmpl='img_{:05}.jpg'):
-        super(MyDataset, self).__init__(ann_file,
-                                        pipeline,
-                                        data_prefix,
-                                        test_mode,
+        super(MyDataset, self).__init__(ann_file, pipeline, data_prefix, test_mode,
                                         modality)
 
         self.filename_tmpl = filename_tmpl
@@ -115,7 +111,7 @@ class MyDataset(BaseDataset):
                     continue
                 frame_dir, start_index, total_frames, label = line.split()
                 if self.data_prefix is not None:
-                    frame_dir = osp.join(self.data_prefix, frame_dir)
+                    frame_dir = os.path.join(self.data_prefix, frame_dir)
                 video_infos.append(
                     dict(frame_dir=frame_dir,
                          start_index=int(start_index),
@@ -135,39 +131,25 @@ class MyDataset(BaseDataset):
         results['modality'] = self.modality
         return self.pipeline(results)
 
+def train():
+    config = os.path.join(PROJ_ROOT, 'WorkoutDetector/tsm_config.py')
+    cfg = Config.fromfile(config)
 
-from mmcv import Config
-from mmcv.runner import set_random_seed
+    cfg.setdefault('omnisource', False)
 
-config = 'WorkoutDetector/tsm_config.py'
-cfg = Config.fromfile(config)
+    cfg.seed = 0
+    set_random_seed(0, deterministic=False)
 
-cfg.setdefault('omnisource', False)
+    # cfg.resume_from = osp.join(cfg.work_dir, 'latest.pth')
+    print(cfg.pretty_text)
+    cfg.train_pipeline = cfg.val_pipeline
 
-cfg.seed = 0
-set_random_seed(0, deterministic=False)
+    # Build the dataset
+    datasets = [build_dataset(cfg.data.train)]
 
-# cfg.resume_from = osp.join(cfg.work_dir, 'latest.pth')
-print(cfg.pretty_text)
-cfg.train_pipeline = cfg.val_pipeline
-myset = MyDataset(ann_file=cfg.ann_file_train,
-                  pipeline=cfg.train_pipeline,
-                  data_prefix=cfg.data_root_train,
-                  test_mode=False,
-                  filename_tmpl='img_{:05}.jpg')
+    # Build the recognizer
+    model = build_model(cfg.model, train_cfg=None, test_cfg=dict(average_clips='prob'))
 
-from mmaction.datasets import build_dataset
-from mmaction.models import build_model
-from mmaction.apis import train_model
-
-import mmcv
-
-# Build the dataset
-datasets = [build_dataset(cfg.data.train)]
-
-# Build the recognizer
-model = build_model(cfg.model, train_cfg=None, test_cfg=dict(average_clips='prob'))
-# exit(1)
-# Create work_dir
-mmcv.mkdir_or_exist(os.path.abspath(cfg.work_dir))
-train_model(model, datasets, cfg, distributed=False, validate=True)
+    # Create work_dir
+    mmcv.mkdir_or_exist(os.path.abspath(cfg.work_dir))
+    train_model(model, datasets, cfg, distributed=False, validate=True)
