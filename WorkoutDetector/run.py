@@ -73,69 +73,18 @@ def get_data_loaders(action: str,
     return train_loader, val_loader, test_loader
 
 
-config = '../mmaction2/configs/recognition/tsm/tsm_my_config.py'
-checkpoint = 'https://download.openmmlab.com/mmaction/recognition/tsm/'\
-    'tsm_r50_1x1x8_50e_sthv2_rgb/tsm_r50_256h_1x1x8_50e_sthv2_rgb_20210816-032aa4da.pth'
-
 from mmcv import Config
-import os.path as osp
-
-cfg = Config.fromfile(config)
-
 from mmcv.runner import set_random_seed
 
-DATASET = '/home/umi/projects/WorkoutDetector/data/Binary/'
-
-# optimizer
-cfg.optimizer.lr = 0.0015 / 8  # this lr is used for 8 gpus
-# learning policy
-# cfg.lr_config = dict(policy='step', step=[10, 20])
-
-# Modify dataset type and path
-cfg.dataset_type = 'RawframeDataset'
-cfg.data_root = DATASET
-cfg.data_root_val = DATASET
-cfg.ann_file_train = DATASET + 'squat-train.txt'
-cfg.ann_file_val = DATASET + 'squat-val.txt'
-cfg.ann_file_test = DATASET + 'squat-test.txt'
-
-cfg.data.test.ann_file = cfg.ann_file_test
-cfg.data.test.data_prefix = DATASET
-
-cfg.data.train.ann_file = cfg.ann_file_train
-cfg.data.train.data_prefix = cfg.data_root
-
-cfg.data.val.ann_file = cfg.ann_file_val
-cfg.data.val.data_prefix = cfg.data_root_val
+config = 'WorkoutDetector/tsm_config.py'
+cfg = Config.fromfile(config)
 
 cfg.setdefault('omnisource', False)
 
-cfg.model.cls_head.num_classes = 2
-
-cfg.data.videos_per_gpu = max(1, cfg.data.videos_per_gpu // 8)
-cfg.total_epochs = 10
-cfg.load_from = checkpoint
-cfg.checkpoint_config.interval = 5
-
 cfg.seed = 0
 set_random_seed(0, deterministic=False)
-cfg.gpu_ids = range(1)
 
-# Save the best
-cfg.evaluation.save_best = 'auto'
-
-cfg.log_config = dict(
-    interval=50,
-    hooks=[
-        dict(type='TextLoggerHook'),
-        dict(type='TensorboardLoggerHook'),
-        # dict(type='WandbLoggerHook',
-        #      init_kwargs=dict(project='binary-video-classification', config={**cfg})),
-    ])
-cfg.work_dir = f'./work_dirs/tsm_8_binary_squat_{time.strftime("%Y%m%d-%H%M%S")}'
 # cfg.resume_from = osp.join(cfg.work_dir, 'latest.pth')
-
-# print(cfg.pretty_text)
 
 cfg.train_pipeline = cfg.val_pipeline
 
@@ -154,5 +103,5 @@ model = build_model(cfg.model,
                     test_cfg=cfg.get('test_cfg'))
 
 # Create work_dir
-mmcv.mkdir_or_exist(osp.abspath(cfg.work_dir))
+mmcv.mkdir_or_exist(os.path.abspath(cfg.work_dir))
 train_model(model, datasets, cfg, distributed=False, validate=True)
