@@ -40,12 +40,12 @@ total_epochs = 5
 # dataset settings
 dataset_type = 'MyDataset'
 data_root = '/home/umi/projects/WorkoutDetector/data/Binary/'
-data_root_train = data_root
-data_root_val = data_root
-data_root_test = data_root
-ann_file_train = os.path.join(data_root, 'train.txt')
-ann_file_val = os.path.join(data_root, 'val.txt')
-ann_file_test = os.path.join(data_root, 'test.txt')
+data_root_train = None
+data_root_val = None
+data_root_test = None
+ann_file_train = os.path.join(data_root, 'squat-train.txt')
+ann_file_val = os.path.join(data_root, 'squat-val.txt')
+ann_file_test = os.path.join(data_root, 'squat-test.txt')
 
 img_norm_cfg = dict(mean=[123.675, 116.28, 103.53],
                     std=[58.395, 57.12, 57.375],
@@ -90,7 +90,7 @@ data = dict(videos_per_gpu=2,
             test_dataloader=dict(videos_per_gpu=1),
             train=dict(type=dataset_type,
                        ann_file=ann_file_train,
-                       data_prefix=data_root,
+                       data_prefix=data_root_train,
                        pipeline=train_pipeline),
             val=dict(type=dataset_type,
                      ann_file=ann_file_val,
@@ -110,7 +110,7 @@ log_level = 'INFO'
 load_from = 'https://download.openmmlab.com/mmaction/recognition/tsm/'\
     'tsm_r50_1x1x8_50e_sthv2_rgb/tsm_r50_256h_1x1x8_50e_sthv2_rgb_20210816-032aa4da.pth'
 resume_from = None
-workflow = [('train', 1)]
+workflow = [('train', 1),]
 
 # disable opencv multithreading to avoid system being overloaded
 opencv_num_threads = 0

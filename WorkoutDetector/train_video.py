@@ -14,6 +14,7 @@ import time
 
 from mmaction.models.backbones import ResNetTSM
 from mmaction.models.heads import TSMHead
+from mmaction.models import build_model
 
 proj_config = yaml.safe_load(
     open(os.path.join(os.path.dirname(__file__), 'utils/config.yml')))
@@ -89,15 +90,30 @@ class VideoModel(nn.Module):
             'resnet50': [50, 2048],
         }
         depth, num_features = resnet_map[backbone_model]
-        self.backbone = ResNetTSM(depth=depth)
-        self.head = TSMHead(num_classes=num_classes,
-                            in_channels=num_features,
-                            num_segments=num_segments)
+        self.backbone = ResNetTSM(
+            depth=depth,
+            norm_eval=False,
+            shift_div=8,
+            pretrained=f'torchvision://{backbone_model}',
+        )
+        self.head = TSMHead(
+            num_classes=num_classes,
+            in_channels=num_features,
+            num_segments=num_segments,
+            loss_cls=dict(type='CrossEntropyLoss'),
+            spatial_type='avg',
+            consensus=dict(type='AvgConsensus', dim=1),
+            dropout_ratio=0.5,
+            init_std=0.001,
+            is_shift=True,
+            temporal_pool=False,
+        )
 
     def forward(self, x):
         x = einops.rearrange(x, 'N S C H W -> (N S) C H W')
         o = self.backbone(x)
         return self.head(o, num_segs=1)
+        # return self.tsm(x)
 
 
 class LitModel(pl.LightningModule):
@@ -182,10 +198,10 @@ def main(args):
     # loggers
     PROJECT = 'binary_video_model'
     NAME = f'{action}_{backbone}'
-    tensorboard_logger = pl.loggers.TensorBoardLogger(
-        save_dir=os.path.join(proj_root, f'lightning_logs/tensorboard/{PROJECT}'),
-        name=NAME,
-        default_hp_metric=False)
+    tensorboard_logger = pl.loggers.TensorBoardLogger(save_dir=os.path.join(
+        proj_root, f'lightning_logs/tensorboard/{PROJECT}'),
+                                                      name=NAME,
+                                                      default_hp_metric=False)
     tensorboard_logger.log_hyperparams(args,
                                        metrics={
                                            'train/acc': 0,

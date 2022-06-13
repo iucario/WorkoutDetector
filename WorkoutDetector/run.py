@@ -27,59 +27,6 @@ proj_config = yaml.safe_load(
     open(os.path.join(os.path.dirname(__file__), 'utils/config.yml')))
 PROJ_ROOT = proj_config['proj_root']
 
-data_transforms = {
-    'train':
-        T.Compose([
-            T.ToPILImage(),
-            T.Resize(256),
-            T.RandomCrop(224),
-            T.RandomHorizontalFlip(),
-            T.ToTensor(),
-            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ]),
-    'val':
-        T.Compose([
-            T.ToPILImage(),
-            T.Resize(256),
-            T.CenterCrop(224),
-            T.ToTensor(),
-            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ]),
-}
-
-
-def get_data_loaders(action: str,
-                     batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
-    data_root = os.path.join(PROJ_ROOT, 'data')
-    train_set = RepcountVideoDataset(root=data_root,
-                                     action=action,
-                                     split='train',
-                                     transform=data_transforms['train'])
-    train_loader = DataLoader(train_set,
-                              batch_size=batch_size,
-                              shuffle=True,
-                              num_workers=4,
-                              pin_memory=True)
-    val_set = RepcountVideoDataset(root=data_root,
-                                   action=action,
-                                   split='val',
-                                   transform=data_transforms['val'])
-    val_loader = DataLoader(val_set,
-                            batch_size=batch_size,
-                            shuffle=False,
-                            num_workers=4,
-                            pin_memory=True)
-    test_set = RepcountVideoDataset(root=data_root,
-                                    action=action,
-                                    split='test',
-                                    transform=data_transforms['val'])
-    test_loader = DataLoader(test_set,
-                             batch_size=batch_size,
-                             shuffle=False,
-                             num_workers=4,
-                             pin_memory=True)
-    return train_loader, val_loader, test_loader
-
 
 @DATASETS.register_module()
 class MyDataset(BaseDataset):
@@ -131,19 +78,8 @@ class MyDataset(BaseDataset):
         results['modality'] = self.modality
         return self.pipeline(results)
 
-def train():
-    config = os.path.join(PROJ_ROOT, 'WorkoutDetector/tsm_config.py')
-    cfg = Config.fromfile(config)
 
-    cfg.setdefault('omnisource', False)
-
-    cfg.seed = 0
-    set_random_seed(0, deterministic=False)
-
-    # cfg.resume_from = osp.join(cfg.work_dir, 'latest.pth')
-    print(cfg.pretty_text)
-    cfg.train_pipeline = cfg.val_pipeline
-
+def train(cfg: Config) -> None:
     # Build the dataset
     datasets = [build_dataset(cfg.data.train)]
 
@@ -153,3 +89,34 @@ def train():
     # Create work_dir
     mmcv.mkdir_or_exist(os.path.abspath(cfg.work_dir))
     train_model(model, datasets, cfg, distributed=False, validate=True)
+
+
+def main():
+    ACTIONS = [
+        'situp', 'push_up', 'pull_up', 'bench_pressing', 'jump_jack', 'squat',
+        'front_raise'
+    ]
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-a', '--action', type=str, default='jump_jack', choices=ACTIONS)
+    args = parser.parse_args()
+
+    # configs
+    config = os.path.join(PROJ_ROOT, 'WorkoutDetector/tsm_config.py')
+    cfg = Config.fromfile(config)
+
+    cfg.setdefault('omnisource', False)
+
+    cfg.seed = 0
+    set_random_seed(0, deterministic=False)
+    cfg.data.train.ann_file = os.path.join(PROJ_ROOT, 'data/Binary', f'{args.action}-train.txt')
+    cfg.data.val.ann_file = os.path.join(PROJ_ROOT, 'data/Binary', f'{args.action}-val.txt')
+    cfg.data.test.ann_file = os.path.join(PROJ_ROOT, 'data/Binary', f'{args.action}-test.txt')
+
+    # cfg.resume_from = osp.join(cfg.work_dir, 'latest.pth')
+    print(cfg.pretty_text)
+    
+    train(cfg)
+
+
+if __name__ == '__main__':
+    main()
