@@ -146,7 +146,8 @@ class LitModel(pl.LightningModule):
         #                       lr=self.learning_rate,
         #                       momentum=0.9,
         #                       weight_decay=0.0001)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer)
+        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer)
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.1)
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,
@@ -237,7 +238,7 @@ if __name__ == '__main__':
                         type=str,
                         default='resnet50',
                         help='backbone of the TSM model')
-    parser.add_argument('-a', '--action', type=str, default='push_up', help='action')
+    parser.add_argument('-a', '--action', type=str, default='squat', help='action')
     parser.add_argument('-bs', '--batch_size', type=int, default=2, help='batch size')
     parser.add_argument('--wandb', action='store_true', help='add logger wandb')
     args = parser.parse_args()
