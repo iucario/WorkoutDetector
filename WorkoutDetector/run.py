@@ -57,7 +57,7 @@ class MyDataset(BaseDataset):
                 if line.startswith("directory"):
                     continue
                 frame_dir, start_index, total_frames, label = line.split()
-                if self.data_prefix is not None:
+                if self.data_prefix is not None and int(total_frames) > 0:
                     frame_dir = os.path.join(self.data_prefix, frame_dir)
                 video_infos.append(
                     dict(frame_dir=frame_dir,

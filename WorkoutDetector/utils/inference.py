@@ -2,7 +2,7 @@ import argparse
 from bisect import bisect_left
 from collections import deque
 import os
-from typing import List, Tuple
+from typing import Deque, List, Tuple
 import PIL
 import cv2
 from cv2 import transform
@@ -111,9 +111,9 @@ def evaluate_by_image(ort_session: onnxruntime.InferenceSession,
     if output_path:
         out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps,
                               (width, height))
-    result = deque(maxlen=7)
+    result: Deque[int] = deque(maxlen=7)
     count = 0
-    states = []
+    states: List[int] = []
     frame_idx = 0
     while True:
         ret, frame = cap.read()
@@ -165,7 +165,7 @@ def pred_to_count(preds: List[int]) -> Tuple[int, List[int]]:
 
     count = 0
     reps = []
-    states = []
+    states: List[int] = []
     for idx, pred in enumerate(preds):
         if states and states[-1] != pred:
             if pred != states[0]:
@@ -198,7 +198,7 @@ def write_to_video(video_path, output_path, result):
     out.release()
 
 
-def onnx_inference(ort_session, inputs: torch.Tensor) -> int:
+def onnx_inference(ort_session, inputs: np.ndarray) -> int:
     """tsm 8 frames inference.
 
     Args:
@@ -233,10 +233,10 @@ def evaluate(ort_session,
     video_name = os.path.basename(video_path)
     output_path = os.path.join(output_dir, video_name)
     cap = cv2.VideoCapture(video_path)
-    input_queue = deque(maxlen=8)
+    input_queue: Deque[int] = deque(maxlen=8)
     result = []
     count = 0
-    states = []
+    states: List[int] = []
     reps = []  # frame indices of action end state, start from 1
     frame_idx = 0
     while True:

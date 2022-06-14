@@ -118,7 +118,7 @@ class RepcountDataset(torch.utils.data.Dataset):
         self.classes = self.df['class_'].unique().tolist()
         self.transform = transform
 
-    def __getitem__(self, index: int) -> Tuple[str, int]:
+    def get_video(self, index: int) -> Tuple[str, int]:
         """Returns path to video rawframe and video class.
         For action recognition.
         """
@@ -185,7 +185,7 @@ class RepcountImageDataset(RepcountDataset):
         self.action = action
         self._prefix = os.path.join(self._data_path, 'rawframes', split)
 
-    def __getitem__(self, index: int) -> tuple:
+    def __getitem__(self, index: int) -> Tuple[Tensor, int]:
         img_path = os.path.join(self._prefix, self.images[index])
         img = read_image(img_path)
         label = self.labels[index]
@@ -296,11 +296,11 @@ class RepcountVideoDataset(RepcountDataset):
             frame_list.append(frame)
         if self.transform is not None:
             frame_list = [self.transform(frame) for frame in frame_list]
-        frame_list = torch.stack(frame_list, 0)
-        assert frame_list.shape[0] == self.num_segments, \
-            f'frame_list.shape[0] = {frame_list.shape[0]}, ' \
+        frame_tensor = torch.stack(frame_list, 0)
+        assert frame_tensor.shape[0] == self.num_segments, \
+            f'frame_list.shape[0] = {frame_tensor.shape[0]}, ' \
             f'but self.num_segments = {self.num_segments}'
-        return frame_list, self.video_list[index]['label']
+        return frame_tensor, self.video_list[index]['label']
 
     def __len__(self) -> int:
         return len(self.video_list)

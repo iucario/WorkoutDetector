@@ -82,10 +82,8 @@ def rename_images():
 
 
 def build_with_start():
-    CLASSES = [
-        'situp', 'push_up', 'pull_up', 'bench_pressing', 'jump_jack', 'squat',
-        'front_raise'
-    ]
+    # pop bench_pressing because there are too many errors in the annotation
+    CLASSES = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
     data_root = os.path.join(BASE, 'data')
     DEST_DIR = os.path.join(data_root, 'Binary')
     for action in CLASSES:

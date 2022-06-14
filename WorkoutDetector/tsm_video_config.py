@@ -32,7 +32,7 @@ optimizer = dict(type='SGD',
 optimizer_config = dict(grad_clip=dict(max_norm=20, norm_type=2))
 
 # learning policy
-lr_config = dict(policy='step', step=[5, 15])
+lr_config = dict(policy='step', step=[5, 10, 15, 25])
 
 total_epochs = 30
 
