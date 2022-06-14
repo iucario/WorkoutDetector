@@ -27,7 +27,7 @@ def parse_onedrive(link) -> str:
     return res
 
 
-def sample_frames(total: int, num: int, offset=0):
+def sample_frames(total: int, num: int, offset: int = 0) -> List[int]:
     """Uniformly sample num frames from video
     
     Args:
@@ -69,6 +69,12 @@ class RepcountDataset(torch.utils.data.Dataset):
         root: str, root dir
         split: str, train or val or test
     
+    Properties:
+        classes: list of str, class names
+        df: pandas.DataFrame, annotation data
+        split: str, train or val or test
+        transform: callable, transform for rawframes
+    
     Notes:
         File tree::
 
@@ -97,7 +103,11 @@ class RepcountDataset(torch.utils.data.Dataset):
     _URL_ANNO = 'https://1drv.ms/f/s!AiohV3HRf-34i_V9MWtdu66tCT2pGQ'
     _URL_RAWFRAME = 'https://1drv.ms/u/s!AiohV3HRf-34ipwACYfKSHhkZzebrQ'
 
-    def __init__(self, root, split='train', transform=None, download=False) -> None:
+    def __init__(self,
+                 root: str,
+                 split: str = None,
+                 transform=None,
+                 download=False) -> None:
         super(RepcountDataset, self).__init__()
         self._data_path = os.path.join(root, 'RepCount')
         if download:
@@ -130,6 +140,50 @@ class RepcountDataset(torch.utils.data.Dataset):
         count = row['count']
         reps = list(map(int, row.reps.split())) if count else []
         return video_frame_path, label
+
+    def get_video_list(self, split: str, action: str = None) -> List[dict]:
+        """
+        Returns:
+            list of dict: videos, 
+                {
+                    video_path: path_to_raw_frames_dir, 
+                    start: start_frame_index, start from 1,
+                    end: end_frame_index
+                    length: end_frame_index - start_frame_index + 1
+                    class: action class,
+                    label: 0 or 1
+                }
+        """
+        if action is not None:
+            action_df = self.df[self.df['class_'] == action]
+        else:
+            action_df = self.df
+        videos = []
+        for row in action_df.itertuples():
+            name = row.name.split('.')[0]
+            count = row.count
+            reps = list(map(int, row.reps.split())) if count > 0 else []
+            for start, end in zip(reps[0::2], reps[1::2]):
+                start += 1  # plus 1 because img index starts from 1
+                end += 1  # but annotated frame index starts from 0
+                mid = (start + end) // 2
+                videos.append({
+                    'video_path': os.path.join(self._data_path, 'rawframes', split, name),
+                    'start': start,
+                    'end': mid,
+                    'length': mid - start + 1,
+                    'class': row.class_,
+                    'label': 0
+                })
+                videos.append({
+                    'video_path': os.path.join(self._data_path, 'rawframes', split, name),
+                    'start': mid + 1,
+                    'end': end,
+                    'length': end - mid,
+                    'class': row.class_,
+                    'label': 1
+                })
+        return videos
 
     def __len__(self) -> int:
         return len(self.df)
@@ -228,61 +282,8 @@ class RepcountVideoDataset(RepcountDataset):
         super(RepcountVideoDataset, self).__init__(root, split, transform, download)
         verify_str_arg(action, "action", self.classes)
         self.df = self.df[self.df['class_'] == action]
-        self.video_list = self.setup()
         self.num_segments = num_segments
-
-    def setup(self) -> List[dict]:
-        """
-        Returns:
-            list of dict: videos, 
-                {
-                    video_path: path_to_raw_frames_dir, 
-                    start: start_frame_index, start from 1,
-                    end: end_frame_index
-                    length: end_frame_index - start_frame_index + 1
-                    class: action class,
-                    label: 0 or 1
-                }
-        """
-
-        videos = []
-        for row in self.df.itertuples():
-            name = row.name.split('.')[0]
-            count = row.count
-            reps = list(map(int, row.reps.split())) if count > 0 else []
-            for start, end in zip(reps[0::2], reps[1::2]):
-                start += 1  # plus 1 because img index starts from 1
-                end += 1  # but annotated frame index starts from 0
-                mid = (start + end) // 2
-                videos.append({
-                    'video_path':
-                        os.path.join(self._data_path, 'rawframes', self.split, name),
-                    'start':
-                        start,
-                    'end':
-                        mid,
-                    'length':
-                        mid - start + 1,
-                    'class':
-                        row.class_,
-                    'label':
-                        0
-                })
-                videos.append({
-                    'video_path':
-                        os.path.join(self._data_path, 'rawframes', self.split, name),
-                    'start':
-                        mid + 1,
-                    'end':
-                        end,
-                    'length':
-                        end - mid,
-                    'class':
-                        row.class_,
-                    'label':
-                        1
-                })
-        return videos
+        self.video_list = self.get_video_list(split, action)
 
     def __getitem__(self, index: int) -> Tuple[Tensor, int]:
         frame_list = []
@@ -314,7 +315,7 @@ if __name__ == '__main__':
     # imageset = RepcountImageDataset(data_root, action='jump_jack', split='test')
     random_index = np.random.randint(0, len(dataset))
     img, label = dataset[random_index]
-    plt.figure(figsize=(8, 4),dpi=200)
+    plt.figure(figsize=(8, 4), dpi=200)
     img = einops.rearrange(img, '(b1 b2) c h w -> (b1 h) (b2 w) c', b1=2)
     plt.title(f'label: {label}')
     print(img.shape)

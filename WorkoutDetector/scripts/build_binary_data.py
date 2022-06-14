@@ -1,9 +1,7 @@
 from WorkoutDetector.utils.common import Repcount
-from WorkoutDetector.datasets import RepcountVideoDataset
+from WorkoutDetector.datasets import RepcountDataset
 import os
-import shutil
 import yaml
-import tqdm
 
 config = yaml.safe_load(
     open(os.path.join(os.path.dirname(__file__), '../utils/config.yml')))
@@ -81,40 +79,43 @@ def rename_images():
             os.rename(os.path.join(data_dir, d, img), os.path.join(data_dir, d, new_name))
 
 
-def build_with_start():
+def build_with_start(data_root: str, dst_dir: str) -> None:
+    """Creates label files for video classification.
+
+    Args:
+        data_root: Directory to RepCount dataset. Same as in RepCountDataset.
+        dst_dir: Path to dir where txt files will be created.
+
+    Note:
+        For each action and `all-{split}.txt` file is created.
+        Lines in the label files are in the format:
+            video_path, start, length, label
+    """
+
     # pop bench_pressing because there are too many errors in the annotation
     CLASSES = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
-    data_root = os.path.join(BASE, 'data')
-    DEST_DIR = os.path.join(data_root, 'Binary')
-    for action in CLASSES:
-        train_set = RepcountVideoDataset(root=data_root,
-                                         action=action,
-                                         split='train',
-                                         transform=None)
-        val_set = RepcountVideoDataset(root=data_root,
-                                       action=action,
-                                       split='val',
-                                       transform=None)
-        test_set = RepcountVideoDataset(root=data_root,
-                                        action=action,
-                                        split='test',
-                                        transform=None)
 
-        for split, split_set in zip(['train', 'val', 'test'],
-                                    [train_set, val_set, test_set]):
+    dataset = RepcountDataset(data_root, split='train')
+
+    for action in CLASSES:
+
+        for split in ['train', 'val', 'test']:
+            video_list = dataset.get_video_list(split, action)
             # build for single action
-            with open(os.path.join(DEST_DIR, f'{action}-{split}.txt'), 'w') as f:
-                for v in split_set.video_list:
+            with open(os.path.join(dst_dir, f'{action}-{split}.txt'), 'w') as f:
+                for v in video_list:
                     f.write(
                         f'{v["video_path"]} {v["start"]} {v["length"]} {v["label"]}\n')
 
             # build for all actions
-            with open(os.path.join(DEST_DIR, f'all-{split}.txt'), 'a') as f:
-                for v in split_set.video_list:
+            with open(os.path.join(dst_dir, f'all-{split}.txt'), 'a') as f:
+                for v in video_list:
                     action_idx = CLASSES.index(action)
                     label = v['label'] + 2 * action_idx
                     f.write(f'{v["video_path"]} {v["start"]} {v["length"]} {label}\n')
 
 
 if __name__ == '__main__':
-    build_with_start()
+    data_root = os.path.join(BASE, 'data')
+    dst_dir = os.path.join(data_root, 'Binary')
+    build_with_start(data_root, dst_dir)
