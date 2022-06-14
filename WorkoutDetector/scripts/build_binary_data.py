@@ -80,34 +80,43 @@ def rename_images():
             new_name = f'img_{img}'
             os.rename(os.path.join(data_dir, d, img), os.path.join(data_dir, d, new_name))
 
+
 def build_with_start():
-    CLASSES = ['situp', 'push_up', 'pull_up', 'bench_pressing', 'jump_jack', 'squat', 'front_raise']
+    CLASSES = [
+        'situp', 'push_up', 'pull_up', 'bench_pressing', 'jump_jack', 'squat',
+        'front_raise'
+    ]
     data_root = os.path.join(BASE, 'data')
     DEST_DIR = os.path.join(data_root, 'Binary')
     for action in CLASSES:
-        train_set =RepcountVideoDataset(root=data_root,
-                                        action=action,
-                                        split='train',
-                                        transform=None)
+        train_set = RepcountVideoDataset(root=data_root,
+                                         action=action,
+                                         split='train',
+                                         transform=None)
         val_set = RepcountVideoDataset(root=data_root,
-                                        action=action,      
-                                        split='val',
-                                        transform=None)
+                                       action=action,
+                                       split='val',
+                                       transform=None)
         test_set = RepcountVideoDataset(root=data_root,
                                         action=action,
                                         split='test',
                                         transform=None)
-        
-        with open(os.path.join(DEST_DIR, f'{action}-train.txt'), 'w') as f:
-            for v in train_set.video_list:
-                f.write(f'{v["video_path"]} {v["start"]} {v["length"]} {v["label"]}\n')
-        with open(os.path.join(DEST_DIR, f'{action}-val.txt'), 'w') as f:
-            for v in val_set.video_list:
-                f.write(f'{v["video_path"]} {v["start"]} {v["length"]} {v["label"]}\n')
-        with open(os.path.join(DEST_DIR, f'{action}-test.txt'), 'w') as f:
-            for v in test_set.video_list:
-                f.write(f'{v["video_path"]} {v["start"]} {v["length"]} {v["label"]}\n')
-        
+
+        for split, split_set in zip(['train', 'val', 'test'],
+                                    [train_set, val_set, test_set]):
+            # build for single action
+            with open(os.path.join(DEST_DIR, f'{action}-{split}.txt'), 'w') as f:
+                for v in split_set.video_list:
+                    f.write(
+                        f'{v["video_path"]} {v["start"]} {v["length"]} {v["label"]}\n')
+
+            # build for all actions
+            with open(os.path.join(DEST_DIR, f'all-{split}.txt'), 'a') as f:
+                for v in split_set.video_list:
+                    action_idx = CLASSES.index(action)
+                    label = v['label'] + 2 * action_idx
+                    f.write(f'{v["video_path"]} {v["start"]} {v["length"]} {label}\n')
+
 
 if __name__ == '__main__':
     build_with_start()
