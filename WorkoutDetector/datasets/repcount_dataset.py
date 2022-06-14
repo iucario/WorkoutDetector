@@ -141,8 +141,18 @@ class RepcountDataset(torch.utils.data.Dataset):
         reps = list(map(int, row.reps.split())) if count else []
         return video_frame_path, label
 
-    def get_video_list(self, split: str, action: str = None) -> List[dict]:
+    def get_video_list(self,
+                       split: str,
+                       action: str = None,
+                       max_reps: int = 2) -> List[dict]:
         """
+
+        Args:
+            split: str, train or val or test
+            action: str, action class name. If none, all actions are used.
+            max_reps: int, limit the number of repetitions per video.
+                If less than 1, all repetitions are used.
+
         Returns:
             list of dict: videos, 
                 {
@@ -162,7 +172,10 @@ class RepcountDataset(torch.utils.data.Dataset):
         for row in action_df.itertuples():
             name = row.name.split('.')[0]
             count = row.count
-            reps = list(map(int, row.reps.split())) if count > 0 else []
+            if count > 0:
+                reps = list(map(int, row.reps.split()))[:max_reps*2]
+            else:
+                []
             for start, end in zip(reps[0::2], reps[1::2]):
                 start += 1  # plus 1 because img index starts from 1
                 end += 1  # but annotated frame index starts from 0
