@@ -153,16 +153,14 @@ def main():
     args = parser.parse_args()
 
     # configs
-    config = os.path.join(PROJ_ROOT, 'WorkoutDetector/tsm_config.py')
+    if args.check:
+        cfg = Config.fromfile(os.path.join(PROJ_ROOT, 'WorkoutDetector/ts_action_config.py'))
+    else:
+        config = os.path.join(PROJ_ROOT, 'WorkoutDetector/tsm_video_config.py')
     cfg = Config.fromfile(config)
     cfg.setdefault('omnisource', False)
     cfg.seed = 0
     set_random_seed(0, deterministic=False)
-
-    if args.action == 'all':
-        cfg.model.cls_head.num_classes = (len(ACTIONS) - 1) * 2
-    else:
-        cfg.model.cls_head.num_classes = 2
 
     if args.check:
         cfg.data.train.ann_file = '/home/umi/projects/WorkoutDetector/data/RepCount/rawframes/train.txt'
@@ -182,6 +180,10 @@ def main():
                                                         config={**cfg}))
                               ])
     else:
+        if args.action == 'all':
+            cfg.model.cls_head.num_classes = (len(ACTIONS) - 1) * 2
+        else:
+            cfg.model.cls_head.num_classes = 2
         cfg.data.train.ann_file = os.path.join(PROJ_ROOT, 'data/Binary',
                                                f'{args.action}-train.txt')
         cfg.data.val.ann_file = os.path.join(PROJ_ROOT, 'data/Binary',
