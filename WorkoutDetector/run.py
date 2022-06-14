@@ -130,37 +130,6 @@ class ActionDataset(BaseDataset):  # sanity check. why is MyDataset val acc alwa
         return self.pipeline(results)
 
 
-@DATASETS.register_module()
-class MultiActionDataset(ActionDataset):
-    """Instead of binary classification for one action, this class uses multiple actions.
-    For each action, two classes are created. For two states in the action, up and down.
-
-    Note:
-        Difference between `ActionDataset` and `MultiActionDataset` is that the 
-        number of classes is twice as large as in `ActionDataset`.
-    """
-
-    def load_annotations(self) -> List[dict]:
-        video_infos = []
-        with open(self.ann_file, 'r') as fin:
-            for line in fin:
-                if line.startswith("directory"):
-                    continue
-                frame_dir, total_frames, label = line.split()
-                # Because the ann_file has name of format: `{action}-{split}.txt`
-                action = self.ann_file.split('-')[0]
-                action_idx = self.CLASSES.index(action)
-                label = int(label) + action_idx * 2  # the label in all classes
-                if self.data_prefix is not None:
-                    frame_dir = os.path.join(self.data_prefix, frame_dir)
-                video_infos.append(
-                    dict(frame_dir=frame_dir,
-                         start_index=1,
-                         total_frames=int(total_frames),
-                         label=int(label)))
-        return video_infos
-
-
 def train(cfg: Config) -> None:
     # Build the dataset
     datasets = [build_dataset(cfg.data.train)]
@@ -189,7 +158,7 @@ def main():
     cfg.setdefault('omnisource', False)
     cfg.seed = 0
     set_random_seed(0, deterministic=False)
-    
+
     if args.action == 'all':
         cfg.model.cls_head.num_classes = (len(ACTIONS) - 1) * 2
     else:
