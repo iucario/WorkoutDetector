@@ -1,16 +1,7 @@
 import argparse
-from typing import List, Tuple
-from WorkoutDetector.datasets import RepcountVideoDataset
-import torch
-from torch.utils.data import DataLoader
+from typing import List
 import os
-from torch import optim, nn, utils, Tensor
-import pytorch_lightning as pl
-import torchvision.transforms as T
-import timm
 import yaml
-import einops
-import time
 
 from mmaction.datasets import build_dataset
 from mmaction.models import build_model
@@ -34,6 +25,8 @@ class MyDataset(BaseDataset):
     Note:
         label.txt has the following format:
             `dir/to/video/frames start_index total_frames label`
+        
+        Labels are built using `scripts/build_label_list.py`
     """
 
     def __init__(self,
@@ -48,9 +41,8 @@ class MyDataset(BaseDataset):
 
         self.filename_tmpl = filename_tmpl
         self.data_prefix = data_prefix
-        print("data_prefix: ", data_prefix)
 
-    def load_annotations(self):
+    def load_annotations(self) -> List[dict]:
         video_infos = []
         with open(self.ann_file, 'r') as fin:
             for line in fin:
@@ -143,10 +135,7 @@ def train(cfg: Config) -> None:
 
 
 def main():
-    ACTIONS = [
-        'situp', 'push_up', 'pull_up', 'bench_pressing', 'jump_jack', 'squat',
-        'front_raise', 'all'
-    ]
+    ACTIONS = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise', 'all']
     parser = argparse.ArgumentParser()
     parser.add_argument('-a', '--action', type=str, default='jump_jack', choices=ACTIONS)
     parser.add_argument('--check', action='store_true', help='sanity check')
@@ -154,7 +143,8 @@ def main():
 
     # configs
     if args.check:
-        cfg = Config.fromfile(os.path.join(PROJ_ROOT, 'WorkoutDetector/ts_action_config.py'))
+        cfg = Config.fromfile(
+            os.path.join(PROJ_ROOT, 'WorkoutDetector/tsm_action_config.py'))
     else:
         config = os.path.join(PROJ_ROOT, 'WorkoutDetector/tsm_video_config.py')
     cfg = Config.fromfile(config)
@@ -163,14 +153,13 @@ def main():
     set_random_seed(0, deterministic=False)
 
     if args.check:
-        cfg.data.train.ann_file = '/home/umi/projects/WorkoutDetector/data/RepCount/rawframes/train.txt'
-        cfg.data.val.ann_file = '/home/umi/projects/WorkoutDetector/data/RepCount/rawframes/val.txt'
-        cfg.data.test.ann_file = '/home/umi/projects/WorkoutDetector/data/RepCount/rawframes/test.txt'
-        cfg.data.train.data_prefix = os.path.join(PROJ_ROOT,
-                                                  'data/RepCount/rawframes/train')
-        cfg.data.val.data_prefix = os.path.join(PROJ_ROOT, 'data/RepCount/rawframes/val')
-        cfg.data.test.data_prefix = os.path.join(PROJ_ROOT,
-                                                 'data/RepCount/rawframes/test')
+        rawframes_dir = os.path.join(PROJ_ROOT, 'WorkoutDetector/data/rawframes')
+        cfg.data.train.ann_file = os.path.join(rawframes_dir, 'train.txt')
+        cfg.data.val.ann_file = os.path.join(rawframes_dir, 'val.txt')
+        cfg.data.test.ann_file = os.path.join(rawframes_dir, 'test.txt')
+        cfg.data.train.data_prefix = os.path.join(rawframes_dir, 'train')
+        cfg.data.val.data_prefix = os.path.join(rawframes_dir, 'val')
+        cfg.data.test.data_prefix = os.path.join(rawframes_dir, 'test')
         cfg.log_config = dict(interval=20,
                               hooks=[
                                   dict(type='TextLoggerHook'),
@@ -184,12 +173,10 @@ def main():
             cfg.model.cls_head.num_classes = (len(ACTIONS) - 1) * 2
         else:
             cfg.model.cls_head.num_classes = 2
-        cfg.data.train.ann_file = os.path.join(PROJ_ROOT, 'data/Binary',
-                                               f'{args.action}-train.txt')
-        cfg.data.val.ann_file = os.path.join(PROJ_ROOT, 'data/Binary',
-                                             f'{args.action}-val.txt')
-        cfg.data.test.ann_file = os.path.join(PROJ_ROOT, 'data/Binary',
-                                              f'{args.action}-test.txt')
+        ann_root = os.path.join(PROJ_ROOT, 'data/Binary')
+        cfg.data.train.ann_file = os.path.join(ann_root, f'{args.action}-train.txt')
+        cfg.data.val.ann_file = os.path.join(ann_root, f'{args.action}-val.txt')
+        cfg.data.test.ann_file = os.path.join(ann_root, f'{args.action}-test.txt')
 
     cfg.work_dir = os.path.join(PROJ_ROOT, 'WorkoutDetector/work_dirs', args.action)
 

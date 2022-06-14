@@ -1,6 +1,6 @@
 import argparse
 from typing import Tuple
-from WorkoutDetector.datasets import RepcountDataset, RepcountImageDataset
+from WorkoutDetector.datasets import RepcountImageDataset
 import torch
 from torch.utils.data import DataLoader
 import os

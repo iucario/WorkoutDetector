@@ -123,8 +123,8 @@ class RepcountDataset(torch.utils.data.Dataset):
             raise OSError(
                 f'{anno_path} not found. Consider move '\
                     '`/datasets/RepCount/all_data.csv` to `{anno_path}`')
-        anno_df = pd.read_csv(anno_path, index_col=0)
-        self.df = anno_df[anno_df['split'] == split]
+        self._anno_df = pd.read_csv(anno_path, index_col=0)
+        self.df = self._anno_df[self._anno_df['split'] == split]
         self.classes = self.df['class_'].unique().tolist()
         self.transform = transform
 
@@ -164,12 +164,11 @@ class RepcountDataset(torch.utils.data.Dataset):
                     label: 0 or 1
                 }
         """
+        df = self._anno_df[self._anno_df['split'] == split]
         if action is not None:
-            action_df = self.df[self.df['class_'] == action]
-        else:
-            action_df = self.df
+            df = df[df['class_'] == action]
         videos = []
-        for row in action_df.itertuples():
+        for row in df.itertuples():
             name = row.name.split('.')[0]
             count = row.count
             if count > 0:

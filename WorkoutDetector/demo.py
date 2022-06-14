@@ -20,17 +20,14 @@ import warnings
 import yaml
 
 user_cfg = yaml.safe_load(
-    open(
-        os.path.join(
-            os.path.dirname(__file__),
-            'utils/config.yml')))
+    open(os.path.join(os.path.dirname(__file__), 'utils/config.yml')))
 
 warnings.filterwarnings('ignore')
 onnxruntime.set_default_logger_severity(3)
 
-
-img_norm_cfg = dict(
-    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_bgr=False)
+img_norm_cfg = dict(mean=[123.675, 116.28, 103.53],
+                    std=[58.395, 57.12, 57.375],
+                    to_bgr=False)
 test_pipeline = [
     dict(type='Resize', scale=(-1, 256)),
     dict(type='CenterCrop', crop_size=224),
@@ -43,16 +40,23 @@ pipeline = Compose(test_pipeline)
 device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 home = user_cfg['proj_root']
 print('HOME', home)
-config = os.path.join(
-    home, 'mmaction2/configs/recognition/tsm/tsm_my_config.py')
+config = os.path.join(home, 'mmaction2/configs/recognition/tsm/tsm_my_config.py')
 sample_length = 8
 
 cfg = Config.fromfile(config)
 labels = [
-    'front_raise', 'pull_up', 'squat', 'bench_pressing', 'jumping_jack',
-    'situp', 'push_up', 'battle_rope', 'exercising_arm', 'lunge',
-    'mountain_climber', ]
-
+    'front_raise',
+    'pull_up',
+    'squat',
+    'bench_pressing',
+    'jumping_jack',
+    'situp',
+    'push_up',
+    'battle_rope',
+    'exercising_arm',
+    'lunge',
+    'mountain_climber',
+]
 
 onnx_ckpt = os.path.join(home, 'checkpoints/tsm_1x1x8_sthv2_20220522.onnx')
 onnx_model = onnx.load(onnx_ckpt)
@@ -60,12 +64,13 @@ onnx_sess = onnxruntime.InferenceSession(onnx_ckpt)
 
 torch_ckpt = os.path.join(
     home,
-    'WorkoutDetector/work_dirs/tsm_8_binary_squat_20220607_1956/best_top1_acc_epoch_16.pth')
+    'WorkoutDetector/work_dirs/tsm_8_binary_squat_20220607_1956/best_top1_acc_epoch_16.pth'
+)
 cfg.model.cls_head.num_classes = 2
 torch_model = init_recognizer(cfg, torch_ckpt, device=device)
 
 
-def onnx_inference(inputs: Tensor) -> List[float]:
+def onnx_inference(inputs: Tensor) -> dict:
     """Inference with ONNX Runtime.
     Args: inputs: Tensor, shape=(1, 8, 3, 224, 224)
     """
@@ -73,14 +78,12 @@ def onnx_inference(inputs: Tensor) -> List[float]:
     onnx.checker.check_model(onnx_model)
     # get onnx output
     input_all = [node.name for node in onnx_model.graph.input]
-    input_initializer = [
-        node.name for node in onnx_model.graph.initializer
-    ]
+    input_initializer = [node.name for node in onnx_model.graph.initializer]
     net_feed_input = list(set(input_all) - set(input_initializer))
     assert len(net_feed_input) == 1
 
-    onnx_scores = onnx_sess.run(
-        None, {net_feed_input[0]: inputs.cpu().detach().numpy()})[0]
+    onnx_scores = onnx_sess.run(None,
+                                {net_feed_input[0]: inputs.cpu().detach().numpy()})[0]
     # print(onnx_scores[0])
     onnx_scores = list(enumerate(onnx_scores[0]))
     onnx_scores.sort(key=lambda x: x[1], reverse=True)
@@ -97,8 +100,9 @@ def sample_frames(data, num):
     total = len(data)
     if total <= num:
         # repeat last frame if num > total
-        ret = np.vstack([data, np.repeat(data[-1], num-total,
-                        axis=0).reshape(-1, *data.shape[1:])])
+        ret = np.vstack(
+            [data,
+             np.repeat(data[-1], num - total, axis=0).reshape(-1, *data.shape[1:])])
         return ret
     interval = total // num
     indices = np.arange(0, total, interval)[:num]
@@ -107,7 +111,7 @@ def sample_frames(data, num):
         if i == num - 1:
             upper = total
         else:
-            upper = min(interval*(i+1), total)
+            upper = min(interval * (i + 1), total)
         indices[i] = (x + rand) % upper
     assert len(indices) == num, f'len(indices)={len(indices)}'
     ret = data[indices]
@@ -150,8 +154,11 @@ def inference_video(video, single_class=True):
         ret, frame = capture.read()
     capture.release()
     print(f'video size[TWH]: {len(frames)}x{width}x{height}')
-    video_data = dict(img_shape=(height, width), modality='RGB',
-                      label=-1, start_index=0, total_frames=len(frames))
+    video_data = dict(img_shape=(height, width),
+                      modality='RGB',
+                      label=-1,
+                      start_index=0,
+                      total_frames=len(frames))
     frames = np.array(frames)
     pipeline = Compose(test_pipeline)
     if single_class:
@@ -163,11 +170,11 @@ def inference_video(video, single_class=True):
 
     else:
         scores = []
-        for i in range(len(frames)-sample_length*2):
-            video_data['imgs'] = frames[i:i+2*sample_length:2]  # step=2
+        for i in range(len(frames) - sample_length * 2):
+            video_data['imgs'] = frames[i:i + 2 * sample_length:2]  # step=2
             cur_data = pipeline(video_data)
             score = torch_inference(cur_data)
-            scores += [score]*2
+            scores += [score] * 2
 
     return {'success': True, 'data': scores}
 
@@ -178,8 +185,8 @@ def create_video(video, scores: List[OrderedDict]):
     height = vcap.get(cv2.CAP_PROP_FRAME_HEIGHT)
     fps = vcap.get(cv2.CAP_PROP_FPS)
     tmpfile = os.path.join(home, 'exp', video.split('/')[-1].split('.')[0] + '.webm')
-    output_video = cv2.VideoWriter(
-        tmpfile, cv2.VideoWriter_fourcc(*'vp80'), fps, (int(width), int(height)))
+    output_video = cv2.VideoWriter(tmpfile, cv2.VideoWriter_fourcc(*'vp80'), fps,
+                                   (int(width), int(height)))
 
     for i, score in enumerate(scores):
         ret, frame = vcap.read()
@@ -192,8 +199,9 @@ def create_video(video, scores: List[OrderedDict]):
             color = (0, 255, 0)
         else:
             color = (255, 0, 0)
-        cv2.putText(frame, f'{label}: {score[label]}', (int(width*0.2), int(height*0.2)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+        cv2.putText(frame, f'{label}: {score[label]}',
+                    (int(width * 0.2), int(height * 0.2)), cv2.FONT_HERSHEY_SIMPLEX, 1,
+                    color, 2)
         output_video.write(frame)
     vcap.release()
     output_video.release()
@@ -224,8 +232,7 @@ def main(video, mode):
 if __name__ == '__main__':
 
     example_dir = os.path.join(home, 'example_videos')
-    example_videos = [os.path.join(example_dir, x)
-                      for x in os.listdir(example_dir)]
+    example_videos = [os.path.join(example_dir, x) for x in os.listdir(example_dir)]
 
     demo = gr.Interface(
         fn=main,
@@ -233,16 +240,16 @@ if __name__ == '__main__':
         #                  type="numpy")],
         inputs=[
             gr.Video(source='upload'),
-            gr.Radio(
-                label='Classes in the video', choices=['single', 'multi'],
-                value='single')],
+            gr.Radio(label='Classes in the video',
+                     choices=['single', 'multi'],
+                     value='single')
+        ],
         outputs=["label", "video"],
         examples=[[vid, 'single'] for vid in example_videos],
         title="MMAction2 webcam demo",
         description="Input a video file. Output the recognition result.",
         live=False,
         allow_flagging='never',
-
     )
 
     demo.launch()

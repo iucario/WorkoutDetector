@@ -1,5 +1,4 @@
 import random
-import sys
 import os
 import os.path as osp
 from typing import List
@@ -12,7 +11,7 @@ import yaml
 import sklearn.metrics.pairwise as pw
 import seaborn as sns
 import torch
-from torch import Tensor, nn
+from torch import Tensor
 import torchvision.transforms as T
 import timm
 
@@ -99,12 +98,12 @@ def cnn_feature(fx, imgs: List, device='cuda') -> Tensor:
         T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
     imgs = [transforms(img) for img in imgs]
-    imgs = torch.stack(imgs)
-    imgs = imgs.to(device)
-    features = torch.zeros((len(imgs), 512))
+    images = torch.stack(imgs)
+    images = images.to(device)
+    features = torch.zeros((len(images), 512))
     with torch.no_grad():
-        for i in range(0, len(imgs), batch_size):
-            o = fx(imgs[i:i + batch_size])
+        for i in range(0, len(images), batch_size):
+            o = fx(images[i:i + batch_size])
             features[i:i + batch_size] = o.cpu()
     return features
 
@@ -152,120 +151,6 @@ def pose_info(item):
             print(f'{k} shape: {v.shape}')
         else:
             print(f'{k}: {v}')
-
-
-class Repcount:
-
-    def __init__(self):
-        self.anno_root = osp.join(config['proj_root'], 'datasets/RepCount/annotation')
-        self.anno_train_path = osp.join(self.anno_root, 'train.csv')
-        self.anno_val_path = osp.join(self.anno_root, 'val.csv')
-        self.anno_test_path = osp.join(self.anno_root, 'test.csv')
-        self.anno_all = None
-        for split in ['train', 'val', 'test']:
-            sp = self.get_anno(split)
-            sp['split'] = split
-            if self.anno_all is None:
-                self.anno_all = sp
-            else:
-                self.anno_all = pd.concat([self.anno_all, sp])
-        self.data_root = osp.join(config['proj_root'], 'data/RepCount/')
-        self.pose_data = self.load_pose()
-
-    def get_anno(self, split='train'):
-        """Returns annotation dataframe
-
-        Args:
-            split: str, 'train', 'val', 'test'
-
-        Returns:
-            dataframe
-        """
-
-        split = split.lower()
-        if split == 'train':
-            anno = pd.read_csv(self.anno_train_path, delimiter=',')
-        elif split == 'val':
-            anno = pd.read_csv(self.anno_val_path, delimiter=',')
-        elif split == 'test':
-            anno = pd.read_csv(self.anno_test_path, delimiter=',')
-        else:
-            raise ValueError(f'Invalid split: {split}. Must be one of train, val, test')
-        return anno
-
-    def get_count(self, name: str):
-        """Returns count of repetitions and repetition starts and ends frames
-
-        Args:
-            name: str, name of video
-
-        Returns: 
-            int: number of repetitions.
-            list of frames in order of [start_1, end_1, start_2, end_2, ...]
-        """
-
-        if not name.endswith('.mp4'):
-            name = name + '.mp4'
-        if name not in self.anno_all.name.unique():
-            raise ValueError(f'Video {name} not found in annotation')
-        isnum = self.anno_all[self.anno_all['name'] == name.strip()].iloc[0].dropna()
-        count = isnum['count'].astype(int)
-        reps = isnum.values[4:count * 2 + 4].astype(int)
-        return count, reps
-
-    def get_video(self, name: str):
-        """Returns video path from name
-
-        Args:
-            name: str, name of video
-
-        Returns: 
-            str: video_path
-        """
-
-        video_dir = osp.join(self.data_root, 'videos')
-        name = name + '.mp4' if not name.endswith('.mp4') else name
-        split = self.anno_all[self.anno_all['name'] == name.strip()]['split'].values[0]
-        video_path = osp.join(video_dir, f'{split}/{name}')
-        return video_path
-
-    def load_pose(self):  # train set pose not extracted yet
-        poses = np.load(osp.join(self.data_root, 'pose/val.pkl'), allow_pickle=True)
-        d = {}
-        for pose in poses:
-            name = pose['frame_dir']  # without .mp4
-            pose['count'], pose['reps'] = self.get_count(name)
-            d[name] = pose
-        return d
-
-    def get_pose(self, name: str):
-        """Returns pose data for video
-
-        Args:
-            name: str, name of video
-
-        Returns: 
-            dict: pose of the video. Same format as OpenMMLab's.
-        """
-        if name not in self.pose_data:
-            raise ValueError(f'Video {name} not found in pose data')
-        return self.pose_data[name]
-
-    def get_random_pose(self):
-        return self.pose_data[random.choice(list(self.pose_data.keys()))]
-
-    def vis_pose(self, name):
-        """Visualize pose of a video"""
-        video_path = self.get_video(name)
-        pass
-
-    def __repr__(self):
-        return f'Repcount(anno_root={self.anno_root})\n'\
-            f'anno_train_path={self.anno_train_path}\n'\
-            f'anno_val_path={self.anno_val_path},\n'\
-            f'anno_test_path={self.anno_test_path}\n'\
-            f'len_anno_all={len(self.anno_all)}\n'\
-            f'columns={self.anno_all.columns[:10]}\n'
 
 
 class Countix:
@@ -365,13 +250,3 @@ class Countix:
             f'anno_val_path={self.anno_val_path},\n'\
             f'len_anno_all={len(self.anno_all)}\n'\
             f'columns={self.anno_all.columns}\n'
-
-
-if __name__ == '__main__':
-    repcount = Repcount()
-    df = repcount.get_anno('test')
-    df = df[df['type'] == 'squat']
-    names = df['name'].values
-    print(names)
-    for name in names:
-        print(repcount.get_video(name))
