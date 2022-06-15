@@ -14,6 +14,8 @@ from WorkoutDetector.datasets import RepcountDataset
 import onnx
 import onnxruntime
 
+import moviepy.editor as mpy
+
 from mmaction.apis import inference_recognizer, init_recognizer
 
 onnxruntime.set_default_logger_severity(3)
@@ -54,7 +56,7 @@ def inference_image(ort_session: onnxruntime.InferenceSession, frame: np.ndarray
     return pred
 
 
-def evaluate_by_image(ort_session: onnxruntime.InferenceSession,
+def count_by_image_model(ort_session: onnxruntime.InferenceSession,
                       video_path: str,
                       ground_truth: list,
                       output_path: str = None) -> Tuple[int, int]:
@@ -79,7 +81,7 @@ def evaluate_by_image(ort_session: onnxruntime.InferenceSession,
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     if output_path:
-        out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps,
+        out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'vp80'), fps,
                               (width, height))
     result: Deque[int] = deque(maxlen=7)
     count = 0
@@ -158,7 +160,7 @@ def write_to_video(video_path: str, output_path: str, preds: List[int]) -> None:
     fps = cap.get(cv2.CAP_PROP_FPS)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps,
+    out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'vp80'), fps,
                           (width, height))
 
     count, reps = pred_to_count(preds)
@@ -196,10 +198,10 @@ def inference_video(ort_session: onnxruntime.InferenceSession, inputs: np.ndarra
     return pred
 
 
-def evaluate_by_video(ort_session,
-                      video_path,
-                      ground_truth: list,
-                      output_path=None) -> Tuple[int, int]:
+def count_by_video_model(ort_session: onnxruntime.InferenceSession,
+                         video_path: str,
+                         ground_truth: list,
+                         output_path: str = None) -> Tuple[int, int]:
     """Evaluate repetition count on a video, using video classification model.
     
     Args:
@@ -265,15 +267,15 @@ def infer_dataset(ort_session: onnxruntime.InferenceSession, action_name: str,
         else:
             gt = []
         if model_type == 'image':
-            count, gt_count = evaluate_by_image(ort_session,
+            count, gt_count = count_by_image_model(ort_session,
                                                 rand_video,
                                                 gt,
                                                 output_path=None)
         elif model_type == 'video':
-            count, gt_count = evaluate_by_video(ort_session=ort_session,
-                                                video_path=rand_video,
-                                                ground_truth=gt,
-                                                output_path=None)
+            count, gt_count = count_by_video_model(ort_session=ort_session,
+                                                   video_path=rand_video,
+                                                   ground_truth=gt,
+                                                   output_path=None)
         total_count += count
         total_gt_count += gt_count
 
@@ -287,15 +289,15 @@ def main(args) -> None:
     if args.video:
         video_path = args.video
         if args.model_type == 'image':
-            evaluate_by_image(ort_session,
+            count_by_image_model(ort_session,
                               video_path,
                               ground_truth=[],
                               output_path=args.output)
         elif args.model_type == 'video':
-            evaluate_by_video(ort_session,
-                              video_path,
-                              ground_truth=[],
-                              output_path=args.output)
+            count_by_video_model(ort_session,
+                                 video_path,
+                                 ground_truth=[],
+                                 output_path=args.output)
     else:
         infer_dataset(ort_session, action_name, model_type=args.model_type)
 
