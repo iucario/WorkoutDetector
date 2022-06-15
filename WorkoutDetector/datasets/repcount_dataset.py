@@ -27,7 +27,7 @@ def parse_onedrive(link) -> str:
     return res
 
 
-def sample_frames(total: int, num: int, offset=0):
+def sample_frames(total: int, num: int, offset: int = 0) -> List[int]:
     """Uniformly sample num frames from video
     
     Args:
@@ -69,11 +69,16 @@ class RepcountDataset(torch.utils.data.Dataset):
         root: str, root dir
         split: str, train or val or test
     
+    Properties:
+        classes: list of str, class names
+        df: pandas.DataFrame, annotation data
+        split: str, train or val or test
+        transform: callable, transform for rawframes
+    
     Notes:
         File tree::
 
             |- RepCount
-            |   |- annotation.csv
             |   |- rawframes
             |   |   |- train
             |   |   |     |- video_name/img_00001.jpg
@@ -97,7 +102,11 @@ class RepcountDataset(torch.utils.data.Dataset):
     _URL_ANNO = 'https://1drv.ms/f/s!AiohV3HRf-34i_V9MWtdu66tCT2pGQ'
     _URL_RAWFRAME = 'https://1drv.ms/u/s!AiohV3HRf-34ipwACYfKSHhkZzebrQ'
 
-    def __init__(self, root, split='train', transform=None, download=False) -> None:
+    def __init__(self,
+                 root: str,
+                 split: str = None,
+                 transform=None,
+                 download=False) -> None:
         super(RepcountDataset, self).__init__()
         self._data_path = os.path.join(root, 'RepCount')
         if download:
@@ -108,17 +117,15 @@ class RepcountDataset(torch.utils.data.Dataset):
             )
         verify_str_arg(split, "split", ("train", "val", "test"))
         self.split = split
-        anno_path = os.path.join(self._data_path, 'annotation.csv')
+        anno_path = os.path.join(self._data_path, '../../datasets/RepCount/annotation.csv')
         if not os.path.exists(anno_path):
-            raise OSError(
-                f'{anno_path} not found. Consider move '\
-                    '`/datasets/RepCount/all_data.csv` to `{anno_path}`')
-        anno_df = pd.read_csv(anno_path, index_col=0)
-        self.df = anno_df[anno_df['split'] == split]
+            raise OSError(f'{anno_path} not found.')
+        self._anno_df = pd.read_csv(anno_path, index_col=0)
+        self.df = self._anno_df[self._anno_df['split'] == split]
         self.classes = self.df['class_'].unique().tolist()
         self.transform = transform
 
-    def __getitem__(self, index: int) -> Tuple[str, int]:
+    def get_video(self, index: int) -> Tuple[str, int]:
         """Returns path to video rawframe and video class.
         For action recognition.
         """
@@ -131,6 +138,62 @@ class RepcountDataset(torch.utils.data.Dataset):
         reps = list(map(int, row.reps.split())) if count else []
         return video_frame_path, label
 
+    def get_video_list(self,
+                       split: str,
+                       action: str = None,
+                       max_reps: int = 2) -> List[dict]:
+        """
+
+        Args:
+            split: str, train or val or test
+            action: str, action class name. If none, all actions are used.
+            max_reps: int, limit the number of repetitions per video.
+                If less than 1, all repetitions are used.
+
+        Returns:
+            list of dict: videos, 
+                {
+                    video_path: path_to_raw_frames_dir, 
+                    start: start_frame_index, start from 1,
+                    end: end_frame_index
+                    length: end_frame_index - start_frame_index + 1
+                    class: action class,
+                    label: 0 or 1
+                }
+        """
+        df = self._anno_df[self._anno_df['split'] == split]
+        if action is not None:
+            df = df[df['class_'] == action]
+        videos = []
+        for row in df.itertuples():
+            name = row.name.split('.')[0]
+            count = row.count
+            if count > 0:
+                reps = list(map(int, row.reps.split()))[:max_reps * 2]
+            else:
+                []
+            for start, end in zip(reps[0::2], reps[1::2]):
+                start += 1  # plus 1 because img index starts from 1
+                end += 1  # but annotated frame index starts from 0
+                mid = (start + end) // 2
+                videos.append({
+                    'video_path': os.path.join(self._data_path, 'rawframes', split, name),
+                    'start': start,
+                    'end': mid,
+                    'length': mid - start + 1,
+                    'class': row.class_,
+                    'label': 0
+                })
+                videos.append({
+                    'video_path': os.path.join(self._data_path, 'rawframes', split, name),
+                    'start': mid + 1,
+                    'end': end,
+                    'length': end - mid,
+                    'class': row.class_,
+                    'label': 1
+                })
+        return videos
+
     def __len__(self) -> int:
         return len(self.df)
 
@@ -141,13 +204,16 @@ class RepcountDataset(torch.utils.data.Dataset):
         if self._check_exists():
             return
         # the extracted folder is `rawframes`, may upload again sometime
-        download_and_extract_archive(self._URL_RAWFRAME,
+        url = parse_onedrive(self._URL_RAWFRAME)
+        download_and_extract_archive(url,
                                      download_root=self._data_path,
                                      filename='rawframes.zip',
                                      extract_root=self._data_path)
 
     def _check_exists(self) -> bool:
-        return os.path.exists(self._data_path) and os.path.isdir(self._data_path)
+        return os.path.exists(
+            self._data_path) and os.path.isdir(self._data_path) and os.path.exists(
+                os.path.join(self._data_path, 'RepCount/rawframes'))
 
 
 class RepcountImageDataset(RepcountDataset):
@@ -185,7 +251,7 @@ class RepcountImageDataset(RepcountDataset):
         self.action = action
         self._prefix = os.path.join(self._data_path, 'rawframes', split)
 
-    def __getitem__(self, index: int) -> tuple:
+    def __getitem__(self, index: int) -> Tuple[Tensor, int]:
         img_path = os.path.join(self._prefix, self.images[index])
         img = read_image(img_path)
         label = self.labels[index]
@@ -205,6 +271,17 @@ class RepcountVideoDataset(RepcountDataset):
     Args:
         action: str
         num_frames: int, number of frames in one video
+    
+    Properties:
+        video_list: list of dict, each dict contains:
+        ::
+        
+            video_path: path_to_raw_frames_dir, 
+            start: start_frame_index, start from 1,
+            end: end_frame_index
+            length: end_frame_index - start_frame_index + 1
+            class: action class,
+            label: 0 or 1
     """
 
     def __init__(self,
@@ -217,61 +294,8 @@ class RepcountVideoDataset(RepcountDataset):
         super(RepcountVideoDataset, self).__init__(root, split, transform, download)
         verify_str_arg(action, "action", self.classes)
         self.df = self.df[self.df['class_'] == action]
-        self.video_list = self.setup()
         self.num_segments = num_segments
-
-    def setup(self) -> List[dict]:
-        """
-        Returns:
-            list of dict: videos, 
-                {
-                    video_path: path_to_raw_frames_dir, 
-                    start: start_frame_index, start from 1,
-                    end: end_frame_index
-                    length: end_frame_index - start_frame_index + 1
-                    class: action class,
-                    label: 0 or 1
-                }
-        """
-
-        videos = []
-        for row in self.df.itertuples():
-            name = row.name.split('.')[0]
-            count = row.count
-            reps = list(map(int, row.reps.split())) if count > 0 else []
-            for start, end in zip(reps[0::2], reps[1::2]):
-                start += 1  # plus 1 because img index starts from 1
-                end += 1  # but annotated frame index starts from 0
-                mid = (start + end) // 2
-                videos.append({
-                    'video_path':
-                        os.path.join(self._data_path, 'rawframes', self.split, name),
-                    'start':
-                        start,
-                    'end':
-                        mid,
-                    'length':
-                        mid - start + 1,
-                    'class':
-                        row.class_,
-                    'label':
-                        0
-                })
-                videos.append({
-                    'video_path':
-                        os.path.join(self._data_path, 'rawframes', self.split, name),
-                    'start':
-                        mid + 1,
-                    'end':
-                        end,
-                    'length':
-                        end - mid,
-                    'class':
-                        row.class_,
-                    'label':
-                        1
-                })
-        return videos
+        self.video_list = self.get_video_list(split, action)
 
     def __getitem__(self, index: int) -> Tuple[Tensor, int]:
         frame_list = []
@@ -285,11 +309,11 @@ class RepcountVideoDataset(RepcountDataset):
             frame_list.append(frame)
         if self.transform is not None:
             frame_list = [self.transform(frame) for frame in frame_list]
-        frame_list = torch.stack(frame_list, 0)
-        assert frame_list.shape[0] == self.num_segments, \
-            f'frame_list.shape[0] = {frame_list.shape[0]}, ' \
+        frame_tensor = torch.stack(frame_list, 0)
+        assert frame_tensor.shape[0] == self.num_segments, \
+            f'frame_list.shape[0] = {frame_tensor.shape[0]}, ' \
             f'but self.num_segments = {self.num_segments}'
-        return frame_list, self.video_list[index]['label']
+        return frame_tensor, self.video_list[index]['label']
 
     def __len__(self) -> int:
         return len(self.video_list)
@@ -303,7 +327,7 @@ if __name__ == '__main__':
     # imageset = RepcountImageDataset(data_root, action='jump_jack', split='test')
     random_index = np.random.randint(0, len(dataset))
     img, label = dataset[random_index]
-    plt.figure(figsize=(8, 4),dpi=200)
+    plt.figure(figsize=(8, 4), dpi=200)
     img = einops.rearrange(img, '(b1 b2) c h w -> (b1 h) (b2 w) c', b1=2)
     plt.title(f'label: {label}')
     print(img.shape)

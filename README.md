@@ -7,7 +7,7 @@ This project uses the [MMAction2](https://github.com/open-mmlab/mmaction2)
 - [ ] Train on more datasets
 - [x] Action detection
 - [ ] Use pose estimation
-- [ ] Repetition counting
+- [x] Repetition counting
 - [ ] Action accessment
 
 ## Installation
@@ -45,6 +45,23 @@ Going to fix the frontend React code.
 3. `python WorkoutDetector/demo.py`
 4. open http://localhost:7860/
 
+## Inference
+
+### Repetition counting
+
+Two model types, image and video, can be used.
+
+Method is naive. The transition of states is counted as one repetition. It's online counting.
+
+1. Prepare `onnx` model trained using `run.py`
+2. Run script
+   ```
+   python utils/inference_count.py \
+        --onnx ../checkpoints/tsm_video_binary_jump_jack.onnx \
+        --video path/to/input/video.mp4 \
+        -o path/to/output/video.mp4
+   ```
+
 ## Train
 
 ### Colab
@@ -53,8 +70,8 @@ Check `WorkoutDetector/tutorial.py` in [Google Colab](https://colab.research.goo
 
 ### Local
 
-Modify config `WorkoutDetector/utils/config.yml` to your needs.
-E.g. `proj_root: '/home/your_name/WorkoutDetector/'`
+Be sure to modify config `WorkoutDetector/settings/global_settings.py` to your project root.
+E.g. `PROJ_ROOT = '/home/your_name/WorkoutDetector/'`
 
 ### Build dataset
 

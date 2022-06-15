@@ -1,6 +1,7 @@
+from WorkoutDetector.settings import PROJ_ROOT
 import argparse
 from typing import Tuple
-from WorkoutDetector.datasets import RepcountDataset, RepcountImageDataset
+from WorkoutDetector.datasets import RepcountImageDataset
 import torch
 from torch.utils.data import DataLoader
 import os
@@ -8,11 +9,6 @@ from torch import optim, nn, utils, Tensor
 import pytorch_lightning as pl
 import torchvision.transforms as T
 import timm
-import yaml
-
-proj_config = yaml.safe_load(
-    open(os.path.join(os.path.dirname(__file__), 'WorkoutDetector/utils/config.yml')))
-proj_root = proj_config['proj_root']
 
 data_transforms = {
     'train':
@@ -37,7 +33,7 @@ data_transforms = {
 
 def get_data_loaders(action: str,
                      batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
-    data_root = os.path.join(proj_root, 'data')
+    data_root = os.path.join(PROJ_ROOT, 'data')
     train_set = RepcountImageDataset(root=data_root,
                                      action=action,
                                      split='train',
@@ -164,12 +160,12 @@ def main(args):
                                                            patience=10)
     # loggers
     wandb_logger = pl.loggers.WandbLogger(save_dir=os.path.join(
-        proj_root, 'lightning_logs'),
+        PROJ_ROOT, 'lightning_logs'),
                                           project="binary-action-classification",
                                           name=f'{action}-{backbone}')
     wandb_logger.log_hyperparams(args)
     tensorboard_logger = pl.loggers.TensorBoardLogger(save_dir=os.path.join(
-        proj_root, 'lightning_logs/tensorboard'),
+        PROJ_ROOT, 'lightning_logs/tensorboard'),
                                                       name=action,
                                                       default_hp_metric=False)
     tensorboard_logger.log_hyperparams(args,
@@ -189,7 +185,7 @@ def main(args):
     wandb_logger.watch(model, log="all")
 
     trainer = pl.Trainer(
-        default_root_dir=os.path.join(proj_root, 'lightning_logs'),
+        default_root_dir=os.path.join(PROJ_ROOT, 'lightning_logs'),
         max_epochs=epochs,
         accelerator='gpu',
         devices=1,
