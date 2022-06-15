@@ -127,15 +127,15 @@ def count_by_image_model(ort_session: onnxruntime.InferenceSession,
     return count, gt_count
 
 
-def pred_to_count(preds: List[int]) -> Tuple[int, List[int]]:
+def pred_to_count(step: int, preds: List[int]) -> Tuple[int, List[int]]:
     """Convert a list of predictions to a repetition count.
     
     Args:
-<<<<<<< HEAD
-        preds: list of size total_frames in the video. If -1, it means no action.
+        step: step size of the predictions.
+        preds: list of size total_frames/step in the video. If -1, it means no action.
 
     Returns:
-        A tuple of (repetition count, list of frame indices of action end state).
+        A tuple of (repetition count, list of preds of action end state).
 
     Note:
         The labels are of pairs. Because that's how I loaded the data.
@@ -151,29 +151,19 @@ def pred_to_count(preds: List[int]) -> Tuple[int, List[int]]:
         It means the model have to capture the presice time of state transition.
         Because the model takes 8 continous frames as input.
         Or I doubt it will work well. So multiple time scale should be added.
-=======
-        preds: list of size total_frames in the video.
-    Returns:
-        A tuple of (repetition count, list of frame indices of action end state).
->>>>>>> dev
     """
 
     count = 0
     reps = []
     states: List[int] = []
     for idx, pred in enumerate(preds):
-<<<<<<< HEAD
         # if state changed and current and previous state are the same action
-        if states and states[-1] != pred:
+        if pred > -1 and states and states[-1] != pred:
             if pred % 2 == 1 and states[-1] == pred - 1:
-=======
-        if states and states[-1] != pred:
-            if pred != states[0]:
->>>>>>> dev
                 count += 1
                 reps.append(idx)
         states.append(pred)
-    return count, reps
+    return count, reps  # len(rep) * step <= len(frames), last not full queue discarded
 
 
 def write_to_video(video_path: str, output_path: str, preds: List[int]) -> None:
@@ -196,7 +186,7 @@ def write_to_video(video_path: str, output_path: str, preds: List[int]) -> None:
         out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps,
                               (width, height))
 
-    count, reps = pred_to_count(preds)
+    count, reps = pred_to_count(step=8, preds=preds)
     for idx, res in enumerate(preds):
         ret, frame = cap.read()
         if not ret:
@@ -211,24 +201,16 @@ def write_to_video(video_path: str, output_path: str, preds: List[int]) -> None:
     out.release()
 
 
-<<<<<<< HEAD
 def inference_video(ort_session: onnxruntime.InferenceSession,
                     inputs: np.ndarray,
                     threshold: float = 0.5) -> int:
-=======
-def inference_video(ort_session: onnxruntime.InferenceSession, inputs: np.ndarray) -> int:
->>>>>>> dev
     """Time shift module inference. 8 frames.
 
     Args:
         ort_session: ONNX Runtime session. [1, 8, 3, 224, 224]
 
     Returns:
-<<<<<<< HEAD
         int: prediction.
-=======
-        int: prediction. 0 or 1.
->>>>>>> dev
     """
 
     inputs = np.stack([data_transform(x) for x in inputs])
@@ -238,10 +220,7 @@ def inference_video(ort_session: onnxruntime.InferenceSession, inputs: np.ndarra
     ort_outs = ort_session.run(None, ort_inputs)
     score = ort_outs[0][0]
     pred = score.argmax()
-<<<<<<< HEAD
-    print(score, pred)
-=======
->>>>>>> dev
+    print('score', list(score))
     return pred
 
 
@@ -268,11 +247,11 @@ def count_by_video_model(ort_session: onnxruntime.InferenceSession,
     result = []
     count = 0
     states: List[int] = []
-    reps = []  # frame indices of action end state, start from 1
+    reps = []  # frame indices of action end state, start from 0
     frame_idx = 0
+
     while True:
         ret, frame = cap.read()
-        frame_idx += 1
         if not ret:
             break
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -281,12 +260,14 @@ def count_by_video_model(ort_session: onnxruntime.InferenceSession,
             input_clip = np.array(input_queue)
             pred = inference_video(ort_session, input_clip)
             result += [pred] * 8
-            if states and states[-1] != pred:
-                if pred != states[0]:
+            if pred > -1 and states and states[-1] != pred:
+                if pred % 2 == 1 and states[-1] == pred - 1:
                     count += 1
-                    reps.append(frame_idx)
+                    reps.append(frame_idx)  # starts from 0
             states.append(pred)
             input_queue.clear()
+        frame_idx += 1
+
     gt_count = len(ground_truth) // 2
     error = abs(count - gt_count)
     print(f'count={count}, gt_count={gt_count}',
@@ -328,10 +309,6 @@ def infer_dataset(ort_session: onnxruntime.InferenceSession, action_name: str,
 
 
 def main(args) -> None:
-<<<<<<< HEAD
-=======
-    action_name = args.action
->>>>>>> dev
     onnx_path = args.onnx
     ort_session = onnxruntime.InferenceSession(
         onnx_path, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
@@ -349,10 +326,7 @@ def main(args) -> None:
                                  ground_truth=[],
                                  output_path=args.output)
     else:
-<<<<<<< HEAD
         action_name = args.action
-=======
->>>>>>> dev
         infer_dataset(ort_session, action_name, model_type=args.model_type)
 
 
@@ -365,23 +339,16 @@ def mmlab_infer(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Evaluate RepCount')
-<<<<<<< HEAD
     parser.add_argument('--onnx', help='onnx path')
     parser.add_argument('-i', '--video', help='video path', required=False)
     parser.add_argument('-t', '--threshold', help='threshold', type=float, default=0.5)
     parser.add_argument('-ckpt', '--checkpoint', help='checkpoint path', required=False)
-=======
-    parser.add_argument('-ckpt', '--checkpoint', help='checkpoint path', required=False)
-    parser.add_argument('--onnx', help='onnx path')
-    parser.add_argument('--video', help='video path', required=False)
->>>>>>> dev
     parser.add_argument('-o', '--output', help='output path', required=False)
     parser.add_argument('-m',
                         '--model-type',
                         help='evaluate using image/video model',
                         default='video',
                         choices=['image', 'video'])
-<<<<<<< HEAD
     parser.add_argument('-a',
                         '--action',
                         help='action name',
@@ -390,23 +357,12 @@ if __name__ == '__main__':
                             'situp', 'push_up', 'pull_up', 'jump_jack', 'squat',
                             'front_raise', 'all'
                         ])
-    args = parser.parse_args([
-        '--onnx',
-        'checkpoints/tsm_video_all.onnx',
-        '--threshold',
-        '0.5',
-        '--video',
-        'data/RepCount/videos/test/situp_1.mp4',
-    ])
-=======
-    parser.add_argument(
-        '-a',
-        '--action',
-        help='action name',
-        default='situp',
-        choices=['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise'])
+
+    example_arg = [
+        '--onnx', 'checkpoints/tsm_video_all.onnx', '--threshold', '0.5', '--video',
+        'data/RepCount/videos/test/stu1_27.mp4'
+    ]
     args = parser.parse_args()
->>>>>>> dev
 
     main(args)
     # mmlab_infer(args)
