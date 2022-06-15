@@ -79,7 +79,6 @@ class RepcountDataset(torch.utils.data.Dataset):
         File tree::
 
             |- RepCount
-            |   |- annotation.csv
             |   |- rawframes
             |   |   |- train
             |   |   |     |- video_name/img_00001.jpg
@@ -118,11 +117,9 @@ class RepcountDataset(torch.utils.data.Dataset):
             )
         verify_str_arg(split, "split", ("train", "val", "test"))
         self.split = split
-        anno_path = os.path.join(self._data_path, 'annotation.csv')
+        anno_path = os.path.join(self._data_path, '../datasets/RepCount/annotation.csv')
         if not os.path.exists(anno_path):
-            raise OSError(
-                f'{anno_path} not found. Consider move '\
-                    '`/datasets/RepCount/all_data.csv` to `{anno_path}`')
+            raise OSError(f'{anno_path} not found.')
         self._anno_df = pd.read_csv(anno_path, index_col=0)
         self.df = self._anno_df[self._anno_df['split'] == split]
         self.classes = self.df['class_'].unique().tolist()
@@ -172,7 +169,7 @@ class RepcountDataset(torch.utils.data.Dataset):
             name = row.name.split('.')[0]
             count = row.count
             if count > 0:
-                reps = list(map(int, row.reps.split()))[:max_reps*2]
+                reps = list(map(int, row.reps.split()))[:max_reps * 2]
             else:
                 []
             for start, end in zip(reps[0::2], reps[1::2]):
@@ -207,13 +204,16 @@ class RepcountDataset(torch.utils.data.Dataset):
         if self._check_exists():
             return
         # the extracted folder is `rawframes`, may upload again sometime
-        download_and_extract_archive(self._URL_RAWFRAME,
+        url = parse_onedrive(self._URL_RAWFRAME)
+        download_and_extract_archive(url,
                                      download_root=self._data_path,
                                      filename='rawframes.zip',
                                      extract_root=self._data_path)
 
     def _check_exists(self) -> bool:
-        return os.path.exists(self._data_path) and os.path.isdir(self._data_path)
+        return os.path.exists(
+            self._data_path) and os.path.isdir(self._data_path) and os.path.exists(
+                os.path.join(self._data_path, 'rawframes'))
 
 
 class RepcountImageDataset(RepcountDataset):
