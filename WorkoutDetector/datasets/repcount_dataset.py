@@ -117,7 +117,7 @@ class RepcountDataset(torch.utils.data.Dataset):
             )
         verify_str_arg(split, "split", ("train", "val", "test"))
         self.split = split
-        anno_path = os.path.join(self._data_path, '../datasets/RepCount/annotation.csv')
+        anno_path = os.path.join(self._data_path, '../../datasets/RepCount/annotation.csv')
         if not os.path.exists(anno_path):
             raise OSError(f'{anno_path} not found.')
         self._anno_df = pd.read_csv(anno_path, index_col=0)
@@ -213,7 +213,7 @@ class RepcountDataset(torch.utils.data.Dataset):
     def _check_exists(self) -> bool:
         return os.path.exists(
             self._data_path) and os.path.isdir(self._data_path) and os.path.exists(
-                os.path.join(self._data_path, 'rawframes'))
+                os.path.join(self._data_path, 'RepCount/rawframes'))
 
 
 class RepcountImageDataset(RepcountDataset):

@@ -199,20 +199,21 @@ def inference_video(ort_session: onnxruntime.InferenceSession, inputs: np.ndarra
 def evaluate_by_video(ort_session,
                       video_path,
                       ground_truth: list,
-                      output_dir=None) -> Tuple[int, int]:
+                      output_path=None) -> Tuple[int, int]:
     """Evaluate repetition count on a video, using video classification model.
     
     Args:
         ort_session: ONNX Runtime session. [1, 8, 3, 224, 224]
         video_path: path to the video.
         ground_truth: list of ground truth repetition counts.
-        output_dir: path to save the output video.
+        output_path: path to save the output video.
     
     Returns:
         Tuple[int, int]: count and ground truth count.
     """
 
     video_name = os.path.basename(video_path)
+    print(f'{video_name}')
     cap = cv2.VideoCapture(video_path)
     input_queue: Deque[int] = deque(maxlen=8)
     result = []
@@ -239,28 +240,17 @@ def evaluate_by_video(ort_session,
             input_queue.clear()
     gt_count = len(ground_truth) // 2
     error = abs(count - gt_count)
-    print(f'{video_name}\n'\
-        f'count={count}, gt_count={gt_count} '\
-        f'error={error} error rate={error/max(1, gt_count):.2}')
+    print(f'count={count}, gt_count={gt_count}',
+          f'error={error} error_rate={error/max(1, gt_count):.2}')
     cap.release()
-    if output_dir is not None:
-        output_path = os.path.join(output_dir, video_name)
+    if output_path is not None:
         write_to_video(video_path, output_path, result)
-        with open(output_path + '.txt', 'w') as f:
-            f.write('result ' + ' '.join(map(str, result)) + '\n')
-            f.write('reps ' + ' '.join(map(str, reps)) + '\n')
-            f.write(f'count={count} gt_count={gt_count}\n')
-            f.write(f'error={error} error rate={error/max(1, gt_count):.2}\n')
     return count, gt_count
 
 
-def main(args):
-    action_name = args.action
-    onnx_path = args.onnx
-    ort_session = onnxruntime.InferenceSession(
-        onnx_path, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+def infer_dataset(ort_session: onnxruntime.InferenceSession, action_name: str,
+                  model_type: str) -> None:
     data_root = os.path.join(PROJ_ROOT, 'data')
-
     dataset = RepcountDataset(root=data_root, split='test')
     action_df = dataset.df[dataset.df['class_'] == action_name]
     names = action_df['name'].values
@@ -274,18 +264,40 @@ def main(args):
             gt = list(map(int, action_df['reps'].values[i].split(' ')))
         else:
             gt = []
-        if args.image:
+        if model_type == 'image':
             count, gt_count = evaluate_by_image(ort_session,
                                                 rand_video,
                                                 gt,
                                                 output_path=None)
-        else:
+        elif model_type == 'video':
             count, gt_count = evaluate_by_video(ort_session=ort_session,
                                                 video_path=rand_video,
                                                 ground_truth=gt,
-                                                output_dir=None)
+                                                output_path=None)
         total_count += count
         total_gt_count += gt_count
+
+
+def main(args) -> None:
+    action_name = args.action
+    onnx_path = args.onnx
+    ort_session = onnxruntime.InferenceSession(
+        onnx_path, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+
+    if args.video:
+        video_path = args.video
+        if args.model_type == 'image':
+            evaluate_by_image(ort_session,
+                              video_path,
+                              ground_truth=[],
+                              output_path=args.output)
+        elif args.model_type == 'video':
+            evaluate_by_video(ort_session,
+                              video_path,
+                              ground_truth=[],
+                              output_path=args.output)
+    else:
+        infer_dataset(ort_session, action_name, model_type=args.model_type)
 
 
 def mmlab_infer(args):
@@ -300,11 +312,12 @@ if __name__ == '__main__':
     parser.add_argument('-ckpt', '--checkpoint', help='checkpoint path', required=False)
     parser.add_argument('--onnx', help='onnx path')
     parser.add_argument('--video', help='video path', required=False)
-    parser.add_argument('-im',
-                        '--image-model',
-                        dest='image',
-                        action='store_true',
-                        help='evaluate using image model')
+    parser.add_argument('-o', '--output', help='output path', required=False)
+    parser.add_argument('-m',
+                        '--model-type',
+                        help='evaluate using image/video model',
+                        default='video',
+                        choices=['image', 'video'])
     parser.add_argument(
         '-a',
         '--action',

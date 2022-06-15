@@ -1,3 +1,4 @@
+from WorkoutDetector.utils import PROJ_ROOT
 import argparse
 from typing import Tuple
 from WorkoutDetector.datasets import RepcountVideoDataset
@@ -8,7 +9,6 @@ from torch import optim, nn, utils, Tensor
 import pytorch_lightning as pl
 import torchvision.transforms as T
 import timm
-import yaml
 import einops
 import time
 
@@ -16,10 +16,6 @@ from mmcv import Config
 from mmaction.models.backbones import ResNetTSM
 from mmaction.models.heads import TSMHead
 from mmaction.models import build_model
-
-proj_config = yaml.safe_load(
-    open(os.path.join(os.path.dirname(__file__), 'utils/config.yml')))
-PROJ_ROOT = proj_config['proj_root']
 
 data_transforms = {
     'train':
@@ -114,8 +110,8 @@ class VideoModel(nn.Module):
         mm_model = build_model(cfg.model,
                                train_cfg=None,
                                test_cfg=dict(average_clips='prob'))
-        tsm_ckpt = '/home/umi/.cache/torch/hub/checkpoints/'\
-            'tsm_r50_256h_1x1x8_50e_sthv2_rgb_20210816-032aa4da.pth'
+        tsm_ckpt = os.path.expanduser('~/.cache/torch/hub/checkpoints/'\
+            'tsm_r50_256h_1x1x8_50e_sthv2_rgb_20210816-032aa4da.pth')
 
         tsm_state = torch.load(tsm_ckpt)
         meta = tsm_state['meta']
@@ -127,7 +123,7 @@ class VideoModel(nn.Module):
 
         mm_model.load_state_dict(state_dict)
         for i, k in enumerate(mm_model.state_dict().keys()):
-            if i + 2 >= len(state_dict.keys()): # last two are for cls head
+            if i + 2 >= len(state_dict.keys()):  # last two are for cls head
                 break
             bk = list(self.backbone.state_dict().keys())[i]
             v = mm_model.state_dict()[k]

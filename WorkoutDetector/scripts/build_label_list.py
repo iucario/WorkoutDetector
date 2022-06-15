@@ -55,7 +55,8 @@ def build_with_start(data_root: str, dst_dir: str) -> None:
     CLASSES = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
     MAX_REPS = 2  # limit the number of reps per video, because some videos have too many repetitions
     dataset = RepcountDataset(data_root, split='train')
-
+    os.makedirs(dst_dir, exist_ok=True)
+    
     for action in CLASSES:
 
         for split in ['train', 'val', 'test']:

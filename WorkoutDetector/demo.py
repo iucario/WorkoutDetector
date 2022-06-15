@@ -246,7 +246,7 @@ if __name__ == '__main__':
         ],
         outputs=["label", "video"],
         examples=[[vid, 'single'] for vid in example_videos],
-        title="MMAction2 webcam demo",
+        title="WorkoutDetector demo",
         description="Input a video file. Output the recognition result.",
         live=False,
         allow_flagging='never',
