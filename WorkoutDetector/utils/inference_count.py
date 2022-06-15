@@ -14,8 +14,6 @@ from WorkoutDetector.datasets import RepcountDataset
 import onnx
 import onnxruntime
 
-import moviepy.editor as mpy
-
 from mmaction.apis import inference_recognizer, init_recognizer
 
 onnxruntime.set_default_logger_severity(3)
@@ -57,9 +55,9 @@ def inference_image(ort_session: onnxruntime.InferenceSession, frame: np.ndarray
 
 
 def count_by_image_model(ort_session: onnxruntime.InferenceSession,
-                      video_path: str,
-                      ground_truth: list,
-                      output_path: str = None) -> Tuple[int, int]:
+                         video_path: str,
+                         ground_truth: list,
+                         output_path: str = None) -> Tuple[int, int]:
     """Evaluate repetition count on a video, using image classification model.
     
     Args:
@@ -160,8 +158,12 @@ def write_to_video(video_path: str, output_path: str, preds: List[int]) -> None:
     fps = cap.get(cv2.CAP_PROP_FPS)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'vp80'), fps,
-                          (width, height))
+    if output_path.endswith('.webm'):
+        out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'vp80'), fps,
+                              (width, height))
+    else:
+        out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps,
+                              (width, height))
 
     count, reps = pred_to_count(preds)
     for idx, res in enumerate(preds):
@@ -268,9 +270,9 @@ def infer_dataset(ort_session: onnxruntime.InferenceSession, action_name: str,
             gt = []
         if model_type == 'image':
             count, gt_count = count_by_image_model(ort_session,
-                                                rand_video,
-                                                gt,
-                                                output_path=None)
+                                                   rand_video,
+                                                   gt,
+                                                   output_path=None)
         elif model_type == 'video':
             count, gt_count = count_by_video_model(ort_session=ort_session,
                                                    video_path=rand_video,
@@ -290,9 +292,9 @@ def main(args) -> None:
         video_path = args.video
         if args.model_type == 'image':
             count_by_image_model(ort_session,
-                              video_path,
-                              ground_truth=[],
-                              output_path=args.output)
+                                 video_path,
+                                 ground_truth=[],
+                                 output_path=args.output)
         elif args.model_type == 'video':
             count_by_video_model(ort_session,
                                  video_path,

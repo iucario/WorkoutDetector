@@ -15,9 +15,7 @@ from torch import Tensor
 import torchvision.transforms as T
 import timm
 
-from WorkoutDetector.utils.visualize import Vis2DPose
-
-config = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), 'config.yml')))
+from WorkoutDetector.utils import PROJ_ROOT, Vis2DPose
 
 KPS = [
     'nose', 'left_eye', 'right_eye', 'left_ear', 'right_ear', 'left_shoulder',
@@ -156,7 +154,7 @@ def pose_info(item):
 class Countix:
 
     def __init__(self):
-        self.anno_root = osp.join(config['proj_root'], 'datasets/Countix')
+        self.anno_root = osp.join(PROJ_ROOT, 'datasets/Countix')
         self.anno_train_path = osp.join(self.anno_root, 'workouts_train.csv')
         self.anno_val_path = osp.join(self.anno_root, 'workouts_val.csv')
         self.anno_all = None
@@ -167,7 +165,7 @@ class Countix:
                 self.anno_all = sp
             else:
                 self.anno_all = pd.concat([self.anno_all, sp])
-        self.data_root = osp.join(config['proj_root'], 'data/Countix/')
+        self.data_root = osp.join(PROJ_ROOT, 'data/Countix/')
         self.pose_data = self.load_pose()
 
     def get_anno(self, split='train'):

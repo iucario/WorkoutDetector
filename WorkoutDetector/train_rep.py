@@ -144,9 +144,9 @@ def main():
     # configs
     if args.check:
         cfg = Config.fromfile(
-            os.path.join(PROJ_ROOT, 'WorkoutDetector/tsm_action_config.py'))
+            os.path.join(PROJ_ROOT, 'WorkoutDetector/configs/tsm_action_config.py'))
     else:
-        config = os.path.join(PROJ_ROOT, 'WorkoutDetector/tsm_video_config.py')
+        config = os.path.join(PROJ_ROOT, 'WorkoutDetector/configs/tsm_video_sthv2.py')
     cfg = Config.fromfile(config)
     cfg.setdefault('omnisource', False)
     cfg.seed = 0

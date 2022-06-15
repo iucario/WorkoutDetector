@@ -5,3 +5,4 @@ __config = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), 'config.y
 PROJ_ROOT = __config['proj_root']
 
 from WorkoutDetector.utils.inference_count import COLORS, count_by_video_model, count_by_image_model
+from WorkoutDetector.utils.visualize import Vis2DPose

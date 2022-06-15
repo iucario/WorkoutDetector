@@ -10,7 +10,6 @@ from torchvision.io import read_image
 import torchvision.transforms as T
 import einops
 
-config = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), 'config.yml')))
 
 CLASSES = [
     'front_raise', 'pull_up', 'squat', 'bench_pressing', 'jumping_jack', 'situp',

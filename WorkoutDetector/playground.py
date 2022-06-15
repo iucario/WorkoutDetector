@@ -1,6 +1,7 @@
 import argparse
 from typing import Tuple
 from WorkoutDetector.datasets import RepcountVideoDataset
+from WorkoutDetector.utils import PROJ_ROOT
 import torch
 import torchvision
 from torch.utils.data import DataLoader
@@ -19,9 +20,6 @@ from mmaction.models.backbones import ResNetTSM, resnet
 from mmaction.models.heads import TSMHead
 from mmaction.models import build_model
 
-proj_config = yaml.safe_load(
-    open(os.path.join(os.path.dirname(__file__), 'utils/config.yml')))
-PROJ_ROOT = proj_config['proj_root']
 mm_resnet = resnet.ResNet(depth=50)
 torch_resnet = torchvision.models.resnet50()
 
@@ -78,7 +76,6 @@ label = torch.randint(0, 2, (4,))
 print(f'{label=}')
 dummy_y = mm_model(dummy_x, label=label)
 print(f'{dummy_y=}')
-
 
 for i, k in enumerate(mm_model.state_dict().keys()):
     if i + 2 >= len(state_dict.keys()):

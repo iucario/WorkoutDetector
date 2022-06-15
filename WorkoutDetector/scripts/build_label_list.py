@@ -2,23 +2,20 @@ import pandas as pd
 import yaml
 import os
 from WorkoutDetector.datasets import RepcountDataset
-
-config = yaml.safe_load(
-    open(os.path.join(os.path.dirname(__file__), '../utils/config.yml')))
-BASE = config['proj_root']
+from WorkoutDetector.utils.inference_count import PROJ_ROOT
 
 
 def build_label() -> None:
-    train = os.path.join(BASE, 'data/Countix/rawframes/train.txt')
+    train = os.path.join(PROJ_ROOT, 'data/Countix/rawframes/train.txt')
     val = os.path.join('data/Countix/rawframes/val.txt')
 
-    traindir = os.path.join(BASE, 'data/Workouts/rawframes/Countix/train')
-    valdir = os.path.join(BASE, 'data/Workouts/rawframes/Countix/val')
+    traindir = os.path.join(PROJ_ROOT, 'data/Workouts/rawframes/Countix/train')
+    valdir = os.path.join(PROJ_ROOT, 'data/Workouts/rawframes/Countix/val')
 
-    traindf = pd.read_csv(os.path.join(BASE, 'datasets/Countix/workouts_train.csv'))
-    valdf = pd.read_csv(os.path.join(BASE, 'datasets/Countix/workouts_val.csv'))
+    traindf = pd.read_csv(os.path.join(PROJ_ROOT, 'datasets/Countix/workouts_train.csv'))
+    valdf = pd.read_csv(os.path.join(PROJ_ROOT, 'datasets/Countix/workouts_val.csv'))
     classes = []
-    with open(os.path.join(BASE, 'datasets/Countix/classes.txt')) as f:
+    with open(os.path.join(PROJ_ROOT, 'datasets/Countix/classes.txt')) as f:
         classes = [line.rstrip() for line in f]
 
     with open(train, 'w') as f:
@@ -81,6 +78,7 @@ def build_with_start(data_root: str, dst_dir: str) -> None:
 
 
 if __name__ == '__main__':
-    data_root = os.path.join(BASE, 'data')
+    print('project root:', PROJ_ROOT)
+    data_root = os.path.join(PROJ_ROOT, 'data')
     dst_dir = os.path.join(data_root, 'Binary')
     build_with_start(data_root, dst_dir)

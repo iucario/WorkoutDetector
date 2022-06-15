@@ -17,28 +17,32 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm.auto import tqdm
 
 import warnings
+
 warnings.filterwarnings("ignore")
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # device = 'cpu'
 data_transforms = {
-    'train': T.Compose([
-        T.RandomResizedCrop(224),
-        T.RandomHorizontalFlip(),
-        T.ToTensor(),
-        T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ]),
-    'val': T.Compose([
-        T.Resize(256),
-        T.CenterCrop(224),
-        T.ToTensor(),
-        T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ]),
+    'train':
+        T.Compose([
+            T.RandomResizedCrop(224),
+            T.RandomHorizontalFlip(),
+            T.ToTensor(),
+            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ]),
+    'val':
+        T.Compose([
+            T.Resize(256),
+            T.CenterCrop(224),
+            T.ToTensor(),
+            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ]),
 }
 
 data_dir = 'data/haa500'
 
 
 class Mydataset(Dataset):
+
     def __init__(self, data_dir, train=True, transform=False):
         self.data_dir = data_dir
         self.transform = transform
@@ -120,7 +124,7 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=10):
             if phase == 'train':
                 model.train()  # Set model to training mode
             else:
-                model.eval()   # Set model to evaluate mode
+                model.eval()  # Set model to evaluate mode
 
             running_loss = 0.0
             running_corrects = 0
@@ -175,7 +179,7 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=10):
 def visualize_model(model, num_batch=2):
     was_training = model.training
     model.eval()
-    num_row = num_batch*2
+    num_row = num_batch * 2
     fig, axes = plt.subplots(num_row, 2, figsize=(10, 10), dpi=200)
     with torch.no_grad():
         for i in range(num_row):
@@ -194,7 +198,8 @@ def visualize_model(model, num_batch=2):
                 ax = axes[i, j]
                 ax.axis('off')
                 ax.set_title(
-                    f'pred={class_names[preds[j]]}, true={class_names[labels[j]]}', color=color[j])
+                    f'pred={class_names[preds[j]]}, true={class_names[labels[j]]}',
+                    color=color[j])
                 inp = inputs[j].numpy().transpose((1, 2, 0))
                 mean = np.array([0.485, 0.456, 0.406])
                 std = np.array([0.229, 0.224, 0.225])
@@ -205,30 +210,34 @@ def visualize_model(model, num_batch=2):
         model.train(mode=was_training)
 
 
-model_ft = models.resnet18(pretrained=True)
-# for param in model_ft.parameters():
-#     param.requires_grad = False
-num_ftrs = model_ft.fc.in_features
+if __name__ == '__main__':
+    model_ft = models.resnet18(pretrained=True)
+    # for param in model_ft.parameters():
+    #     param.requires_grad = False
+    num_ftrs = model_ft.fc.in_features
 
-model_ft.fc = nn.Linear(num_ftrs, len(class_names))
+    model_ft.fc = nn.Linear(num_ftrs, len(class_names))
 
-model_ft = model_ft.to(device)
+    model_ft = model_ft.to(device)
 
-criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss()
 
-# Observe that all parameters are being optimized
-optimizer_ft = optim.SGD(model_ft.parameters(), lr=0.001, momentum=0.9)
+    # Observe that all parameters are being optimized
+    optimizer_ft = optim.SGD(model_ft.parameters(), lr=0.001, momentum=0.9)
 
-# Decay LR by a factor of 0.1 every 7 epochs
-exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer_ft, step_size=7, gamma=0.1)
-model_ft, history = train_model(model_ft, criterion, optimizer_ft, exp_lr_scheduler,
-                                num_epochs=25)
-plt.figure(dpi=200, figsize=(3, 3))
-plt.plot(history['train_loss'], label='train')
-plt.plot([d.to('cpu').data for d in history['train_acc']], label='train_acc')
-plt.plot(history['val_loss'], label='val')
-plt.plot([d.to('cpu').data for d in history['val_acc']], label='val_acc')
-plt.legend()
-plt.show()
+    # Decay LR by a factor of 0.1 every 7 epochs
+    exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer_ft, step_size=7, gamma=0.1)
+    model_ft, history = train_model(model_ft,
+                                    criterion,
+                                    optimizer_ft,
+                                    exp_lr_scheduler,
+                                    num_epochs=25)
+    plt.figure(dpi=200, figsize=(3, 3))
+    plt.plot(history['train_loss'], label='train')
+    plt.plot([d.to('cpu').data for d in history['train_acc']], label='train_acc')
+    plt.plot(history['val_loss'], label='val')
+    plt.plot([d.to('cpu').data for d in history['val_acc']], label='val_acc')
+    plt.legend()
+    plt.show()
 
-visualize_model(model_ft)
+    visualize_model(model_ft)

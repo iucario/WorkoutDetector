@@ -1,5 +1,10 @@
+# This is configuration for video classification of multiple action states.
+# Weights pretrained on the SomethingSomethingV2 dataset.
+
 # model settings
 import os
+import time
+from WorkoutDetector.utils import PROJ_ROOT
 
 model = dict(
     type='Recognizer2D',
@@ -32,13 +37,13 @@ optimizer = dict(type='SGD',
 optimizer_config = dict(grad_clip=dict(max_norm=20, norm_type=2))
 
 # learning policy
-lr_config = dict(policy='step', step=[5, 15])
+lr_config = dict(policy='step', step=[5, 10, 15, 25])
 
 total_epochs = 30
 
 # dataset settings
-dataset_type = 'ActionDataset'
-data_root = '/home/umi/projects/WorkoutDetector/data/Binary/'
+dataset_type = 'MyDataset'
+data_root = os.path.join(PROJ_ROOT, 'data/Binary/')
 data_root_train = None
 data_root_val = None
 data_root_test = None
@@ -118,7 +123,9 @@ opencv_num_threads = 0
 # set multi-process start method as `fork` to speed up the training
 mp_start_method = 'fork'
 
-work_dir = '/home/umi/projects/WorkoutDetector/work_dirs/playground_tsm'
+FILENAME = os.path.basename(__file__).split('.')[0]
+DATE = time.strftime('%Y%m%d-%H%M%S')
+work_dir = os.path.join(PROJ_ROOT, f'work_dirs/{FILENAME}_{DATE}')
 
 log_config = dict(interval=20,
                   hooks=[
