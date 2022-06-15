@@ -177,7 +177,7 @@ def inference_video_action(video: str) -> Tuple[Dict[str, float], Any]:
         ret, frame = capture.read()
     capture.release()
     print(f'video size[TWH]: {len(frames)}x{width}x{height}')
-    video_data = dict(img_shape=(height, width),
+    video_data: Dict[str, Any] = dict(img_shape=(height, width),
                       modality='RGB',
                       label=-1,
                       start_index=0,
@@ -206,7 +206,13 @@ def inference_video_reps(video: str, model_type: str = 'image') -> Tuple[int, st
     """
 
     with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as tmp_file:
-        count, _ = count_by_image_model(onnx_image_count_sess,
+        if model_type == 'image':
+            count, _ = count_by_image_model(onnx_image_count_sess,
+                                        video,
+                                        ground_truth=[],
+                                        output_path=tmp_file.name)
+        elif model_type == 'video':
+            count, _ = count_by_video_model(onnx_video_count_sess,
                                         video,
                                         ground_truth=[],
                                         output_path=tmp_file.name)
@@ -242,10 +248,10 @@ def create_video(video, scores: List[OrderedDict]) -> str:
     return tmpfile
 
 
-def main(video: str, mode: str) -> Tuple[gr.Label, gr.Video]:
+def main(video: str, task: str, model_type: str) -> Tuple[gr.Label, gr.Video]:
     print('video:', video)
-    if mode == 'repetition count':
-        return inference_video_reps(video)
+    if task == 'repetition count':
+        return inference_video_reps(video, model_type)
     else:
         return inference_video_action(video)
 
@@ -261,9 +267,10 @@ if __name__ == '__main__':
         #                  type="numpy")],
         inputs=[
             gr.Video(source='upload'),
-            gr.Radio(label='Classes in the video',
+            gr.Radio(label='Task',
                      choices=['repetition count', 'action recognition'],
-                     value='repetition count')
+                     value='repetition count'),
+            gr.Radio(label='Model type', choices=['image', 'video'], value='video')
         ],
         outputs=["label", "video"],
         examples=[[vid, 'repetition count'] for vid in example_videos],
