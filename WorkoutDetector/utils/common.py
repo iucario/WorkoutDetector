@@ -15,7 +15,8 @@ from torch import Tensor
 import torchvision.transforms as T
 import timm
 
-from WorkoutDetector.utils import PROJ_ROOT, Vis2DPose
+from WorkoutDetector.settings import PROJ_ROOT
+from WorkoutDetector.utils import Vis2DPose
 
 KPS = [
     'nose', 'left_eye', 'right_eye', 'left_ear', 'right_ear', 'left_shoulder',

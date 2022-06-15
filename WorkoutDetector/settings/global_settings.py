@@ -1,0 +1,1 @@
+PROJ_ROOT = '/home/umi/projects/WorkoutDetector/'

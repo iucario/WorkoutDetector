@@ -1,10 +1,7 @@
-# This is configuration for video classification of multiple action states.
-# Weights pretrained on the SomethingSomethingV2 dataset.
-
 # model settings
 import os
 import time
-from WorkoutDetector.utils import PROJ_ROOT
+from WorkoutDetector.settings import PROJ_ROOT
 
 model = dict(
     type='Recognizer2D',
@@ -31,18 +28,18 @@ gpu_ids = range(1)
 optimizer = dict(type='SGD',
                  constructor='TSMOptimizerConstructor',
                  paramwise_cfg=dict(fc_lr5=True),
-                 lr=0.001,
+                 lr=0.0001,
                  momentum=0.9,
                  weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=20, norm_type=2))
 
 # learning policy
-lr_config = dict(policy='step', step=[5, 10, 15, 25])
+lr_config = dict(policy='step', step=[5, 15])
 
 total_epochs = 30
 
 # dataset settings
-dataset_type = 'MyDataset'
+dataset_type = 'SingleActionRepCount'
 data_root = os.path.join(PROJ_ROOT, 'data/Binary/')
 data_root_train = None
 data_root_val = None
@@ -114,18 +111,16 @@ log_level = 'INFO'
 load_from = 'https://download.openmmlab.com/mmaction/recognition/tsm/'\
     'tsm_r50_1x1x8_50e_sthv2_rgb/tsm_r50_256h_1x1x8_50e_sthv2_rgb_20210816-032aa4da.pth'
 resume_from = None
-workflow = [
-    ('train', 1),
-]
+workflow = [('train', 1)]
 
 # disable opencv multithreading to avoid system being overloaded
 opencv_num_threads = 0
 # set multi-process start method as `fork` to speed up the training
 mp_start_method = 'fork'
+omnisource = False
 
-FILENAME = os.path.basename(__file__).split('.')[0]
 DATE = time.strftime('%Y%m%d-%H%M%S')
-work_dir = os.path.join(PROJ_ROOT, f'work_dirs/{FILENAME}_{DATE}')
+work_dir = os.path.join(PROJ_ROOT, f'work_dirs/tsm_SingleActionRepCount_sthv2_{DATE}')
 
 log_config = dict(interval=20,
                   hooks=[

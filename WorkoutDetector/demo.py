@@ -1,6 +1,7 @@
 import subprocess
 import sys
-from WorkoutDetector.utils import PROJ_ROOT, count_by_video_model, count_by_image_model
+from WorkoutDetector.settings import PROJ_ROOT
+from WorkoutDetector.utils import count_by_video_model, count_by_image_model
 import typing
 import onnx
 import onnxruntime
@@ -178,11 +179,11 @@ def inference_video_action(video: str) -> Tuple[Dict[str, float], Any]:
     capture.release()
     print(f'video size[TWH]: {len(frames)}x{width}x{height}')
     video_data: Dict[str, Any] = dict(img_shape=(height, width),
-                      modality='RGB',
-                      label=-1,
-                      start_index=0,
-                      total_frames=len(frames),
-                      imgs=None)
+                                      modality='RGB',
+                                      label=-1,
+                                      start_index=0,
+                                      total_frames=len(frames),
+                                      imgs=None)
     pipeline = Compose(test_pipeline)
 
     video_data['imgs'] = sample_frames(np.array(frames), sample_length)
@@ -208,14 +209,14 @@ def inference_video_reps(video: str, model_type: str = 'image') -> Tuple[int, st
     with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as tmp_file:
         if model_type == 'image':
             count, _ = count_by_image_model(onnx_image_count_sess,
-                                        video,
-                                        ground_truth=[],
-                                        output_path=tmp_file.name)
+                                            video,
+                                            ground_truth=[],
+                                            output_path=tmp_file.name)
         elif model_type == 'video':
             count, _ = count_by_video_model(onnx_video_count_sess,
-                                        video,
-                                        ground_truth=[],
-                                        output_path=tmp_file.name)
+                                            video,
+                                            ground_truth=[],
+                                            output_path=tmp_file.name)
         return count, tmp_file.name
 
 

@@ -70,8 +70,8 @@ Check `WorkoutDetector/tutorial.py` in [Google Colab](https://colab.research.goo
 
 ### Local
 
-Modify config `WorkoutDetector/utils/config.yml` to your needs.
-E.g. `proj_root: '/home/your_name/WorkoutDetector/'`
+Be sure to modify config `WorkoutDetector/settings/global_settings.py` to your project root.
+E.g. `PROJ_ROOT = '/home/your_name/WorkoutDetector/'`
 
 ### Build dataset
 

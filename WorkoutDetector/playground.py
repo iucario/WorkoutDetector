@@ -1,7 +1,7 @@
 import argparse
 from typing import Tuple
 from WorkoutDetector.datasets import RepcountVideoDataset
-from WorkoutDetector.utils import PROJ_ROOT
+from WorkoutDetector.settings import PROJ_ROOT
 import torch
 import torchvision
 from torch.utils.data import DataLoader

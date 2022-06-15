@@ -1,4 +1,4 @@
-from WorkoutDetector.utils import PROJ_ROOT
+from WorkoutDetector.settings import PROJ_ROOT
 import argparse
 from typing import Tuple
 from WorkoutDetector.datasets import RepcountVideoDataset
