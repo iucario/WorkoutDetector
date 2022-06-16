@@ -1,20 +1,20 @@
-from WorkoutDetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 import argparse
+import os
 from bisect import bisect_left
 from collections import deque
-import os
-from typing import Deque, List, Optional, Tuple
-import PIL
+from typing import Deque, List, Optional, Tuple, Union
+
 import cv2
 import numpy as np
-import pandas as pd
-import torch
-import torchvision.transforms as T
-from WorkoutDetector.datasets import RepcountDataset
 import onnx
 import onnxruntime
-
+import pandas as pd
+import PIL
+import torch
+import torchvision.transforms as T
 from mmaction.apis import inference_recognizer, init_recognizer
+from WorkoutDetector.datasets import RepcountDataset, RepcountHelper
+from WorkoutDetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 
 onnxruntime.set_default_logger_severity(3)
 
@@ -46,7 +46,7 @@ COLORS = {
 def inference_image(ort_session: onnxruntime.InferenceSession,
                     frame: np.ndarray,
                     threshold: float = 0.5) -> int:
-    frame = data_transform(frame).unsqueeze(0).numpy()
+    frame = data_transform(frame).unsqueeze(0).numpy()  # type: ignore
     input_name = ort_session.get_inputs()[0].name
     ort_inputs = {input_name: frame}
     ort_outs = ort_session.run(None, ort_inputs)
@@ -58,7 +58,7 @@ def inference_image(ort_session: onnxruntime.InferenceSession,
 
 
 def count_by_image_model(ort_session: onnxruntime.InferenceSession,
-                         video_path: str,
+                         video_path: Union[str, bytes, os.PathLike],
                          ground_truth: list,
                          output_path: Optional[str] = None) -> Tuple[int, int]:
     """Evaluate repetition count on a video, using image classification model.
@@ -115,15 +115,15 @@ def count_by_image_model(ort_session: onnxruntime.InferenceSession,
             gt_count = bisect_left(ground_truth[1::2], frame_idx)
             cv2.putText(frame, f'true {gt_count}', (int(width * 0.2), int(height * 0.6)),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (180, 235, 52), 2)
-            out.write(frame)
+            out.write(frame)  # type: ignore
     error = abs(count - len(ground_truth) // 2)
     gt_count = len(ground_truth) // 2
 
     print(f'{error=} {count=} {gt_count=}')
 
     cap.release()
-    if output_path:
-        out.release()
+    if output_path and out.isOpened():  # type: ignore
+        out.release()  # type: ignore
     return count, gt_count
 
 
@@ -132,10 +132,11 @@ def pred_to_count(step: int, preds: List[int]) -> Tuple[int, List[int]]:
     
     Args:
         step: step size of the predictions.
-        preds: list of size total_frames/step in the video. If -1, it means no action.
+        preds: list of size total_frames//step in the video. If -1, it means no action.
 
     Returns:
-        A tuple of (repetition count, list of preds of action end state).
+        A tuple of (repetition count, 
+        list of preds of action start and end states, e.g. start_1, end_1, start_2, end_2, ...)
 
     Note:
         The labels are of pairs. Because that's how I loaded the data.
@@ -148,22 +149,29 @@ def pred_to_count(step: int, preds: List[int]) -> Tuple[int, List[int]]:
             and are in order, we count the action. For example, if the state changes from
             0 to 1, or 2 to 3, aka even to odd, we count the action.
         
-        It means the model have to capture the presice time of state transition.
+        It means the model has to capture the presice time of state transition.
         Because the model takes 8 continous frames as input.
         Or I doubt it will work well. So multiple time scale should be added.
     """
 
     count = 0
-    reps = []
+    reps = []  # start_1, end_1, start_2, end_2, ...
     states: List[int] = []
+    prev_state_start_idx = 0
     for idx, pred in enumerate(preds):
         # if state changed and current and previous state are the same action
         if pred > -1 and states and states[-1] != pred:
             if pred % 2 == 1 and states[-1] == pred - 1:
                 count += 1
-                reps.append(idx)
+                reps.append(prev_state_start_idx * step)
+                reps.append(idx * step)
         states.append(pred)
-    return count, reps  # len(rep) * step <= len(frames), last not full queue discarded
+        prev_state = states[prev_state_start_idx]
+        if pred != prev_state:  # new state, new start index
+            prev_state_start_idx = idx
+
+    assert count * 2 == len(reps)
+    return count, reps  # len(rep) * step <= len(frames), last not full queue is discarded
 
 
 def write_to_video(video_path: str, output_path: str, preds: List[int]) -> None:
@@ -225,7 +233,7 @@ def inference_video(ort_session: onnxruntime.InferenceSession,
 
 
 def count_by_video_model(ort_session: onnxruntime.InferenceSession,
-                         video_path: str,
+                         video_path: Union[str, bytes, os.PathLike],
                          ground_truth: list,
                          output_path: Optional[str] = None) -> Tuple[int, int]:
     """Evaluate repetition count on a video, using video classification model.
@@ -278,8 +286,8 @@ def count_by_video_model(ort_session: onnxruntime.InferenceSession,
     return count, gt_count
 
 
-def infer_dataset(ort_session: onnxruntime.InferenceSession, action: str,
-                  model_type: str, output: str) -> None:
+def infer_dataset(ort_session: onnxruntime.InferenceSession, action: str, model_type: str,
+                  output: str) -> None:
     """Inference on a dataset test split.
     
     Args:
@@ -288,8 +296,9 @@ def infer_dataset(ort_session: onnxruntime.InferenceSession, action: str,
         model_type: model type. Image or video model.
         output: path to save the result in csv format.
     """
-    
-    data_root:str = os.path.join(PROJ_ROOT, 'data')
+
+    data_root: Union[str, bytes, os.PathLike] = os.path.join(PROJ_ROOT, 'data')
+    assert data_root is not None
     dataset = RepcountDataset(root=data_root, split='test')
     if action == 'all':
         video_list = dataset.get_video_list(split='test', action=None)
@@ -298,13 +307,17 @@ def infer_dataset(ort_session: onnxruntime.InferenceSession, action: str,
     action_df = dataset.df[dataset.df['class_'] == action]
     names = action_df['name'].values
 
+    # TODO: RepcountHelper.eval_rep()
     total_count = 0
     total_gt_count = 0
     for i in range(len(names)):
-        rand_video = os.path.join(data_root, 'RepCount/videos/test', names[i])
+        assert names[i] is not None and type(names[i]) is str
+        rand_video: Union[str, bytes,
+                          os.PathLike] = os.path.join(data_root, 'RepCount/videos/test',
+                                                      names[i])
 
         if action_df['count'].values[i]:
-            gt = list(map(int, action_df['reps'].values[i].split(' ')))
+            gt = list(map(int, action_df['reps'].values[i].split()))  # type: ignore
         else:
             gt = []
         if model_type == 'image':
@@ -312,7 +325,7 @@ def infer_dataset(ort_session: onnxruntime.InferenceSession, action: str,
                                                    rand_video,
                                                    gt,
                                                    output_path=None)
-        elif model_type == 'video':
+        else:
             count, gt_count = count_by_video_model(ort_session=ort_session,
                                                    video_path=rand_video,
                                                    ground_truth=gt,
@@ -340,7 +353,10 @@ def main(args) -> None:
                                  output_path=args.output)
     elif args.eval:
         action_name = args.action
-        infer_dataset(ort_session, action=action_name, model_type=args.model_type, args.output)
+        infer_dataset(ort_session,
+                      action=action_name,
+                      model_type=args.model_type,
+                      output=args.output)
 
 
 def mmlab_infer(args):

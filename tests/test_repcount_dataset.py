@@ -1,8 +1,10 @@
-from WorkoutDetector.datasets import RepcountHelper
-from WorkoutDetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
-import pandas as pd
 import os
 import random
+
+import pandas as pd
+from WorkoutDetector.datasets import RepcountHelper
+from WorkoutDetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
+
 
 def test_RepcountHelper():
     """Test RepcountHelper"""
@@ -23,12 +25,17 @@ def test_RepcountHelper():
         test = helper.get_rep_data(split=['test'], action=[rand_action])
         all_ = helper.get_rep_data(split=SPLITS, action=[rand_action])
         all_action = helper.get_rep_data(split=SPLITS, action=ACTIONS)
-        num_split = 0
+        rand_split_all = helper.get_rep_data(split=[rand_split], action=ACTIONS)
+        split_num = 0
         for action in ACTIONS:
-            num_split += len(helper.get_rep_data(split=rand_split, action=[action]))
+            split_num += len(helper.get_rep_data(split=[rand_split], action=[action]))
 
-        assert len(train) + len(all_) + len(all_action) == num_split
+        assert len(rand_split_all) == split_num
         assert len(train) + len(val) + len(test) == len(all_)
 
-
-
+    TRAIN_TOTAL = 602
+    VAL_TOTAL = 110
+    TEST_TOTAL = 115
+    assert len(helper.get_rep_data(split=['train'], action=ACTIONS)) == TRAIN_TOTAL
+    assert len(helper.get_rep_data(split=['val'], action=ACTIONS)) == VAL_TOTAL
+    assert len(helper.get_rep_data(split=['test'], action=ACTIONS)) == TEST_TOTAL

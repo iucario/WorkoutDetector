@@ -23,8 +23,10 @@ class RepcountItem:
     count: int
     reps: List[int]  # start_1, end_1, start_2, end_2, ...
     split: str
-    video_id: Optional[str]  # YouTube id
     video_name: str
+    ytb_id: Optional[str]  # YouTube id
+    ytb_start_sec: Optional[int]  # YouTube start sec
+    ytb_end_sec: Optional[int]  # YouTube end sec
 
 
 class RepcountHelper:
@@ -32,11 +34,11 @@ class RepcountHelper:
     Extracting annotations, evaluation and helpful functions
     """
 
-    def __init__(self, anno_file: str, data_root: str):
+    def __init__(self, data_root: str, anno_file: str):
         """
         Args:
-            ann_file: the annotation file path
             data_root: the data root path, e.g. 'data/RepCount'
+            ann_file: the annotation file path
         """
         self.anno_file = anno_file
         self.data_root = data_root
@@ -54,9 +56,9 @@ class RepcountHelper:
         """
         assert len(split) > 0, 'split must be specified, e.g. ["train", "val"]'
         assert len(action) > 0, 'action must be specified, e.g. ["pull_up", "squat"]'
-        df = pd.read_csv(self.anno_file)
+        df = pd.read_csv(self.anno_file, index_col=0)
         df = df[df['split'].isin(split)]
-        df = df[df['action'].isin(action)]
+        df = df[df['class_'].isin(action)]
         df = df.reset_index(drop=True)
         ret = {}
         for idx, row in df.iterrows():
@@ -75,21 +77,46 @@ class RepcountHelper:
             else:
                 reps = []
             item = RepcountItem(video_path, frame_path, total_frames, class_, count, reps,
-                                split_, video_id, name)
+                                split_, name, video_id, row['start'], row['end'])
             ret[name] = item
         return ret
 
-    def eval_rep(self, pred_reps: List[int], split: str = 'test') -> Tuple[float, float]:
+    def eval_rep(self,
+                 pred_reps: List[int],
+                 split: str = 'test',
+                 action: List[str] = []) -> Tuple[float, float]:
         """Evaluate repetition count prediction
         
         Args:
             pred_reps: list of the predicted repetition start and end indices
             split: the split name
+            action: list of the actions
 
         Returns:
             tuple, (mean_avg_error, off_by_one_acc)
+        
+        TODO:
+            - add metrics for precise repetition timestamp. Use heatmap to smooth the error
         """
-        pass
+        assert len(pred_reps) % 2 == 0, \
+            'pred_reps must be a list of start and end indices'
+        assert len(action) > 0, 'actions must be specified, e.g. ["pull_up", "squat"]'
+        count = len(pred_reps) // 2
+        items = self.get_rep_data(split=[split], action=action)
+        total_mae = 0.0
+        total_off_by_one = 0.0
+        for item in items.values():
+            gt_count = item.count
+            diff = abs(count - gt_count)
+            if gt_count > 0:
+                mae = diff / gt_count
+            else:
+                mae = 0 # Not decided how to handle 0 repetition case
+            obo_acc = (diff <= 1)
+            total_mae += mae
+            total_off_by_one += obo_acc
+        return total_mae / len(items), total_off_by_one / len(items)
+
 
 
 def parse_onedrive(link) -> str:
