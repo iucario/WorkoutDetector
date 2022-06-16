@@ -99,6 +99,14 @@ def main(args):
     cfg.work_dir = os.path.join(PROJ_ROOT, 'WorkoutDetector/work_dirs', args.action)
 
     # cfg.resume_from = osp.join(cfg.work_dir, 'latest.pth')
+
+    log_config = dict(interval=10,
+                      hooks=[
+                          dict(type='TextLoggerHook'),
+                          dict(type='TensorboardLoggerHook'),
+                        #   dict(type='WandbLoggerHook',
+                        #        init_kwargs=dict(project='playground-tsm', config={**cfg}))
+                      ])
     print(cfg.pretty_text)
 
     train(cfg)

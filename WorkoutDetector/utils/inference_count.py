@@ -116,7 +116,7 @@ def count_by_image_model(ort_session: onnxruntime.InferenceSession,
     error = abs(count - len(ground_truth) // 2)
     gt_count = len(ground_truth) // 2
 
-    print(f'{error=} {count=} {gt_count=}')
+    print(f'error={error} count={count} gt_count={gt_count}')
 
     cap.release()
     if output_path:
