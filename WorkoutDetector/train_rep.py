@@ -100,7 +100,7 @@ def main(args):
 
     # cfg.resume_from = osp.join(cfg.work_dir, 'latest.pth')
 
-    log_config = dict(interval=10,
+    cfg.log_config = dict(interval=10,
                       hooks=[
                           dict(type='TextLoggerHook'),
                           dict(type='TensorboardLoggerHook'),
