@@ -1,15 +1,95 @@
+from dataclasses import dataclass
 import math
 import os
-from typing import List, Tuple
+from typing import List, Optional, Tuple, Dict
 import einops
 import torch
 from torch import Tensor
-import cv2
 import pandas as pd
 import numpy as np
 import base64
-from torchvision.datasets.utils import download_url, download_and_extract_archive, verify_str_arg
+from torchvision.datasets.utils import download_and_extract_archive, verify_str_arg
 from torchvision.io import read_image
+
+
+@dataclass
+class RepcountItem:
+    """RepCount dataset video item"""
+
+    video_path: str  # the absolute video path
+    frames_path: Optional[str]  # the absolute rawframes path
+    total_frames: int
+    class_: str
+    count: int
+    reps: List[int]  # start_1, end_1, start_2, end_2, ...
+    split: str
+    video_id: Optional[str]  # YouTube id
+    video_name: str
+
+
+class RepcountHelper:
+    """Helper class for RepCount dataset
+    Extracting annotations, evaluation and helpful functions
+    """
+
+    def __init__(self, anno_file: str, data_root: str):
+        """
+        Args:
+            ann_file: the annotation file path
+            data_root: the data root path, e.g. 'data/RepCount'
+        """
+        self.anno_file = anno_file
+        self.data_root = data_root
+
+    def get_rep_data(self,
+                     split: List[str] = ['test'],
+                     action: List[str] = ['situp']) -> Dict[str, RepcountItem]:
+        """
+        Args:
+            split: list of the split names
+            action: list of the action names
+
+        Returns:
+            dict, name: RepcountItem
+        """
+        assert len(split) > 0, 'split must be specified, e.g. ["train", "val"]'
+        assert len(action) > 0, 'action must be specified, e.g. ["pull_up", "squat"]'
+        df = pd.read_csv(self.anno_file)
+        df = df[df['split'].isin(split)]
+        df = df[df['action'].isin(action)]
+        df = df.reset_index(drop=True)
+        ret = {}
+        for idx, row in df.iterrows():
+            name = row['name']
+            class_ = row['class_']
+            split_ = row['split']
+            video_path = os.path.join(self.data_root, 'videos', split_, row['name'])
+            frame_path = os.path.join(self.data_root, 'frames', split_, row['name'])
+            total_frames = -1
+            if os.path.isdir(frame_path):
+                total_frames = len(os.listdir(frame_path))
+            video_id = row['vid']
+            count = int(row['count'])
+            if count > 0:
+                reps = [int(x) for x in row['reps'].split()]
+            else:
+                reps = []
+            item = RepcountItem(video_path, frame_path, total_frames, class_, count, reps,
+                                split_, video_id, name)
+            ret[name] = item
+        return ret
+
+    def eval_rep(self, pred_reps: List[int], split: str = 'test') -> Tuple[float, float]:
+        """Evaluate repetition count prediction
+        
+        Args:
+            pred_reps: list of the predicted repetition start and end indices
+            split: the split name
+
+        Returns:
+            tuple, (mean_avg_error, off_by_one_acc)
+        """
+        pass
 
 
 def parse_onedrive(link) -> str:
@@ -61,7 +141,7 @@ def sample_frames(total: int, num: int, offset: int = 0) -> List[int]:
     return [data[i] + offset for i in indices]
 
 
-class RepcountDataset(torch.utils.data.Dataset):
+class RepcountDataset(torch.utils.data.Dataset):  # type: ignore
     """Repcount dataset
     https://github.com/SvipRepetitionCounting/TransRAC
     
@@ -104,7 +184,7 @@ class RepcountDataset(torch.utils.data.Dataset):
 
     def __init__(self,
                  root: str,
-                 split: str = None,
+                 split: str = 'train',
                  transform=None,
                  download=False) -> None:
         super(RepcountDataset, self).__init__()
@@ -117,7 +197,8 @@ class RepcountDataset(torch.utils.data.Dataset):
             )
         verify_str_arg(split, "split", ("train", "val", "test"))
         self.split = split
-        anno_path = os.path.join(self._data_path, '../../datasets/RepCount/annotation.csv')
+        anno_path = os.path.join(self._data_path,
+                                 '../../datasets/RepCount/annotation.csv')
         if not os.path.exists(anno_path):
             raise OSError(f'{anno_path} not found.')
         self._anno_df = pd.read_csv(anno_path, index_col=0)
@@ -140,7 +221,7 @@ class RepcountDataset(torch.utils.data.Dataset):
 
     def get_video_list(self,
                        split: str,
-                       action: str = None,
+                       action: Optional[str] = None,
                        max_reps: int = 2) -> List[dict]:
         """
 
@@ -170,28 +251,38 @@ class RepcountDataset(torch.utils.data.Dataset):
             count = row.count
             if count > 0:
                 reps = list(map(int, row.reps.split()))[:max_reps * 2]
-            else:
-                []
-            for start, end in zip(reps[0::2], reps[1::2]):
-                start += 1  # plus 1 because img index starts from 1
-                end += 1  # but annotated frame index starts from 0
-                mid = (start + end) // 2
-                videos.append({
-                    'video_path': os.path.join(self._data_path, 'rawframes', split, name),
-                    'start': start,
-                    'end': mid,
-                    'length': mid - start + 1,
-                    'class': row.class_,
-                    'label': 0
-                })
-                videos.append({
-                    'video_path': os.path.join(self._data_path, 'rawframes', split, name),
-                    'start': mid + 1,
-                    'end': end,
-                    'length': end - mid,
-                    'class': row.class_,
-                    'label': 1
-                })
+                for start, end in zip(reps[0::2], reps[1::2]):
+                    start += 1  # plus 1 because img index starts from 1
+                    end += 1  # but annotated frame index starts from 0
+                    mid = (start + end) // 2
+                    videos.append({
+                        'video_path':
+                            os.path.join(self._data_path, 'rawframes', split, name),
+                        'start':
+                            start,
+                        'end':
+                            mid,
+                        'length':
+                            mid - start + 1,
+                        'class':
+                            row.class_,
+                        'label':
+                            0
+                    })
+                    videos.append({
+                        'video_path':
+                            os.path.join(self._data_path, 'rawframes', split, name),
+                        'start':
+                            mid + 1,
+                        'end':
+                            end,
+                        'length':
+                            end - mid,
+                        'class':
+                            row.class_,
+                        'label':
+                            1
+                    })
         return videos
 
     def __len__(self) -> int:
@@ -211,8 +302,8 @@ class RepcountDataset(torch.utils.data.Dataset):
                                      extract_root=self._data_path)
 
     def _check_exists(self) -> bool:
-        return os.path.exists(
-            self._data_path) and os.path.isdir(self._data_path) and os.path.exists(
+        return os.path.exists(self._data_path) and os.path.isdir(
+            self._data_path) and os.path.exists(
                 os.path.join(self._data_path, 'RepCount/rawframes'))
 
 

@@ -1,9 +1,9 @@
-from WorkoutDetector.settings import PROJ_ROOT
+from WorkoutDetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 import argparse
 from bisect import bisect_left
 from collections import deque
 import os
-from typing import Deque, List, Tuple
+from typing import Deque, List, Optional, Tuple
 import PIL
 import cv2
 import numpy as np
@@ -60,7 +60,7 @@ def inference_image(ort_session: onnxruntime.InferenceSession,
 def count_by_image_model(ort_session: onnxruntime.InferenceSession,
                          video_path: str,
                          ground_truth: list,
-                         output_path: str = None) -> Tuple[int, int]:
+                         output_path: Optional[str] = None) -> Tuple[int, int]:
     """Evaluate repetition count on a video, using image classification model.
     
     Args:
@@ -227,7 +227,7 @@ def inference_video(ort_session: onnxruntime.InferenceSession,
 def count_by_video_model(ort_session: onnxruntime.InferenceSession,
                          video_path: str,
                          ground_truth: list,
-                         output_path: str = None) -> Tuple[int, int]:
+                         output_path: Optional[str] = None) -> Tuple[int, int]:
     """Evaluate repetition count on a video, using video classification model.
     
     Args:
@@ -243,7 +243,7 @@ def count_by_video_model(ort_session: onnxruntime.InferenceSession,
     video_name = os.path.basename(video_path)
     print(f'{video_name}')
     cap = cv2.VideoCapture(video_path)
-    input_queue: Deque[int] = deque(maxlen=8)
+    input_queue: Deque[np.ndarray] = deque(maxlen=8)
     result = []
     count = 0
     states: List[int] = []
@@ -278,11 +278,24 @@ def count_by_video_model(ort_session: onnxruntime.InferenceSession,
     return count, gt_count
 
 
-def infer_dataset(ort_session: onnxruntime.InferenceSession, action_name: str,
-                  model_type: str) -> None:
-    data_root = os.path.join(PROJ_ROOT, 'data')
+def infer_dataset(ort_session: onnxruntime.InferenceSession, action: str,
+                  model_type: str, output: str) -> None:
+    """Inference on a dataset test split.
+    
+    Args:
+        ort_session: ONNX Runtime session. [1, 8, 3, 224, 224]
+        action: action name.
+        model_type: model type. Image or video model.
+        output: path to save the result in csv format.
+    """
+    
+    data_root:str = os.path.join(PROJ_ROOT, 'data')
     dataset = RepcountDataset(root=data_root, split='test')
-    action_df = dataset.df[dataset.df['class_'] == action_name]
+    if action == 'all':
+        video_list = dataset.get_video_list(split='test', action=None)
+    else:
+        video_list = dataset.get_video_list(split='test', action=action)
+    action_df = dataset.df[dataset.df['class_'] == action]
     names = action_df['name'].values
 
     total_count = 0
@@ -325,9 +338,9 @@ def main(args) -> None:
                                  video_path,
                                  ground_truth=[],
                                  output_path=args.output)
-    else:
+    elif args.eval:
         action_name = args.action
-        infer_dataset(ort_session, action_name, model_type=args.model_type)
+        infer_dataset(ort_session, action=action_name, model_type=args.model_type, args.output)
 
 
 def mmlab_infer(args):
@@ -341,6 +354,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Evaluate RepCount')
     parser.add_argument('--onnx', help='onnx path')
     parser.add_argument('-i', '--video', help='video path', required=False)
+    parser.add_argument('--eval', help='evaluate dataset', action='store_true')
     parser.add_argument('-t', '--threshold', help='threshold', type=float, default=0.5)
     parser.add_argument('-ckpt', '--checkpoint', help='checkpoint path', required=False)
     parser.add_argument('-o', '--output', help='output path', required=False)
