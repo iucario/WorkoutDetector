@@ -63,6 +63,7 @@ def sample_frames(total: int, num: int, offset: int = 0) -> List[int]:
 
 def eval_count(preds: List[int], targets: List[int]) -> Tuple[float, float]:
     """Evaluate count prediction. By mean absolute error and off-by-one error."""
+
     mae = 0.0
     off_by_one = 0.0
     for pred, target in zip(preds, targets):
@@ -83,22 +84,42 @@ class RepcountItem:
     reps: List[int]  # start_1, end_1, start_2, end_2, ...
     split: str
     video_name: str
-    ytb_id: Optional[str]  # YouTube id
-    ytb_start_sec: Optional[int]  # YouTube start sec
-    ytb_end_sec: Optional[int]  # YouTube end sec
+    ytb_id: Optional[str] = None  # YouTube id
+    ytb_start_sec: Optional[int] = None  # YouTube start sec
+    ytb_end_sec: Optional[int] = None  # YouTube end sec
+
+    def __str__(self):
+        return f'{self.video_name}\n{self.class_}\n{self.count}\n{self.reps}'
+    
+    def __getitem__(self, key):
+        return self.__dict__[key]
+    
+    def __iter__(self):
+        return iter(self.__dict__.items())
+
+
+@dataclass
+class RepcountItemWithPred(RepcountItem):
+    """RepCount dataset video item with prediction"""
+
+    pred_count: int = 0
+    pred_reps: Optional[List[int]] = None
+    mae: float = 0  # mean absolute error
+    obo_acc: bool = False  # pred is correct if difference within 1
+    model_type: Optional[str] = None  # model type. image or video
 
 
 class RepcountHelper:
     """Helper class for RepCount dataset
     Extracting annotations, evaluation and helpful functions
+    
+    Args:
+        data_root: the data root path, e.g. 'data/RepCount'
+        ann_file: the annotation file path
     """
 
     def __init__(self, data_root: str, anno_file: str):
-        """
-        Args:
-            data_root: the data root path, e.g. 'data/RepCount'
-            ann_file: the annotation file path
-        """
+
         self.anno_file = anno_file
         self.data_root = data_root
 
@@ -140,10 +161,12 @@ class RepcountHelper:
             ret[name] = item
         return ret
 
-    def eval_count(self,
-                   pred_reps: Dict[str, int],
-                   split: List[str] = ['test'],
-                   action: List[str] = []) -> Tuple[float, float]:
+    def eval_count(
+            self,
+            pred_reps: Dict[str, int],
+            split: List[str] = ['test'],
+            action: List[str] = []
+    ) -> Tuple[float, float, Dict[str, RepcountItemWithPred]]:
         """Evaluate repetition count prediction
         
         Args:
@@ -161,6 +184,7 @@ class RepcountHelper:
         items = self.get_rep_data(split=split, action=action)
         total_mae = 0.0
         total_off_by_one = 0.0
+        pred_items: Dict[str, RepcountItemWithPred] = {}
         for name, count in pred_reps.items():
             gt_count = items[name].count
             diff = abs(count - gt_count)
@@ -171,7 +195,12 @@ class RepcountHelper:
             obo_acc = (diff <= 1)
             total_mae += mae
             total_off_by_one += obo_acc
-        return total_mae / len(items), total_off_by_one / len(items)
+            pred_items[name] = RepcountItemWithPred(**items[name].__dict__,
+                                                    pred_count=count,
+                                                    pred_reps=[],
+                                                    mae=mae,
+                                                    obo_acc=obo_acc)
+        return total_mae / len(items), total_off_by_one / len(items), pred_items
 
 
 class RepcountDataset(torch.utils.data.Dataset):  # type: ignore

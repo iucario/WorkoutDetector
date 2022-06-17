@@ -59,6 +59,6 @@ class TestRepcountHelper:
                         true_mae += abs(val.count - preds[name]) / val.count
                 true_mae /= len(preds)
                 # evaluate
-                mae, obo = self.helper.eval_count(preds, [sp], [act])
+                mae, obo, _ = self.helper.eval_count(preds, [sp], [act])
                 assert mae == true_mae, f'sp={sp} act={act}, mae={mae}, true_mae={true_mae}'
                 assert obo == true_obo, f'sp={sp} act={act}, obo={obo}, true_obo={true_obo}'
