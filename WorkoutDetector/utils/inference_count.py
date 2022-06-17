@@ -5,6 +5,7 @@ from collections import deque
 from typing import Deque, List, Optional, Tuple, Union
 
 import cv2
+from mmaction.apis.inference import inference_recognizer
 import numpy as np
 import onnx
 import onnxruntime
@@ -12,8 +13,11 @@ import pandas as pd
 import PIL
 import torch
 import torchvision.transforms as T
-from mmaction.apis import inference_recognizer, init_recognizer
-from WorkoutDetector.datasets import RepcountDataset, RepcountHelper
+from mmaction.apis import init_recognizer
+from mmaction.datasets.pipelines import Compose
+from mmcv import Config, DictAction
+from mmcv.parallel import collate, scatter
+from WorkoutDetector.datasets import RepcountHelper
 from WorkoutDetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 
 onnxruntime.set_default_logger_severity(3)
@@ -43,13 +47,14 @@ COLORS = {
 }
 
 
-def inference_image(ort_session: onnxruntime.InferenceSession,
+def inference_image(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
                     frame: np.ndarray,
                     threshold: float = 0.5) -> int:
+    assert type(model) is onnxruntime.InferenceSession
     frame = data_transform(frame).unsqueeze(0).numpy()  # type: ignore
-    input_name = ort_session.get_inputs()[0].name
+    input_name = model.get_inputs()[0].name
     ort_inputs = {input_name: frame}
-    ort_outs = ort_session.run(None, ort_inputs)
+    ort_outs = model.run(None, ort_inputs)
     score = ort_outs[0][0]
     print(f'{score=}')
     pred = score.argmax()
@@ -57,7 +62,7 @@ def inference_image(ort_session: onnxruntime.InferenceSession,
     return pred
 
 
-def count_by_image_model(ort_session: onnxruntime.InferenceSession,
+def count_by_image_model(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
                          video_path: str,
                          ground_truth: Optional[List[int]] = None,
                          output_path: Optional[str] = None) -> Tuple[int, List[int]]:
@@ -92,7 +97,7 @@ def count_by_image_model(ort_session: onnxruntime.InferenceSession,
         ret, frame = cap.read()
         if not ret:
             break
-        curr_pred = inference_image(ort_session, frame)
+        curr_pred = inference_image(model, frame)
         result.append(curr_pred)
         pred = sum(result) > len(result) // 2  # vote of frames
         states.append(pred)
@@ -196,30 +201,37 @@ def write_to_video(video_path: str,
     out.release()
 
 
-def inference_video(ort_session: onnxruntime.InferenceSession,
+def inference_video(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
                     inputs: np.ndarray,
                     threshold: float = 0.5) -> int:
     """Time shift module inference. 8 frames.
 
     Args:
-        ort_session: ONNX Runtime session. [1, 8, 3, 224, 224]
+        model: ONNX Runtime session or PyTorch.
+        inputs: np.ndarray of shape [1, 8, 3, 224, 224]
+        is_torch: if True, use PyTorch. Else, use ONNX Runtime.
+        threshold: threshold for bbox. # TODO: implement this.
 
     Returns:
         int: prediction.
     """
-
-    inputs = np.stack([data_transform(x) for x in inputs])
-    inputs = np.expand_dims(inputs, axis=0)
-    input_name = ort_session.get_inputs()[0].name
-    ort_inputs = {input_name: inputs}
-    ort_outs = ort_session.run(None, ort_inputs)
-    score = ort_outs[0][0]
-    pred = score.argmax()
+    if type(model) is onnxruntime.InferenceSession:
+        inputs = np.stack([data_transform(x) for x in inputs])
+        inputs = np.expand_dims(inputs, axis=0)
+        input_name = model.get_inputs()[0].name
+        ort_inputs = {input_name: inputs}
+        ort_outs = model.run(None, ort_inputs)
+        score = ort_outs[0][0]
+        pred = score.argmax()
+    else:  # use mmlab inference
+        input_clip = np.array(inputs)
+        score = inference_recognizer(model, input_clip)
+        pred = score[0][0]
     # print('score', list(score))
     return pred
 
 
-def count_by_video_model(ort_session: onnxruntime.InferenceSession,
+def count_by_video_model(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
                          video_path: str,
                          ground_truth: Optional[list] = None,
                          output_path: Optional[str] = None) -> Tuple[int, List[int]]:
@@ -255,7 +267,7 @@ def count_by_video_model(ort_session: onnxruntime.InferenceSession,
         input_queue.append(frame)
         if len(input_queue) == 8:
             input_clip = np.array(input_queue)
-            pred = inference_video(ort_session, input_clip)
+            pred = inference_video(model, input_clip)
             states.append(pred)
             input_queue.clear()
         frame_idx += 1
@@ -270,14 +282,14 @@ def count_by_video_model(ort_session: onnxruntime.InferenceSession,
     return count, reps
 
 
-def infer_dataset(ort_session: onnxruntime.InferenceSession,
+def infer_dataset(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
                   action: List[str],
                   model_type: str = 'video',
                   output_dir: Optional[str] = None) -> None:
     """Inference on a dataset test split.
     
     Args:
-        ort_session: ONNX Runtime session. [1, 8, 3, 224, 224]
+        model: ONNX Runtime session or PyTorch model. [1, 8, 3, 224, 224]
         action: list of action name.
         model_type: model type. Image or video model.
         output_dir: path to save the output videos and result csv.
@@ -298,12 +310,12 @@ def infer_dataset(ort_session: onnxruntime.InferenceSession,
         else:
             output_path = None
         if model_type == 'video':
-            count, reps = count_by_video_model(ort_session,
+            count, reps = count_by_video_model(model,
                                                item.video_path,
                                                ground_truth=item.reps,
                                                output_path=output_path)
         elif model_type == 'image':
-            count, reps = count_by_image_model(ort_session,
+            count, reps = count_by_image_model(model,
                                                item.video_path,
                                                ground_truth=item.reps,
                                                output_path=output_path)
@@ -313,27 +325,36 @@ def infer_dataset(ort_session: onnxruntime.InferenceSession,
     mae, obo_acc, eval_res = helper.eval_count(pred_dict, action=action, split=[SPLIT])
     print(f'MAE={mae}, OBO_ACC={obo_acc}, SPLIT=test, ACTION={action}')
     if output_dir is not None:  # write to csv
-        dict_ = eval_res.__dict__
-        dict_.pop('video_path')
-        dict_.pop('frames_path')
-        df = pd.DataFrame.from_dict(eval_res.values())
+        res = []
+        for item in eval_res.values():
+            dict_ = item.__dict__
+            dict_.pop('video_path')
+            dict_.pop('frames_path')
+            res.append(dict_)
+        df = pd.DataFrame.from_dict(res,)
         df.to_csv(os.path.join(output_dir, f'eval_count_{model_type}_model.csv'))
 
 
 def main(args) -> None:
-    onnx_path = args.onnx
-    ort_session = onnxruntime.InferenceSession(
-        onnx_path, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+    if args.mmlab:
+        cfg_path = os.path.join(
+            PROJ_ROOT, 'WorkoutDetector/configs/tsm_MultiActionRepCount_sthv2.py')
+        model = init_recognizer(cfg_path, args.checkpoint, device='cuda')
+    else:
+        assert args.onnx is not None
+        onnx_path = args.onnx
+        model = onnxruntime.InferenceSession(
+            onnx_path, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
 
     if not args.eval and args.video is not None:
         video_path = args.video
         if args.model_type == 'image':
-            count_by_image_model(ort_session,
+            count_by_image_model(model,
                                  video_path,
                                  ground_truth=[],
                                  output_path=args.output)
         elif args.model_type == 'video':
-            count_by_video_model(ort_session,
+            count_by_video_model(model,
                                  video_path,
                                  ground_truth=[],
                                  output_path=args.output)
@@ -343,22 +364,16 @@ def main(args) -> None:
             action = CLASSES
         else:
             action = [args.action]
-        infer_dataset(ort_session,
+        infer_dataset(model,
                       action=action,
                       model_type=args.model_type,
                       output_dir=args.output)
 
 
-def mmlab_infer(args):
-    cfg_path = os.path.join(PROJ_ROOT, '/WorkoutDetector/tsm_config.py')
-    model = init_recognizer(cfg_path, args.checkpoint, device='cuda')
-    results = inference_recognizer(model, args.video)
-    # TODO
-
-
-if __name__ == '__main__':
+def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Evaluate RepCount')
-    parser.add_argument('--onnx', help='onnx path')
+    parser.add_argument('--onnx', help='onnx path', required=False)
+    parser.add_argument('--mmlab', help='use mmlab model', action='store_true')
     parser.add_argument('-i', '--video', help='video path', required=False)
     parser.add_argument('--eval', help='evaluate dataset', action='store_true')
     parser.add_argument('-t', '--threshold', help='threshold', type=float, default=0.5)
@@ -381,6 +396,11 @@ if __name__ == '__main__':
                             'front_raise', 'all'
                         ])
 
+    args = parser.parse_args(argv)
+    return args
+
+
+if __name__ == '__main__':
     example_args = [
         '--onnx', 'checkpoints/tsm_video_all_20220616.onnx', '--threshold', '0.5',
         '--video', 'data/RepCount/videos/test/stu1_27.mp4'
@@ -389,7 +409,9 @@ if __name__ == '__main__':
         '--onnx', 'checkpoints/tsm_video_all_20220616.onnx', '--eval', '--output', 'exp/',
         '--model-type', 'video', '--action', 'all'
     ]
-    args = parser.parse_args(example_dataset)
-
+    example_mmlab = [
+        '--mmlab', '-ckpt', 'checkpoints/tsm_video_all.pth', '--eval', '--output', 'exp/',
+        '--model-type', 'video', '--action', 'pull_up'
+    ]
+    args = parse_args()
     main(args)
-    # mmlab_infer(args)
