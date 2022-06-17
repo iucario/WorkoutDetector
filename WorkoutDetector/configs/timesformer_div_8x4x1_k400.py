@@ -36,7 +36,7 @@ ann_file_test = os.path.join(data_root, 'all-test.txt')
 img_norm_cfg = dict(mean=[127.5, 127.5, 127.5], std=[127.5, 127.5, 127.5], to_bgr=False)
 
 train_pipeline = [
-    dict(type='SampleFrames', clip_len=8, frame_interval=32, num_clips=1),
+    dict(type='SampleFrames', clip_len=8, frame_interval=4, num_clips=1),
     dict(type='RawFrameDecode'),
     dict(type='RandomRescale', scale_range=(256, 320)),
     dict(type='RandomCrop', size=224),
@@ -47,7 +47,7 @@ train_pipeline = [
     dict(type='ToTensor', keys=['imgs', 'label'])
 ]
 val_pipeline = [
-    dict(type='SampleFrames', clip_len=8, frame_interval=32, num_clips=1, test_mode=True),
+    dict(type='SampleFrames', clip_len=8, frame_interval=4, num_clips=1, test_mode=True),
     dict(type='RawFrameDecode'),
     dict(type='Resize', scale=(-1, 256)),
     dict(type='CenterCrop', crop_size=224),
@@ -57,7 +57,7 @@ val_pipeline = [
     dict(type='ToTensor', keys=['imgs', 'label'])
 ]
 test_pipeline = [
-    dict(type='SampleFrames', clip_len=8, frame_interval=32, num_clips=1, test_mode=True),
+    dict(type='SampleFrames', clip_len=8, frame_interval=4, num_clips=1, test_mode=True),
     dict(type='RawFrameDecode'),
     dict(type='Resize', scale=(-1, 224)),
     dict(type='ThreeCrop', crop_size=224),
@@ -86,7 +86,7 @@ evaluation = dict(interval=1, metrics=['top_k_accuracy', 'mean_class_accuracy'])
 
 # optimizer
 optimizer = dict(type='SGD',
-                 lr=0.005,
+                 lr=0.0005,
                  momentum=0.9,
                  paramwise_cfg=dict(
                      custom_keys={
@@ -100,14 +100,13 @@ optimizer_config = dict(grad_clip=dict(max_norm=40, norm_type=2))
 
 # learning policy
 lr_config = dict(policy='step', step=[5, 10])
-total_epochs = 15
+total_epochs = 25
 
 # runtime settings
-checkpoint_config = dict(interval=1)
+checkpoint_config = dict(interval=5)
 DATE = time.strftime('%Y%m%d_%H%M%S', time.localtime(time.time()))
-work_dir = f'./work_dirs/timesformer_div_8x32x1_k400_{DATE}'
+work_dir = os.path.join(PROJ_ROOT, f'/log/work_dirs/timesformer_div_8x4x1_k400_{DATE}')
 
-checkpoint_config = dict(interval=1)
 log_config = dict(interval=20,
                   hooks=[dict(type='TextLoggerHook'),
                          dict(type='TensorboardLoggerHook')])

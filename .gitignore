@@ -8,11 +8,11 @@ wandb/
 !example_videos/*
 tmp/
 poses/
-exp/
+exp
 out/
 detectron2_out/
 lightning_logs/
-logs/
+log
 
 *.ipynb_checkpoints
 
