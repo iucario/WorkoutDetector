@@ -37,7 +37,7 @@ class MultiActionRepCount(BaseDataset):
 
         self.filename_tmpl = filename_tmpl
         self.data_prefix = data_prefix
-        self.video_infos: List[dict] = []
+        self.video_infos = []
 
     def load_annotations(self) -> List[dict]:
         video_infos = []
@@ -53,7 +53,6 @@ class MultiActionRepCount(BaseDataset):
                          start_index=int(start_index),
                          total_frames=int(total_frames),
                          label=int(label)))
-        self.video_infos = video_infos
         return video_infos
 
     def prepare_train_frames(self, idx):
@@ -82,9 +81,8 @@ def train(cfg: Config) -> None:
 
 
 def main(args):
-
     config = os.path.join(PROJ_ROOT,
-                          'WorkoutDetector/configs/tsm_MultiActionRepCount_sthv2.py')
+                          'WorkoutDetector/configs/timesformer_div_8x32x1_k400.py')
     cfg = Config.fromfile(config)
     cfg.seed = 0
     set_random_seed(0, deterministic=False)

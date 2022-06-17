@@ -475,7 +475,7 @@ class RepcountVideoDataset(RepcountDataset):
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    data_root = '/home/umi/projects/WorkoutDetector/data'
+    data_root = os.path.join(PROJ_ROOT, 'data')
     dataset = RepcountVideoDataset(data_root, split='test', action='push_up')
     print(dataset.classes)
     # imageset = RepcountImageDataset(data_root, action='jump_jack', split='test')

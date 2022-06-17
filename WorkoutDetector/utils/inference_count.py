@@ -54,7 +54,7 @@ def inference_image(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
     ort_inputs = {input_name: frame}
     ort_outs = model.run(None, ort_inputs)
     score = ort_outs[0][0]
-    print(f'{score=}')
+    print(f'score={score}')
     pred = score.argmax()
 
     return pred
