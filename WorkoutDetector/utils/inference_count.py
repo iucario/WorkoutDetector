@@ -1,5 +1,6 @@
 import argparse
 import os
+import time
 from bisect import bisect_left
 from collections import deque
 from typing import Deque, List, Optional, Tuple, Union
@@ -14,9 +15,6 @@ import PIL
 import torch
 import torchvision.transforms as T
 from mmaction.apis import init_recognizer
-from mmaction.datasets.pipelines import Compose
-from mmcv import Config, DictAction
-from mmcv.parallel import collate, scatter
 from WorkoutDetector.datasets import RepcountHelper
 from WorkoutDetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 
@@ -284,6 +282,7 @@ def count_by_video_model(model: Union[onnxruntime.InferenceSession, torch.nn.Mod
 
 def infer_dataset(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
                   action: List[str],
+                  split: str,
                   model_type: str = 'video',
                   output_dir: Optional[str] = None) -> None:
     """Inference on a dataset test split.
@@ -291,6 +290,7 @@ def infer_dataset(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
     Args:
         model: ONNX Runtime session or PyTorch model. [1, 8, 3, 224, 224]
         action: list of action name.
+        split: str, split name.
         model_type: model type. Image or video model.
         output_dir: path to save the output videos and result csv.
     """
@@ -298,8 +298,7 @@ def infer_dataset(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
     data_root = os.path.join(PROJ_ROOT, 'data/RepCount/')
     assert data_root is not None
     helper = RepcountHelper(data_root, REPCOUNT_ANNO_PATH)
-    repcount_items = helper.get_rep_data(split=['test'], action=action)
-    SPLIT = 'test'
+    repcount_items = helper.get_rep_data(split=[split], action=action)
     pred_dict = dict()
     for name, item in repcount_items.items():
         assert os.path.exists(item['video_path']), f'{item["video_path"]} not exists'
@@ -322,8 +321,8 @@ def infer_dataset(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
         else:
             raise ValueError(f'Invalid model type: {model_type}')
         pred_dict[name] = count  # Only implemented count evaluation for now.
-    mae, obo_acc, eval_res = helper.eval_count(pred_dict, action=action, split=[SPLIT])
-    print(f'MAE={mae}, OBO_ACC={obo_acc}, SPLIT=test, ACTION={action}')
+    mae, obo_acc, eval_res = helper.eval_count(pred_dict, action=action, split=[split])
+    print(f'MAE={mae}, OBO_ACC={obo_acc}, SPLIT={split}, ACTION={action}')
     if output_dir is not None:  # write to csv
         res = []
         for item in eval_res.values():
@@ -331,8 +330,12 @@ def infer_dataset(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
             dict_.pop('video_path')
             dict_.pop('frames_path')
             res.append(dict_)
-        df = pd.DataFrame.from_dict(res,)
-        df.to_csv(os.path.join(output_dir, f'eval_count_{model_type}_model.csv'))
+        df = pd.DataFrame.from_dict(res)
+        filename = f'eval_count_{model_type}_model.csv'
+        if os.path.isfile(filename):
+            filename = filename.split('.')[0] + '_' + str(time.time()) + '.csv'
+        df.to_csv(os.path.join(output_dir, filename))
+        print(f'Saved to {os.path.join(output_dir, filename)}')
 
 
 def main(args) -> None:
@@ -366,6 +369,7 @@ def main(args) -> None:
             action = [args.action]
         infer_dataset(model,
                       action=action,
+                      split=args.split,
                       model_type=args.model_type,
                       output_dir=args.output)
 
@@ -395,6 +399,11 @@ def parse_args(argv=None) -> argparse.Namespace:
                             'situp', 'push_up', 'pull_up', 'jump_jack', 'squat',
                             'front_raise', 'all'
                         ])
+    parser.add_argument('-s',
+                        '--split',
+                        help='split',
+                        default='test',
+                        choices=['test', 'train', 'val'])
 
     args = parser.parse_args(argv)
     return args
