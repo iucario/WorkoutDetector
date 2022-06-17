@@ -156,13 +156,19 @@ def pred_to_count(step: int, preds: List[int]) -> Tuple[int, List[int]]:
     return count, reps  # len(rep) * step <= len(frames), last not full queue is discarded
 
 
-def write_to_video(video_path: str, output_path: str, preds: List[int]) -> None:
+def write_to_video(video_path: str,
+                   output_path: str,
+                   reps: List[int],
+                   states: List[int],
+                   step: int = 8) -> None:
     """Write the predicted count to a video.
     
     Args:
         video_path: path to the video.
         output_path: path to save the output video.
-        preds: list of predicted repetition counts.
+        reps: list of predicted start and end indices.
+        states: list of predicted states.
+        step: step size of the predictions.
     """
 
     cap = cv2.VideoCapture(video_path)
@@ -176,16 +182,15 @@ def write_to_video(video_path: str, output_path: str, preds: List[int]) -> None:
         out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps,
                               (width, height))
 
-    count, reps = pred_to_count(step=8, preds=preds)
-    for idx, res in enumerate(preds):
+    for idx, res in enumerate(np.repeat(states, step)):
         ret, frame = cap.read()
         if not ret:
             break
-        count_idx = bisect_left(reps, idx)
+        count_idx = bisect_left(reps[::2], idx)
         cv2.putText(frame, str(res), (int(width * 0.2), int(height * 0.2)),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, COLORS['cyan'], 2)
         cv2.putText(frame, f'count {count_idx}', (int(width * 0.2), int(height * 0.4)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, COLORS['pink'], 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, COLORS['red'], 2)
         out.write(frame)
     cap.release()
     out.release()
@@ -210,7 +215,7 @@ def inference_video(ort_session: onnxruntime.InferenceSession,
     ort_outs = ort_session.run(None, ort_inputs)
     score = ort_outs[0][0]
     pred = score.argmax()
-    print('score', list(score))
+    # print('score', list(score))
     return pred
 
 
@@ -235,7 +240,7 @@ def count_by_video_model(ort_session: onnxruntime.InferenceSession,
     """
 
     video_name = os.path.basename(video_path)
-    print(f'{video_name}')
+    print(f'{video_path}')
     cap = cv2.VideoCapture(video_path)
     input_queue: Deque[np.ndarray] = deque(maxlen=8)
     count = 0
@@ -261,7 +266,7 @@ def count_by_video_model(ort_session: onnxruntime.InferenceSession,
     correct = (abs(gt_count - count) <= 1)
     print(f'count={count}, gt_count={gt_count}, correct={correct}')
     if output_path is not None:
-        write_to_video(video_path, output_path, reps)
+        write_to_video(video_path, output_path, reps, states=states, step=8)
     return count, reps
 
 
@@ -278,31 +283,40 @@ def infer_dataset(ort_session: onnxruntime.InferenceSession,
         output_dir: path to save the output videos and result csv.
     """
 
-    data_root = os.path.join(PROJ_ROOT, 'data')
+    data_root = os.path.join(PROJ_ROOT, 'data/RepCount/')
     assert data_root is not None
     helper = RepcountHelper(data_root, REPCOUNT_ANNO_PATH)
     repcount_items = helper.get_rep_data(split=['test'], action=action)
     SPLIT = 'test'
     pred_dict = dict()
     for name, item in repcount_items.items():
+        assert os.path.exists(item['video_path']), f'{item["video_path"]} not exists'
         if output_dir is not None:
+            assert os.path.isdir(output_dir)
             assert name.endswith('.mp4')
             output_path = os.path.join(output_dir, name)
         else:
             output_path = None
         if model_type == 'video':
-            count, reps = count_by_video_model(ort_session, item.video_path,
-             ground_truth=item.reps, output_path=output_path)
+            count, reps = count_by_video_model(ort_session,
+                                               item.video_path,
+                                               ground_truth=item.reps,
+                                               output_path=output_path)
         elif model_type == 'image':
-            count, reps = count_by_image_model(ort_session, item.video_path,
-             ground_truth=item.reps, output_path=output_path)
+            count, reps = count_by_image_model(ort_session,
+                                               item.video_path,
+                                               ground_truth=item.reps,
+                                               output_path=output_path)
         else:
             raise ValueError(f'Invalid model type: {model_type}')
         pred_dict[name] = count  # Only implemented count evaluation for now.
     mae, obo_acc, eval_res = helper.eval_count(pred_dict, action=action, split=[SPLIT])
     print(f'MAE={mae}, OBO_ACC={obo_acc}, SPLIT=test, ACTION={action}')
-    if output_dir is not None: # write to csv
-        df = pd.DataFrame.from_dict(eval_res)
+    if output_dir is not None:  # write to csv
+        dict_ = eval_res.__dict__
+        dict_.pop('video_path')
+        dict_.pop('frames_path')
+        df = pd.DataFrame.from_dict(eval_res.values())
         df.to_csv(os.path.join(output_dir, f'eval_count_{model_type}_model.csv'))
 
 
@@ -311,7 +325,7 @@ def main(args) -> None:
     ort_session = onnxruntime.InferenceSession(
         onnx_path, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
 
-    if args.video:
+    if not args.eval and args.video is not None:
         video_path = args.video
         if args.model_type == 'image':
             count_by_image_model(ort_session,
@@ -367,11 +381,15 @@ if __name__ == '__main__':
                             'front_raise', 'all'
                         ])
 
-    example_arg = [
-        '--onnx', 'checkpoints/tsm_video_all.onnx', '--threshold', '0.5', '--video',
-        'data/RepCount/videos/test/stu1_27.mp4'
+    example_args = [
+        '--onnx', 'checkpoints/tsm_video_all_20220616.onnx', '--threshold', '0.5',
+        '--video', 'data/RepCount/videos/test/stu1_27.mp4'
     ]
-    args = parser.parse_args()
+    example_dataset = [
+        '--onnx', 'checkpoints/tsm_video_all_20220616.onnx', '--eval', '--output', 'exp/',
+        '--model-type', 'video', '--action', 'all'
+    ]
+    args = parser.parse_args(example_dataset)
 
     main(args)
     # mmlab_infer(args)

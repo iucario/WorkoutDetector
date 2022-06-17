@@ -17,22 +17,28 @@ class TestRepcountHelper:
     helper = RepcountHelper(DATA_ROOT, REPCOUNT_ANNO_PATH)
 
     def test_get_rep_data(self):
-        for _ in range(10):
-            rand_action = random.choice(ACTIONS)
-            rand_split = random.choice(SPLITS)
-            train = self.helper.get_rep_data(split=['train'], action=[rand_action])
-            val = self.helper.get_rep_data(split=['val'], action=[rand_action])
-            test = self.helper.get_rep_data(split=['test'], action=[rand_action])
-            all_ = self.helper.get_rep_data(split=SPLITS, action=[rand_action])
-            all_action = self.helper.get_rep_data(split=SPLITS, action=ACTIONS)
-            rand_split_all = self.helper.get_rep_data(split=[rand_split], action=ACTIONS)
-            split_num = 0
-            for action in ACTIONS:
-                split_num += len(
-                    self.helper.get_rep_data(split=[rand_split], action=[action]))
+        rand_action = random.choice(ACTIONS)
+        rand_split = random.choice(SPLITS)
 
-            assert len(rand_split_all) == split_num
-            assert len(train) + len(val) + len(test) == len(all_)
+        random_dict = self.helper.get_rep_data(split=[rand_split], action=[rand_action])
+        random_item = random.choice(list(random_dict.values()))
+        assert os.path.exists(random_item.video_path)
+        assert os.path.isdir(random_item.frames_path)
+
+        
+        train = self.helper.get_rep_data(split=['train'], action=[rand_action])
+        val = self.helper.get_rep_data(split=['val'], action=[rand_action])
+        test = self.helper.get_rep_data(split=['test'], action=[rand_action])
+        all_ = self.helper.get_rep_data(split=SPLITS, action=[rand_action])
+        all_action = self.helper.get_rep_data(split=SPLITS, action=ACTIONS)
+        rand_split_all = self.helper.get_rep_data(split=[rand_split], action=ACTIONS)
+        split_num = 0
+        for action in ACTIONS:
+            split_num += len(
+                self.helper.get_rep_data(split=[rand_split], action=[action]))
+
+        assert len(rand_split_all) == split_num
+        assert len(train) + len(val) + len(test) == len(all_)
 
         TRAIN_TOTAL = 602
         VAL_TOTAL = 110
@@ -41,6 +47,7 @@ class TestRepcountHelper:
                                             action=ACTIONS)) == TRAIN_TOTAL
         assert len(self.helper.get_rep_data(split=['val'], action=ACTIONS)) == VAL_TOTAL
         assert len(self.helper.get_rep_data(split=['test'], action=ACTIONS)) == TEST_TOTAL
+    
 
     def test_RepcountHelper_eval_count(self):
         for sp in SPLITS:

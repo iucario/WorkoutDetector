@@ -90,10 +90,10 @@ class RepcountItem:
 
     def __str__(self):
         return f'{self.video_name}\n{self.class_}\n{self.count}\n{self.reps}'
-    
+
     def __getitem__(self, key):
         return self.__dict__[key]
-    
+
     def __iter__(self):
         return iter(self.__dict__.items())
 
@@ -143,10 +143,11 @@ class RepcountHelper:
         ret = {}
         for idx, row in df.iterrows():
             name = row['name']
+            name_no_ext = name.split('.')[0]
             class_ = row['class_']
             split_ = row['split']
-            video_path = os.path.join(self.data_root, 'videos', split_, row['name'])
-            frame_path = os.path.join(self.data_root, 'frames', split_, row['name'])
+            video_path = os.path.join(self.data_root, 'videos', split_, name)
+            frame_path = os.path.join(self.data_root, 'rawframes', split_, name_no_ext)
             total_frames = -1
             if os.path.isdir(frame_path):
                 total_frames = len(os.listdir(frame_path))
