@@ -12,6 +12,65 @@ from torchvision.datasets.utils import download_and_extract_archive, verify_str_
 from torchvision.io import read_image
 
 
+def parse_onedrive(link) -> str:
+    """Parse onedrive link to download link.
+
+    Args:
+        link: str, start with `https://1drv.ms/u/s!`
+
+    Returns:
+        str, download link.
+    """
+    b = base64.urlsafe_b64encode(link.strip().encode('ascii'))
+    s = b.decode('ascii')
+    res = f'https://api.onedrive.com/v1.0/shares/u!{s}/root/content'
+    return res
+
+
+def sample_frames(total: int, num: int, offset: int = 0) -> List[int]:
+    """Uniformly sample num frames from video
+    
+    Args:
+        total: int, total frames, 
+        num: int, number of frames to sample
+        offset: int, offset from start of video
+    Returns: 
+        list of frame indices starting from offset
+    """
+
+    if total < num:
+        # repeat frames if total < num
+        repeats = math.ceil(num / total)
+        data = [x for x in range(total) for _ in range(repeats)]
+        total = len(data)
+    else:
+        data = list(range(total))
+    interval = total // num
+    indices = np.arange(0, total, interval)[:num]
+    for i, x in enumerate(indices):
+        rand = np.random.randint(0, interval)
+        if i == num - 1:
+            upper = total
+            rand = np.random.randint(0, upper - x)
+        else:
+            upper = min(interval * (i + 1), total)
+        indices[i] = (x + rand) % upper
+    assert len(indices) == num, f'len(indices)={len(indices)}'
+    for i in range(1, len(indices)):
+        assert indices[i] > indices[i - 1], f'indices[{i}]={indices[i]}'
+    return [data[i] + offset for i in indices]
+
+
+def eval_count(preds: List[int], targets: List[int]) -> Tuple[float, float]:
+    """Evaluate count prediction. By mean absolute error and off-by-one error."""
+    mae = 0.0
+    off_by_one = 0.0
+    for pred, target in zip(preds, targets):
+        mae += abs(pred - target)
+        off_by_one += (abs(pred - target) == 1)
+    return mae / len(preds), off_by_one / len(preds)
+
+
 @dataclass
 class RepcountItem:
     """RepCount dataset video item"""
@@ -81,16 +140,16 @@ class RepcountHelper:
             ret[name] = item
         return ret
 
-    def eval_rep(self,
-                 pred_reps: List[int],
-                 split: str = 'test',
-                 action: List[str] = []) -> Tuple[float, float]:
+    def eval_count(self,
+                   pred_reps: Dict[str, int],
+                   split: List[str] = ['test'],
+                   action: List[str] = []) -> Tuple[float, float]:
         """Evaluate repetition count prediction
         
         Args:
-            pred_reps: list of the predicted repetition start and end indices
-            split: the split name
-            action: list of the actions
+            pred_reps: dict, name: count
+            action: list of the action names
+            split: list of the split names
 
         Returns:
             tuple, (mean_avg_error, off_by_one_acc)
@@ -98,74 +157,21 @@ class RepcountHelper:
         TODO:
             - add metrics for precise repetition timestamp. Use heatmap to smooth the error
         """
-        assert len(pred_reps) % 2 == 0, \
-            'pred_reps must be a list of start and end indices'
-        assert len(action) > 0, 'actions must be specified, e.g. ["pull_up", "squat"]'
-        count = len(pred_reps) // 2
-        items = self.get_rep_data(split=[split], action=action)
+
+        items = self.get_rep_data(split=split, action=action)
         total_mae = 0.0
         total_off_by_one = 0.0
-        for item in items.values():
-            gt_count = item.count
+        for name, count in pred_reps.items():
+            gt_count = items[name].count
             diff = abs(count - gt_count)
             if gt_count > 0:
                 mae = diff / gt_count
             else:
-                mae = 0 # Not decided how to handle 0 repetition case
+                mae = 0  # Not decided how to handle 0 repetition case
             obo_acc = (diff <= 1)
             total_mae += mae
             total_off_by_one += obo_acc
         return total_mae / len(items), total_off_by_one / len(items)
-
-
-
-def parse_onedrive(link) -> str:
-    """Parse onedrive link to download link.
-
-    Args:
-        link: str, start with `https://1drv.ms/u/s!`
-
-    Returns:
-        str, download link.
-    """
-    b = base64.urlsafe_b64encode(link.strip().encode('ascii'))
-    s = b.decode('ascii')
-    res = f'https://api.onedrive.com/v1.0/shares/u!{s}/root/content'
-    return res
-
-
-def sample_frames(total: int, num: int, offset: int = 0) -> List[int]:
-    """Uniformly sample num frames from video
-    
-    Args:
-        total: int, total frames, 
-        num: int, number of frames to sample
-        offset: int, offset from start of video
-    Returns: 
-        list of frame indices starting from offset
-    """
-
-    if total < num:
-        # repeat frames if total < num
-        repeats = math.ceil(num / total)
-        data = [x for x in range(total) for _ in range(repeats)]
-        total = len(data)
-    else:
-        data = list(range(total))
-    interval = total // num
-    indices = np.arange(0, total, interval)[:num]
-    for i, x in enumerate(indices):
-        rand = np.random.randint(0, interval)
-        if i == num - 1:
-            upper = total
-            rand = np.random.randint(0, upper - x)
-        else:
-            upper = min(interval * (i + 1), total)
-        indices[i] = (x + rand) % upper
-    assert len(indices) == num, f'len(indices)={len(indices)}'
-    for i in range(1, len(indices)):
-        assert indices[i] > indices[i - 1], f'indices[{i}]={indices[i]}'
-    return [data[i] + offset for i in indices]
 
 
 class RepcountDataset(torch.utils.data.Dataset):  # type: ignore

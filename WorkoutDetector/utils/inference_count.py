@@ -58,7 +58,7 @@ def inference_image(ort_session: onnxruntime.InferenceSession,
 
 
 def count_by_image_model(ort_session: onnxruntime.InferenceSession,
-                         video_path: Union[str, bytes, os.PathLike],
+                         video_path: str,
                          ground_truth: list,
                          output_path: Optional[str] = None) -> Tuple[int, int]:
     """Evaluate repetition count on a video, using image classification model.
@@ -233,7 +233,7 @@ def inference_video(ort_session: onnxruntime.InferenceSession,
 
 
 def count_by_video_model(ort_session: onnxruntime.InferenceSession,
-                         video_path: Union[str, bytes, os.PathLike],
+                         video_path: str,
                          ground_truth: list,
                          output_path: Optional[str] = None) -> Tuple[int, int]:
     """Evaluate repetition count on a video, using video classification model.
@@ -297,7 +297,7 @@ def infer_dataset(ort_session: onnxruntime.InferenceSession, action: str, model_
         output: path to save the result in csv format.
     """
 
-    data_root: Union[str, bytes, os.PathLike] = os.path.join(PROJ_ROOT, 'data')
+    data_root = os.path.join(PROJ_ROOT, 'data')
     assert data_root is not None
     dataset = RepcountDataset(root=data_root, split='test')
     if action == 'all':
@@ -312,9 +312,7 @@ def infer_dataset(ort_session: onnxruntime.InferenceSession, action: str, model_
     total_gt_count = 0
     for i in range(len(names)):
         assert names[i] is not None and type(names[i]) is str
-        rand_video: Union[str, bytes,
-                          os.PathLike] = os.path.join(data_root, 'RepCount/videos/test',
-                                                      names[i])
+        rand_video = os.path.join(data_root, 'RepCount/videos/test', names[i]) # type: ignore
 
         if action_df['count'].values[i]:
             gt = list(map(int, action_df['reps'].values[i].split()))  # type: ignore
