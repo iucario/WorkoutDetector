@@ -14,6 +14,7 @@ import pandas as pd
 import PIL
 import torch
 import torchvision.transforms as T
+from torchvision.models.detection import fasterrcnn_resnet50_fpn
 from mmaction.apis import init_recognizer
 from WorkoutDetector.datasets import RepcountHelper
 from WorkoutDetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
@@ -43,6 +44,20 @@ COLORS = {
     'magenta': (255, 0, 255),
     'lime': (0, 255, 0),
 }
+
+
+def person_bbox(model: torch.nn.Module,
+                imgs: List[PIL.Image]) -> List[Tuple[int, int, int, int]]:
+    """Get bounding box of person in the frame.
+    The person with the largest area will be returned if multiple people are detected.
+    
+    Args:
+        imgs: list of PIL.Image.
+        
+    Returns:
+        list of Tuple[int, int, int, int]: (x, y, w, h).
+    """
+    return [(0, 0, 0, 0)]
 
 
 def inference_image(model: Union[onnxruntime.InferenceSession, torch.nn.Module],

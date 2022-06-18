@@ -9,7 +9,7 @@ wandb/
 tmp/
 poses/
 exp
-out/
+out
 detectron2_out/
 lightning_logs/
 log
