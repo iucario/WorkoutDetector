@@ -122,6 +122,9 @@ class RepcountHelper:
 
         self.anno_file = anno_file
         self.data_root = data_root
+        self.classes = [
+            'situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise'
+        ] # no bench_pressing because data not cleaned yet.
 
     def get_rep_data(self,
                      split: List[str] = ['test'],
@@ -423,6 +426,7 @@ class RepcountVideoDataset(RepcountDataset):
     It's like `RepcountImageDataset`, but using multiple frames rather than only two images.
 
     Args:
+        root: str, data root, e.g. './data'
         action: str
         num_frames: int, number of frames in one video
     
@@ -475,11 +479,10 @@ class RepcountVideoDataset(RepcountDataset):
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    PROJ_ROOT = os.path.expanduser('~/projects/RepCount')
+    PROJ_ROOT = os.path.expanduser('~/projects/WorkoutDetector/')
     data_root = os.path.join(PROJ_ROOT, 'data')
     dataset = RepcountVideoDataset(data_root, split='test', action='push_up')
     print(dataset.classes)
-    # imageset = RepcountImageDataset(data_root, action='jump_jack', split='test')
     random_index = np.random.randint(0, len(dataset))
     img, label = dataset[random_index]
     plt.figure(figsize=(8, 4), dpi=200)
