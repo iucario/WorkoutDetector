@@ -28,7 +28,7 @@ pip install -r requirements/optional.txt
 
 ## React demo
 
-1. Download onnx model. [OneDrive](https://1drv.ms/u/s!AiohV3HRf-34i_VY0jVJGvLeayIdjQ?e=XqAvLa)
+1. Download onnx model. [OneDrive](https://1drv.ms/u/s!AiohV3HRf-34i_VY0jVJGvLeayIdjQ)
 2. `cd app && uvicorn server:app --port 8000`
 3. open http://localhost:8000/
 

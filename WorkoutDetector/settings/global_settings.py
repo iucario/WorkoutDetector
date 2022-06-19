@@ -1,1 +1,6 @@
-PROJ_ROOT = '/home/umi/projects/WorkoutDetector/'
+import os
+
+PROJ_ROOT = os.path.expanduser('~/projects/WorkoutDetector')
+
+_repcount_anno_relative_path = 'datasets/RepCount/annotation.csv'
+REPCOUNT_ANNO_PATH = os.path.join(PROJ_ROOT, _repcount_anno_relative_path)

@@ -2,8 +2,9 @@ import os
 import re
 import pandas as pd
 import matplotlib.pyplot as plt
+from WorkoutDetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 
-anno = pd.read_csv('/home/umi/projects/WorkoutDetector/data/RepCount/annotation.csv')
+anno = pd.read_csv(REPCOUNT_ANNO_PATH)
 
 
 def func_1(df):

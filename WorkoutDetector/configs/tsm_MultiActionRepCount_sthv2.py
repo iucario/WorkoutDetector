@@ -47,9 +47,9 @@ data_root = os.path.join(PROJ_ROOT, 'data/Binary/')
 data_root_train = None
 data_root_val = None
 data_root_test = None
-ann_file_train = os.path.join(data_root, 'squat-train.txt')
-ann_file_val = os.path.join(data_root, 'squat-val.txt')
-ann_file_test = os.path.join(data_root, 'squat-test.txt')
+ann_file_train = os.path.join(data_root, 'all-train.txt')
+ann_file_val = os.path.join(data_root, 'all-val.txt')
+ann_file_test = os.path.join(data_root, 'all-test.txt')
 
 img_norm_cfg = dict(mean=[123.675, 116.28, 103.53],
                     std=[58.395, 57.12, 57.375],

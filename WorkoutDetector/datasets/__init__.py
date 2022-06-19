@@ -1,1 +1,3 @@
-from .repcount_dataset import RepcountDataset, RepcountImageDataset, RepcountVideoDataset
+from .repcount_dataset import (RepcountHelper, RepcountDataset, RepcountImageDataset,
+                               RepcountVideoDataset, RepcountRecognitionDataset)
+from .debug import DebugDataset

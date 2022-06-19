@@ -55,12 +55,14 @@ class MultiActionRepCount(BaseDataset):
         return video_infos
 
     def prepare_train_frames(self, idx):
+        assert self.video_infos
         results = copy.deepcopy(self.video_infos[idx])
         results['filename_tmpl'] = self.filename_tmpl
         results['modality'] = self.modality
         return self.pipeline(results)
 
     def prepare_test_frames(self, idx):
+        assert self.video_infos
         results = copy.deepcopy(self.video_infos[idx])
         results['filename_tmpl'] = self.filename_tmpl
         results['modality'] = self.modality
@@ -80,9 +82,8 @@ def train(cfg: Config) -> None:
 
 
 def main(args):
-
     config = os.path.join(PROJ_ROOT,
-                          'WorkoutDetector/configs/tsm_MultiActionRepCount_sthv2.py')
+                          'WorkoutDetector/configs/timesformer_div_8x4x1_k400.py')
     cfg = Config.fromfile(config)
     cfg.seed = 0
     set_random_seed(0, deterministic=False)
@@ -95,8 +96,6 @@ def main(args):
     cfg.data.train.ann_file = os.path.join(ann_root, f'{args.action}-train.txt')
     cfg.data.val.ann_file = os.path.join(ann_root, f'{args.action}-val.txt')
     cfg.data.test.ann_file = os.path.join(ann_root, f'{args.action}-test.txt')
-
-    cfg.work_dir = os.path.join(PROJ_ROOT, 'WorkoutDetector/work_dirs', args.action)
 
     # cfg.resume_from = osp.join(cfg.work_dir, 'latest.pth')
 
@@ -115,7 +114,7 @@ def main(args):
 if __name__ == '__main__':
     ACTIONS = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise', 'all']
     parser = argparse.ArgumentParser()
-    parser.add_argument('-a', '--action', type=str, default='jump_jack', choices=ACTIONS)
+    parser.add_argument('-a', '--action', type=str, default='all', choices=ACTIONS)
     args = parser.parse_args()
 
     main(args)

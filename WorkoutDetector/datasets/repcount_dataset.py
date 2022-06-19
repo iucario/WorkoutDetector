@@ -1,14 +1,14 @@
+from dataclasses import dataclass
 import math
 import os
-from typing import List, Tuple
+from typing import List, Optional, Tuple, Dict
 import einops
 import torch
 from torch import Tensor
-import cv2
 import pandas as pd
 import numpy as np
 import base64
-from torchvision.datasets.utils import download_url, download_and_extract_archive, verify_str_arg
+from torchvision.datasets.utils import download_and_extract_archive, verify_str_arg
 from torchvision.io import read_image
 
 
@@ -58,10 +58,157 @@ def sample_frames(total: int, num: int, offset: int = 0) -> List[int]:
     assert len(indices) == num, f'len(indices)={len(indices)}'
     for i in range(1, len(indices)):
         assert indices[i] > indices[i - 1], f'indices[{i}]={indices[i]}'
+    assert num == len(indices), f'num={num}'
     return [data[i] + offset for i in indices]
 
 
-class RepcountDataset(torch.utils.data.Dataset):
+def eval_count(preds: List[int], targets: List[int]) -> Tuple[float, float]:
+    """Evaluate count prediction. By mean absolute error and off-by-one error."""
+
+    mae = 0.0
+    off_by_one = 0.0
+    for pred, target in zip(preds, targets):
+        mae += abs(pred - target)
+        off_by_one += (abs(pred - target) == 1)
+    return mae / len(preds), off_by_one / len(preds)
+
+
+@dataclass
+class RepcountItem:
+    """RepCount dataset video item"""
+
+    video_path: str  # the absolute video path
+    frames_path: str  # the absolute rawframes path
+    total_frames: int
+    class_: str
+    count: int
+    reps: List[int]  # start_1, end_1, start_2, end_2, ...
+    split: str
+    video_name: str
+    ytb_id: Optional[str] = None  # YouTube id
+    ytb_start_sec: Optional[int] = None  # YouTube start sec
+    ytb_end_sec: Optional[int] = None  # YouTube end sec
+
+    def __str__(self):
+        return f'{self.video_name}\n{self.class_}\n{self.count}\n{self.reps}'
+
+    def __getitem__(self, key):
+        return self.__dict__[key]
+
+    def __iter__(self):
+        return iter(self.__dict__.items())
+
+
+@dataclass
+class RepcountItemWithPred(RepcountItem):
+    """RepCount dataset video item with prediction"""
+
+    pred_count: int = 0
+    pred_reps: Optional[List[int]] = None
+    mae: float = 0  # mean absolute error
+    obo_acc: bool = False  # pred is correct if difference within 1
+    model_type: Optional[str] = None  # model type. image or video
+
+
+class RepcountHelper:
+    """Helper class for RepCount dataset
+    Extracting annotations, evaluation and helpful functions
+    
+    Args:
+        data_root: the data root path, e.g. 'data/RepCount'
+        ann_file: the annotation file path
+    """
+
+    def __init__(self, data_root: str, anno_file: str):
+
+        self.anno_file = anno_file
+        self.data_root = data_root
+        self.classes = [
+            'situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise'
+        ]  # no bench_pressing because data not cleaned yet.
+
+    def get_rep_data(self,
+                     split: List[str] = ['test'],
+                     action: List[str] = ['situp']) -> Dict[str, RepcountItem]:
+        """
+        Args:
+            split: list of the split names
+            action: list of the action names
+
+        Returns:
+            dict, name: RepcountItem
+        """
+        assert len(split) > 0, 'split must be specified, e.g. ["train", "val"]'
+        assert len(action) > 0, 'action must be specified, e.g. ["pull_up", "squat"]'
+        df = pd.read_csv(self.anno_file, index_col=0)
+        df = df[df['split'].isin(split)]
+        df = df[df['class_'].isin(action)]
+        df = df.reset_index(drop=True)
+        ret = {}
+        for idx, row in df.iterrows():
+            name = row['name']
+            name_no_ext = name.split('.')[0]
+            class_ = row['class_']
+            split_ = row['split']
+            video_path = os.path.join(self.data_root, 'videos', split_, name)
+            frame_path = os.path.join(self.data_root, 'rawframes', split_, name_no_ext)
+            total_frames = -1
+            if os.path.isdir(frame_path):
+                total_frames = len(os.listdir(frame_path))
+            video_id = row['vid']
+            count = int(row['count'])
+            if count > 0:
+                reps = [int(x) for x in row['reps'].split()]
+            else:
+                reps = []
+            item = RepcountItem(video_path, frame_path, total_frames, class_, count, reps,
+                                split_, name, video_id, row['start'], row['end'])
+            ret[name] = item
+        return ret
+
+    def eval_count(
+            self,
+            pred_reps: Dict[str, int],
+            split: List[str] = ['test'],
+            action: List[str] = []
+    ) -> Tuple[float, float, Dict[str, RepcountItemWithPred]]:
+        """Evaluate repetition count prediction
+        
+        Args:
+            pred_reps: dict, name: count
+            action: list of the action names
+            split: list of the split names
+
+        Returns:
+            tuple, (mean_avg_error, off_by_one_acc)
+        
+        TODO:
+            - add metrics for precise repetition timestamp. Use heatmap to smooth the error
+        """
+
+        items = self.get_rep_data(split=split, action=action)
+        total_mae = 0.0
+        total_off_by_one = 0.0
+        pred_items: Dict[str, RepcountItemWithPred] = {}
+        for name, count in pred_reps.items():
+            gt_count = items[name].count
+            diff = abs(count - gt_count)
+            if gt_count > 0:
+                mae = diff / gt_count
+            else:
+                mae = 0  # Not decided how to handle 0 repetition case
+            obo_acc = (diff <= 1)
+            total_mae += mae
+            total_off_by_one += obo_acc
+            pred_items[name] = RepcountItemWithPred(**items[name].__dict__,
+                                                    pred_count=count,
+                                                    pred_reps=[],
+                                                    mae=mae,
+                                                    obo_acc=obo_acc)
+        return total_mae / len(items), total_off_by_one / len(items), pred_items
+
+
+class RepcountDataset(torch.utils.data.Dataset):  # type: ignore
     """Repcount dataset
     https://github.com/SvipRepetitionCounting/TransRAC
     
@@ -104,7 +251,7 @@ class RepcountDataset(torch.utils.data.Dataset):
 
     def __init__(self,
                  root: str,
-                 split: str = None,
+                 split: str = 'train',
                  transform=None,
                  download=False) -> None:
         super(RepcountDataset, self).__init__()
@@ -117,7 +264,8 @@ class RepcountDataset(torch.utils.data.Dataset):
             )
         verify_str_arg(split, "split", ("train", "val", "test"))
         self.split = split
-        anno_path = os.path.join(self._data_path, '../../datasets/RepCount/annotation.csv')
+        anno_path = os.path.join(self._data_path,
+                                 '../../datasets/RepCount/annotation.csv')
         if not os.path.exists(anno_path):
             raise OSError(f'{anno_path} not found.')
         self._anno_df = pd.read_csv(anno_path, index_col=0)
@@ -140,7 +288,7 @@ class RepcountDataset(torch.utils.data.Dataset):
 
     def get_video_list(self,
                        split: str,
-                       action: str = None,
+                       action: Optional[str] = None,
                        max_reps: int = 2) -> List[dict]:
         """
 
@@ -170,28 +318,38 @@ class RepcountDataset(torch.utils.data.Dataset):
             count = row.count
             if count > 0:
                 reps = list(map(int, row.reps.split()))[:max_reps * 2]
-            else:
-                []
-            for start, end in zip(reps[0::2], reps[1::2]):
-                start += 1  # plus 1 because img index starts from 1
-                end += 1  # but annotated frame index starts from 0
-                mid = (start + end) // 2
-                videos.append({
-                    'video_path': os.path.join(self._data_path, 'rawframes', split, name),
-                    'start': start,
-                    'end': mid,
-                    'length': mid - start + 1,
-                    'class': row.class_,
-                    'label': 0
-                })
-                videos.append({
-                    'video_path': os.path.join(self._data_path, 'rawframes', split, name),
-                    'start': mid + 1,
-                    'end': end,
-                    'length': end - mid,
-                    'class': row.class_,
-                    'label': 1
-                })
+                for start, end in zip(reps[0::2], reps[1::2]):
+                    start += 1  # plus 1 because img index starts from 1
+                    end += 1  # but annotated frame index starts from 0
+                    mid = (start + end) // 2
+                    videos.append({
+                        'video_path':
+                            os.path.join(self._data_path, 'rawframes', split, name),
+                        'start':
+                            start,
+                        'end':
+                            mid,
+                        'length':
+                            mid - start + 1,
+                        'class':
+                            row.class_,
+                        'label':
+                            0
+                    })
+                    videos.append({
+                        'video_path':
+                            os.path.join(self._data_path, 'rawframes', split, name),
+                        'start':
+                            mid + 1,
+                        'end':
+                            end,
+                        'length':
+                            end - mid,
+                        'class':
+                            row.class_,
+                        'label':
+                            1
+                    })
         return videos
 
     def __len__(self) -> int:
@@ -211,8 +369,8 @@ class RepcountDataset(torch.utils.data.Dataset):
                                      extract_root=self._data_path)
 
     def _check_exists(self) -> bool:
-        return os.path.exists(
-            self._data_path) and os.path.isdir(self._data_path) and os.path.exists(
+        return os.path.exists(self._data_path) and os.path.isdir(
+            self._data_path) and os.path.exists(
                 os.path.join(self._data_path, 'RepCount/rawframes'))
 
 
@@ -269,6 +427,7 @@ class RepcountVideoDataset(RepcountDataset):
     It's like `RepcountImageDataset`, but using multiple frames rather than only two images.
 
     Args:
+        root: str, data root, e.g. './data'
         action: str
         num_frames: int, number of frames in one video
     
@@ -282,6 +441,10 @@ class RepcountVideoDataset(RepcountDataset):
             length: end_frame_index - start_frame_index + 1
             class: action class,
             label: 0 or 1
+    
+    Returns:
+        Tensor, shape (C, num_frames, H, W)
+        List[int], label
     """
 
     def __init__(self,
@@ -310,7 +473,8 @@ class RepcountVideoDataset(RepcountDataset):
         if self.transform is not None:
             frame_list = [self.transform(frame) for frame in frame_list]
         frame_tensor = torch.stack(frame_list, 0)
-        assert frame_tensor.shape[0] == self.num_segments, \
+        frame_tensor = frame_tensor.permute(1, 0, 2, 3)
+        assert frame_tensor.shape[1] == self.num_segments, \
             f'frame_list.shape[0] = {frame_tensor.shape[0]}, ' \
             f'but self.num_segments = {self.num_segments}'
         return frame_tensor, self.video_list[index]['label']
@@ -319,16 +483,74 @@ class RepcountVideoDataset(RepcountDataset):
         return len(self.video_list)
 
 
+class RepcountRecognitionDataset(torch.utils.data.Dataset):
+    """RepCount action recognition(video classification) dataset
+    
+    Args:
+        root: str, data root, e.g. './data/RepCount'
+        split: str, 'train' or 'val'
+        transform: torch.transforms.Compose, transform for image
+        download: bool, whether to download the dataset
+    """
+
+    def __init__(self,
+                 root: str,
+                 split: str,
+                 actions: Optional[List[str]] = None,
+                 num_segments: int = 8,
+                 transform=None) -> None:
+        super(RepcountRecognitionDataset, self).__init__()
+        self.split = split
+        self.transform = transform
+        assert os.path.isdir(root), f'{root} does not exist'
+        anno_path = os.path.join(root, '../../datasets/RepCount/annotation.csv')
+        helper = RepcountHelper(data_root=root, anno_file=anno_path)
+        if actions is None:
+            actions = helper.classes
+        video_dict = helper.get_rep_data(split=[split], action=actions)
+        self.video_list: List[RepcountItem] = list(video_dict.values())
+        self.num_seg = num_segments
+        self.action_map = dict(zip(actions, range(len(actions))))
+
+    def __getitem__(self, index: int) -> Tuple[Tensor, int]:
+        video = self.video_list[index]
+        try:
+            rep_start, rep_end = video.reps[0], video.reps[-1]
+        except IndexError: # no reps
+            rep_start, rep_end = 0, video.total_frames-1
+        idx_list = sample_frames(rep_end - rep_start, self.num_seg, offset=rep_start)
+        frame_list = [
+            read_image(os.path.join(video.frames_path, f'img_{i+1:05}.jpg'))
+            for i in idx_list
+        ]
+        if self.transform:
+            frame_list = [
+                self.transform(
+                    read_image(os.path.join(video.frames_path, f'img_{i+1:05}.jpg')))
+                for i in idx_list
+            ]
+        label = self.action_map[video.class_]
+        frame_tensor = torch.stack(frame_list, 0)
+        frame_tensor = frame_tensor.permute(1, 0, 2, 3)
+        return frame_tensor, label
+
+    def __len__(self) -> int:
+        return len(self.video_list)
+
+
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    data_root = '/home/umi/projects/WorkoutDetector/data'
-    dataset = RepcountVideoDataset(data_root, split='test', action='push_up')
+    PROJ_ROOT = os.path.expanduser('~/projects/WorkoutDetector/')
+    data_root = os.path.join(PROJ_ROOT, 'data')
+    dataset = RepcountVideoDataset(data_root,
+                                   split='test',
+                                   action='push_up',
+                                   num_segments=16)
     print(dataset.classes)
-    # imageset = RepcountImageDataset(data_root, action='jump_jack', split='test')
     random_index = np.random.randint(0, len(dataset))
     img, label = dataset[random_index]
     plt.figure(figsize=(8, 4), dpi=200)
-    img = einops.rearrange(img, '(b1 b2) c h w -> (b1 h) (b2 w) c', b1=2)
+    img = einops.rearrange(img, 'c (b1 b2) h w -> (b1 h) (b2 w) c', b2=4)
     plt.title(f'label: {label}')
     print(img.shape)
     plt.imshow(img)

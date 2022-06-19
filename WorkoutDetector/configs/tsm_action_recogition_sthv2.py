@@ -122,6 +122,6 @@ omnisource = False
 DATE = time.strftime('%Y%m%d-%H%M%S')
 work_dir = os.path.join(PROJ_ROOT, f'work_dirs/tsm_action_recogition_sthv2_{DATE}')
 
-log_config = dict(interval=10,
+log_config = dict(interval=20,
                   hooks=[dict(type='TextLoggerHook'),
                          dict(type='TensorboardLoggerHook')])
