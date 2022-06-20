@@ -14,6 +14,10 @@ import pandas as pd
 import PIL
 import torch
 import torchvision.transforms as T
+<<<<<<< HEAD
+=======
+from torchvision.models.detection import fasterrcnn_resnet50_fpn
+>>>>>>> dev
 from mmaction.apis import init_recognizer
 from WorkoutDetector.datasets import RepcountHelper
 from WorkoutDetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
@@ -45,6 +49,23 @@ COLORS = {
 }
 
 
+<<<<<<< HEAD
+=======
+def person_bbox(model: torch.nn.Module,
+                imgs: List[PIL.Image.Image]) -> List[Tuple[int, int, int, int]]:
+    """Get bounding box of person in the frame.
+    The person with the largest area will be returned if multiple people are detected.
+    
+    Args:
+        imgs: list of PIL.Image.
+        
+    Returns:
+        list of Tuple[int, int, int, int]: (x, y, w, h).
+    """
+    return [(0, 0, 0, 0)]
+
+
+>>>>>>> dev
 def inference_image(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
                     frame: np.ndarray,
                     threshold: float = 0.5) -> int:
@@ -154,11 +175,20 @@ def pred_to_count(step: int, preds: List[int]) -> Tuple[int, List[int]]:
         prev_state = states[prev_state_start_idx]
         if pred != prev_state:  # new state, new start index
             prev_state_start_idx = idx
+<<<<<<< HEAD
+
+    assert count * 2 == len(reps)
+    return count, reps  # len(rep) * step <= len(frames), last not full queue is discarded
+=======
+>>>>>>> dev
 
     assert count * 2 == len(reps)
     return count, reps  # len(rep) * step <= len(frames), last not full queue is discarded
 
+<<<<<<< HEAD
+=======
 
+>>>>>>> dev
 def write_to_video(video_path: str,
                    output_path: str,
                    reps: List[int],

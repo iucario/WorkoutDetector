@@ -98,6 +98,14 @@ def main(args):
     cfg.data.test.ann_file = os.path.join(ann_root, f'{args.action}-test.txt')
 
     # cfg.resume_from = osp.join(cfg.work_dir, 'latest.pth')
+
+    cfg.log_config = dict(interval=10,
+                      hooks=[
+                          dict(type='TextLoggerHook'),
+                          dict(type='TensorboardLoggerHook'),
+                        #   dict(type='WandbLoggerHook',
+                        #        init_kwargs=dict(project='playground-tsm', config={**cfg}))
+                      ])
     print(cfg.pretty_text)
 
     train(cfg)

@@ -1,8 +1,8 @@
 import os
 import random
-
+import torch
 import pandas as pd
-from WorkoutDetector.datasets import RepcountHelper
+from WorkoutDetector.datasets import RepcountHelper, RepcountRecognitionDataset
 from WorkoutDetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 
 SPLITS = ['train', 'val', 'test']
@@ -25,7 +25,6 @@ class TestRepcountHelper:
         assert os.path.exists(random_item.video_path)
         assert os.path.isdir(random_item.frames_path)
 
-        
         train = self.helper.get_rep_data(split=['train'], action=[rand_action])
         val = self.helper.get_rep_data(split=['val'], action=[rand_action])
         test = self.helper.get_rep_data(split=['test'], action=[rand_action])
@@ -34,8 +33,8 @@ class TestRepcountHelper:
         rand_split_all = self.helper.get_rep_data(split=[rand_split], action=ACTIONS)
         split_num = 0
         for action in ACTIONS:
-            split_num += len(
-                self.helper.get_rep_data(split=[rand_split], action=[action]))
+            split_num += len(self.helper.get_rep_data(split=[rand_split],
+                                                      action=[action]))
 
         assert len(rand_split_all) == split_num
         assert len(train) + len(val) + len(test) == len(all_)
@@ -47,7 +46,6 @@ class TestRepcountHelper:
                                             action=ACTIONS)) == TRAIN_TOTAL
         assert len(self.helper.get_rep_data(split=['val'], action=ACTIONS)) == VAL_TOTAL
         assert len(self.helper.get_rep_data(split=['test'], action=ACTIONS)) == TEST_TOTAL
-    
 
     def test_RepcountHelper_eval_count(self):
         for sp in SPLITS:
@@ -69,3 +67,16 @@ class TestRepcountHelper:
                 mae, obo, _ = self.helper.eval_count(preds, [sp], [act])
                 assert mae == true_mae, f'sp={sp} act={act}, mae={mae}, true_mae={true_mae}'
                 assert obo == true_obo, f'sp={sp} act={act}, obo={obo}, true_obo={true_obo}'
+
+
+def test_RepcountRecognitionDataset():
+    actions = ['push_up', 'situp', 'squat', 'jump_jack', 'pull_up']
+    for split in ['train', 'val', 'test']:
+        dataset = RepcountRecognitionDataset(DATA_ROOT,
+                                             split=split,
+                                             actions=actions,
+                                             num_segments=8)
+        for i in range(len(dataset)):
+            x, y = dataset[i]
+            assert x.shape[:2] == torch.Size([3, 8])
+            assert 0 <= y < len(actions)

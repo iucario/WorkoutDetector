@@ -58,6 +58,7 @@ def sample_frames(total: int, num: int, offset: int = 0) -> List[int]:
     assert len(indices) == num, f'len(indices)={len(indices)}'
     for i in range(1, len(indices)):
         assert indices[i] > indices[i - 1], f'indices[{i}]={indices[i]}'
+    assert num == len(indices), f'num={num}'
     return [data[i] + offset for i in indices]
 
 
@@ -77,7 +78,7 @@ class RepcountItem:
     """RepCount dataset video item"""
 
     video_path: str  # the absolute video path
-    frames_path: Optional[str]  # the absolute rawframes path
+    frames_path: str  # the absolute rawframes path
     total_frames: int
     class_: str
     count: int
@@ -122,6 +123,9 @@ class RepcountHelper:
 
         self.anno_file = anno_file
         self.data_root = data_root
+        self.classes = [
+            'situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise'
+        ]  # no bench_pressing because data not cleaned yet.
 
     def get_rep_data(self,
                      split: List[str] = ['test'],
@@ -423,6 +427,7 @@ class RepcountVideoDataset(RepcountDataset):
     It's like `RepcountImageDataset`, but using multiple frames rather than only two images.
 
     Args:
+        root: str, data root, e.g. './data'
         action: str
         num_frames: int, number of frames in one video
     
@@ -436,6 +441,10 @@ class RepcountVideoDataset(RepcountDataset):
             length: end_frame_index - start_frame_index + 1
             class: action class,
             label: 0 or 1
+    
+    Returns:
+        Tensor, shape (C, num_frames, H, W)
+        List[int], label
     """
 
     def __init__(self,
@@ -464,7 +473,8 @@ class RepcountVideoDataset(RepcountDataset):
         if self.transform is not None:
             frame_list = [self.transform(frame) for frame in frame_list]
         frame_tensor = torch.stack(frame_list, 0)
-        assert frame_tensor.shape[0] == self.num_segments, \
+        frame_tensor = frame_tensor.permute(1, 0, 2, 3)
+        assert frame_tensor.shape[1] == self.num_segments, \
             f'frame_list.shape[0] = {frame_tensor.shape[0]}, ' \
             f'but self.num_segments = {self.num_segments}'
         return frame_tensor, self.video_list[index]['label']
@@ -473,17 +483,74 @@ class RepcountVideoDataset(RepcountDataset):
         return len(self.video_list)
 
 
+class RepcountRecognitionDataset(torch.utils.data.Dataset):
+    """RepCount action recognition(video classification) dataset
+    
+    Args:
+        root: str, data root, e.g. './data/RepCount'
+        split: str, 'train' or 'val'
+        transform: torch.transforms.Compose, transform for image
+        download: bool, whether to download the dataset
+    """
+
+    def __init__(self,
+                 root: str,
+                 split: str,
+                 actions: Optional[List[str]] = None,
+                 num_segments: int = 8,
+                 transform=None) -> None:
+        super(RepcountRecognitionDataset, self).__init__()
+        self.split = split
+        self.transform = transform
+        assert os.path.isdir(root), f'{root} does not exist'
+        anno_path = os.path.join(root, '../../datasets/RepCount/annotation.csv')
+        helper = RepcountHelper(data_root=root, anno_file=anno_path)
+        if actions is None:
+            actions = helper.classes
+        video_dict = helper.get_rep_data(split=[split], action=actions)
+        self.video_list: List[RepcountItem] = list(video_dict.values())
+        self.num_seg = num_segments
+        self.action_map = dict(zip(actions, range(len(actions))))
+
+    def __getitem__(self, index: int) -> Tuple[Tensor, int]:
+        video = self.video_list[index]
+        try:
+            rep_start, rep_end = video.reps[0], video.reps[-1]
+        except IndexError: # no reps
+            rep_start, rep_end = 0, video.total_frames-1
+        idx_list = sample_frames(rep_end - rep_start, self.num_seg, offset=rep_start)
+        frame_list = [
+            read_image(os.path.join(video.frames_path, f'img_{i+1:05}.jpg'))
+            for i in idx_list
+        ]
+        if self.transform:
+            frame_list = [
+                self.transform(
+                    read_image(os.path.join(video.frames_path, f'img_{i+1:05}.jpg')))
+                for i in idx_list
+            ]
+        label = self.action_map[video.class_]
+        frame_tensor = torch.stack(frame_list, 0)
+        frame_tensor = frame_tensor.permute(1, 0, 2, 3)
+        return frame_tensor, label
+
+    def __len__(self) -> int:
+        return len(self.video_list)
+
+
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    PROJ_ROOT = os.path.expanduser('~/projects/RepCount')
+    PROJ_ROOT = os.path.expanduser('~/projects/WorkoutDetector/')
     data_root = os.path.join(PROJ_ROOT, 'data')
-    dataset = RepcountVideoDataset(data_root, split='test', action='push_up')
+    dataset = RepcountVideoDataset(data_root,
+                                   split='test',
+                                   action='push_up',
+                                   num_segments=16)
     print(dataset.classes)
-    # imageset = RepcountImageDataset(data_root, action='jump_jack', split='test')
     random_index = np.random.randint(0, len(dataset))
     img, label = dataset[random_index]
     plt.figure(figsize=(8, 4), dpi=200)
-    img = einops.rearrange(img, '(b1 b2) c h w -> (b1 h) (b2 w) c', b1=2)
+    img = einops.rearrange(img, 'c (b1 b2) h w -> (b1 h) (b2 w) c', b2=4)
     plt.title(f'label: {label}')
     print(img.shape)
     plt.imshow(img)

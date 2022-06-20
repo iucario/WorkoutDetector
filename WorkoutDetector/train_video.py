@@ -1,7 +1,7 @@
 from WorkoutDetector.settings import PROJ_ROOT
 import argparse
 from typing import Tuple
-from WorkoutDetector.datasets import RepcountVideoDataset
+from WorkoutDetector.datasets import RepcountVideoDataset, RepcountRecognitionDataset
 import torch
 from torch.utils.data import DataLoader
 import os
@@ -12,10 +12,9 @@ import timm
 import einops
 import time
 
-from mmcv import Config
-from mmaction.models.backbones import ResNetTSM
-from mmaction.models.heads import TSMHead
-from mmaction.models import build_model
+import pytorchvideo.data
+from pytorchvideo.models import create_resnet, create_slowfast
+from pytorchvideo.models.x3d import create_x3d
 
 data_transforms = {
     'train':
@@ -39,11 +38,13 @@ data_transforms = {
 
 
 def get_data_loaders(action: str,
-                     batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
+                     batch_size: int,
+                     num_segments: int = 8) -> Tuple[DataLoader, DataLoader, DataLoader]:
     data_root = os.path.join(PROJ_ROOT, 'data')
     train_set = RepcountVideoDataset(root=data_root,
                                      action=action,
                                      split='train',
+                                     num_segments=num_segments,
                                      transform=data_transforms['train'])
     train_loader = DataLoader(train_set,
                               batch_size=batch_size,
@@ -53,6 +54,7 @@ def get_data_loaders(action: str,
     val_set = RepcountVideoDataset(root=data_root,
                                    action=action,
                                    split='val',
+                                   num_segments=num_segments,
                                    transform=data_transforms['val'])
     val_loader = DataLoader(val_set,
                             batch_size=batch_size,
@@ -62,6 +64,7 @@ def get_data_loaders(action: str,
     test_set = RepcountVideoDataset(root=data_root,
                                     action=action,
                                     split='test',
+                                    num_segments=num_segments,
                                     transform=data_transforms['val'])
     test_loader = DataLoader(test_set,
                              batch_size=batch_size,
@@ -71,81 +74,67 @@ def get_data_loaders(action: str,
     return train_loader, val_loader, test_loader
 
 
-class VideoModel(nn.Module):
-    """mmaction2 TSM model"""
+class DebugModel(nn.Module):
+    """Simple CNN model for debugging."""
 
-    def __init__(
-        self,
-        backbone_model: str = 'resnet18',
-        num_classes=2,
-        num_segments=8,
-    ):
-        super().__init__()
-        resnet_map = {
-            'resnet18': [18, 512],
-            'resnet34': [34, 512],
-            'resnet50': [50, 2048],
-        }
-        depth, num_features = resnet_map[backbone_model]
-        self.backbone = ResNetTSM(
-            depth=depth,
-            norm_eval=False,
-            shift_div=8,
-            pretrained=f'torchvision://{backbone_model}',
-        )
-        self.head = TSMHead(
-            num_classes=num_classes,
-            in_channels=num_features,
-            num_segments=num_segments,
-            loss_cls=dict(type='CrossEntropyLoss'),
-            spatial_type='avg',
-            consensus=dict(type='AvgConsensus', dim=1),
-            dropout_ratio=0.5,
-            init_std=0.001,
-            is_shift=True,
-            temporal_pool=False,
-        )
-        config = os.path.join(PROJ_ROOT, 'WorkoutDetector/tsm_config.py')
-        cfg = Config.fromfile(config)
-        mm_model = build_model(cfg.model,
-                               train_cfg=None,
-                               test_cfg=dict(average_clips='prob'))
-        tsm_ckpt = os.path.expanduser('~/.cache/torch/hub/checkpoints/'\
-            'tsm_r50_256h_1x1x8_50e_sthv2_rgb_20210816-032aa4da.pth')
-
-        tsm_state = torch.load(tsm_ckpt)
-        meta = tsm_state['meta']
-        state_dict = tsm_state['state_dict']
-        # modify cls head
-        state_dict['cls_head.fc_cls.weight'] = mm_model.state_dict(
-        )['cls_head.fc_cls.weight']
-        state_dict['cls_head.fc_cls.bias'] = mm_model.state_dict()['cls_head.fc_cls.bias']
-
-        mm_model.load_state_dict(state_dict)
-        for i, k in enumerate(mm_model.state_dict().keys()):
-            if i + 2 >= len(state_dict.keys()):  # last two are for cls head
-                break
-            bk = list(self.backbone.state_dict().keys())[i]
-            v = mm_model.state_dict()[k]
-            self.backbone.state_dict()[bk] = v
-        self.tsm = mm_model
+    def __init__(self, num_class: int):
+        super(DebugModel, self).__init__()
+        self.num_class = num_class
 
     def forward(self, x):
-        x = einops.rearrange(x, 'N S C H W -> (N S) C H W')
-        o = self.backbone(x)
-        return self.head(o, num_segs=8)
-        # return self.tsm(x)
+        return x
+
+
+class VideoModel(nn.Module):
+
+    def __init__(self,
+                 model_name: str,
+                 model_num_class: int = 2,
+                 num_segments: int = 8,
+                 pretrained: bool = False):
+        super(VideoModel, self).__init__()
+        # slowfast_model = pytorchvideo.models.create_slowfast(
+        #     model_num_class=model_num_class, input_channels=input_channels)
+        # self.model = slowfast_model
+        assert model_name in ['x3d_s', 'x3d_m', 'slow_r50']
+        if model_name == 'x3d_s':
+            model = create_x3d(model_num_class=model_num_class,
+                               input_clip_length=num_segments,
+                               input_crop_size=224)
+            to_remove = ['blocks.5.proj.weight', 'blocks.5.proj.bias']
+            if pretrained:
+                ckpt = torch.load(
+                    os.path.expanduser('~/.cache/torch/hub/checkpoints/X3D_S.pyth'))
+                state_dict = ckpt["model_state"]
+                for key in list(state_dict.keys()):
+                    if key in to_remove:
+                        state_dict.pop(key)
+                model.load_state_dict(state_dict)
+                in_features = list(model.modules())[-3].in_features
+        else:
+            model = create_resnet(
+                stem_conv_kernel_size=(1, 7, 7),
+                head_pool_kernel_size=(8, 7, 7),
+                model_depth=50,
+            )
+        self.model = model
+
+    def forward(self, x):
+        x = self.model(x)
+        return x
 
 
 class LitModel(pl.LightningModule):
 
-    def __init__(self, backbone_model, learning_rate):
+    def __init__(self, model_name, num_class: int, num_segments: int,
+                 learning_rate: float):
         super().__init__()
-        self.example_input_array = torch.randn(1, 8, 3, 224, 224)
+        self.example_input_array = torch.randn(1, 3, num_segments, 224, 224)
+
         self.save_hyperparameters()
-        self.model = VideoModel(backbone_model=backbone_model,
-                                num_classes=2,
-                                num_segments=8)
+        self.model = VideoModel(model_name,
+                                model_num_class=num_class,
+                                num_segments=num_segments)
         self.loss_module = nn.CrossEntropyLoss()
         self.learning_rate = learning_rate
 
@@ -184,7 +173,10 @@ class LitModel(pl.LightningModule):
         #                       momentum=0.9,
         #                       weight_decay=0.0001)
         # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer)
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.1)
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
+        # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,
+        #                                                        10,
+        #                                                        last_epoch=-1)
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,
@@ -193,6 +185,64 @@ class LitModel(pl.LightningModule):
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         return self(batch)
+
+
+def debug():
+    """Simple action recognition to verify network works"""
+
+    from WorkoutDetector.datasets import DebugDataset
+
+    data_root = os.path.join(PROJ_ROOT, 'data/RepCount')
+    ACTIONS = ['situp', 'push_up', 'pull_up', 'squat', 'jump_jack']
+    NUM_CLASS = len(ACTIONS)
+    NUM_SEGMENTS = 8
+    LR = 1e-5
+    MODEL_NAME = 'x3d_s'
+    BATCH_SIZE = 2
+    EPOCHS = 20
+
+    torch.backends.cudnn.determinstic = True
+    torch.backends.cudnn.benchmark = False
+    pl.seed_everything(0)
+
+    trainset = RepcountRecognitionDataset(data_root, 'train', ACTIONS, NUM_SEGMENTS,
+                                          data_transforms['train'])
+    valset = RepcountRecognitionDataset(data_root, 'val', ACTIONS, NUM_SEGMENTS,
+                                        data_transforms['val'])
+    train_loader = DataLoader(trainset, batch_size=BATCH_SIZE, shuffle=True)
+    val_loader = DataLoader(valset, batch_size=BATCH_SIZE, shuffle=False)
+
+    loggers = [
+        pl.loggers.TensorBoardLogger(save_dir=os.path.join(PROJ_ROOT, 'log/tensorboard'),
+                                     log_graph=True,
+                                     name='debug'),
+    ]
+
+    # callbacks
+    lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval='step',
+                                                  log_momentum=True)
+    early_stop = pl.callbacks.early_stopping.EarlyStopping(monitor='train/loss',
+                                                           mode='min',
+                                                           patience=20)
+    model = LitModel(model_name=MODEL_NAME,
+                     num_class=NUM_CLASS,
+                     num_segments=NUM_SEGMENTS,
+                     learning_rate=LR)
+
+    trainer = pl.Trainer(
+        default_root_dir=os.path.join(PROJ_ROOT, 'log/lightning_logs'),
+        max_epochs=EPOCHS,
+        accelerator='gpu',
+        logger=loggers,
+        devices=1,
+        callbacks=[lr_monitor, early_stop],
+        overfit_batches=10,
+        detect_anomaly=True,
+        auto_lr_find=True,
+    )
+
+    trainer.fit(model, train_loader, val_loader)
+    trainer.test(model, val_loader)
 
 
 def export_model(ckpt):
@@ -215,12 +265,15 @@ def main(args):
     early_stop = pl.callbacks.early_stopping.EarlyStopping(monitor='train/loss',
                                                            mode='min',
                                                            patience=10)
-    model = LitModel(backbone, lr)
+    model = LitModel(model_name=args.model,
+                     num_class=2,
+                     num_segments=args.seg,
+                     learning_rate=lr)
     # loggers
     PROJECT = 'binary_video_model'
     NAME = f'{action}_{backbone}'
     tensorboard_logger = pl.loggers.TensorBoardLogger(save_dir=os.path.join(
-        PROJ_ROOT, f'lightning_logs/tensorboard/{PROJECT}'),
+        PROJ_ROOT, f'log/tensorboard/{PROJECT}'),
                                                       name=NAME,
                                                       default_hp_metric=False)
     tensorboard_logger.log_hyperparams(args,
@@ -234,8 +287,7 @@ def main(args):
                                        })
     loggers = [tensorboard_logger]
     if args.wandb:
-        wandb_logger = pl.loggers.WandbLogger(save_dir=os.path.join(
-            PROJ_ROOT, 'lightning_logs'),
+        wandb_logger = pl.loggers.WandbLogger(save_dir=os.path.join(PROJ_ROOT, 'log/'),
                                               project=PROJECT,
                                               name=NAME)
         wandb_logger.log_hyperparams(args)
@@ -255,12 +307,14 @@ def main(args):
         callbacks=[lr_monitor, early_stop],
         auto_lr_find=True,
     )
-    train_loader, val_loader, test_loader = get_data_loaders(action, batch_size)
+    train_loader, val_loader, test_loader = get_data_loaders(action,
+                                                             batch_size,
+                                                             num_segments=args.seg)
     trainer.fit(model, train_loader, val_loader)
     trainer.test(model, test_loader)
 
 
-if __name__ == '__main__':
+def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument('-t', '--train', action='store_true', help='train or export')
     parser.add_argument('-ck',
@@ -270,16 +324,31 @@ if __name__ == '__main__':
                         help='checkpoint to load')
     parser.add_argument('-lr', '--lr', type=float, default=5e-6, help='learning rate')
     parser.add_argument('-e', '--epochs', type=int, default=100, help='epochs')
+    parser.add_argument('-m', '--model', type=str, default='x3d_s', help='model name')
     parser.add_argument('-b',
                         '--backbone',
                         type=str,
                         default='resnet50',
                         help='backbone of the TSM model')
     parser.add_argument('-a', '--action', type=str, default='squat', help='action')
-    parser.add_argument('-bs', '--batch_size', type=int, default=2, help='batch size')
+    parser.add_argument('-bs', '--batch-size', type=int, default=2, help='batch size')
+    parser.add_argument('--seg', type=int, default=8, help='number of segments')
     parser.add_argument('--wandb', action='store_true', help='add logger wandb')
-    args = parser.parse_args()
+    parser.add_argument('--debug', action='store_true', help='debug mode')
+    args = parser.parse_args(argv)
+
+    return args
+
+
+if __name__ == '__main__':
+    args_train = [
+        '-t', '-a', 'jump_jack', '-e', '5', '-lr', '1e-3', '--seg', '16', '--model',
+        'x3d_m'
+    ]
+    args = parse_args()
     if args.train:
         main(args)
+    elif args.debug:
+        debug()
     elif args.ckpt:
         export_model(args.ckpt)
