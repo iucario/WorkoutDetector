@@ -12,7 +12,7 @@ from torchvision.datasets.utils import download_and_extract_archive, verify_str_
 from torchvision.io import read_image
 
 
-def parse_onedrive(link) -> str:
+def parse_onedrive(link: str) -> str:
     """Parse onedrive link to download link.
 
     Args:
@@ -21,6 +21,7 @@ def parse_onedrive(link) -> str:
     Returns:
         str, download link.
     """
+    assert link.startswith('https://1drv.ms/u/s!')
     b = base64.urlsafe_b64encode(link.strip().encode('ascii'))
     s = b.decode('ascii')
     res = f'https://api.onedrive.com/v1.0/shares/u!{s}/root/content'

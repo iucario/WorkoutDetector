@@ -1,11 +1,8 @@
 import os
 from pathlib import Path
 import pandas as pd
-import yaml
 import yt_dlp
-
-config = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), '../utils/config.yml')))
-base = config['proj_root']
+from WorkoutDetector.settings import PROJ_ROOT
 
 
 def download_ytb(url, folder='~'):
@@ -20,6 +17,7 @@ def download_ytb(url, folder='~'):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
 
+
 def download_repcount(csv_path, folder='~'):
     df = pd.read_csv(csv_path)
     for i, row in df.iterrows():
@@ -33,5 +31,7 @@ def download_repcount(csv_path, folder='~'):
             continue
         download_ytb(url, folder)
 
+
 if __name__ == '__main__':
-    download_repcount(Path(base, 'datasets/RepCount/all_data.csv'), '/mnt/d/repcount-redown')
+    download_repcount(Path(PROJ_ROOT, 'datasets/RepCount/all_data.csv'),
+                      '/mnt/d/repcount-redown')
