@@ -13,7 +13,7 @@ This project uses the [MMAction2](https://github.com/open-mmlab/mmaction2)
 ## Installation
 
 ```
-git clone --recursive https://github.com/iucario/WorkoutDetector.git
+git clone --recursive https://github.com/iucario/workoutdetector.git
 cd WorkoutDetector
 
 conda env create -f conda_env.yml

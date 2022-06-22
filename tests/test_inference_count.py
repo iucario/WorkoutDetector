@@ -1,7 +1,7 @@
 from typing import List
 
 from pytest import fixture
-from WorkoutDetector.utils.inference_count import infer_dataset, pred_to_count, parse_args, main
+from workoutdetector.utils.inference_count import infer_dataset, pred_to_count, parse_args, main
 
 
 # TODO: load annotation.csv

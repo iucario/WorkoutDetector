@@ -2,8 +2,8 @@ import os
 import random
 import torch
 import pandas as pd
-from WorkoutDetector.datasets import RepcountHelper, RepcountRecognitionDataset
-from WorkoutDetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
+from workoutdetector.datasets import RepcountHelper, RepcountRecognitionDataset
+from workoutdetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 
 SPLITS = ['train', 'val', 'test']
 ACTIONS = [
