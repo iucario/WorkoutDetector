@@ -15,7 +15,10 @@ from torchvision.models.detection import fasterrcnn_resnet50_fpn
 from workoutdetector.datasets import RepcountImageDataset
 from workoutdetector.settings import PROJ_ROOT
 
+from .build import DATASET_REGISTRY
 
+
+@DATASET_REGISTRY.register()
 class ImageDataset(torch.utils.data.Dataset):
     """General image dataset
     label text files of [image.png class] are required
