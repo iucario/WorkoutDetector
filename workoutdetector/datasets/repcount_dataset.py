@@ -376,7 +376,8 @@ class RepcountDataset(torch.utils.data.Dataset):  # type: ignore
 
 
 class RepcountImageDataset(RepcountDataset):
-    """Repcount image dataset for binary classification of start and end state in specific action
+    """Repcount image dataset for binary classification. 
+    Start and end state in specific action.
 
     Args:
         action: str
@@ -517,8 +518,8 @@ class RepcountRecognitionDataset(torch.utils.data.Dataset):
         video = self.video_list[index]
         try:
             rep_start, rep_end = video.reps[0], video.reps[-1]
-        except IndexError: # no reps
-            rep_start, rep_end = 0, video.total_frames-1
+        except IndexError:  # no reps
+            rep_start, rep_end = 0, video.total_frames - 1
         idx_list = sample_frames(rep_end - rep_start, self.num_seg, offset=rep_start)
         frame_list = [
             read_image(os.path.join(video.frames_path, f'img_{i+1:05}.jpg'))
