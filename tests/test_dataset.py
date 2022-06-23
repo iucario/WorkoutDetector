@@ -1,9 +1,8 @@
-from workoutdetector.train_img import ImageDataset
+from workoutdetector.datasets import ImageDataset
 import torch
 import os
 import os.path as osp
 from os.path import join as osj
-from torch.utils.data import DataLoader
 
 
 def test_ImageDataset():
