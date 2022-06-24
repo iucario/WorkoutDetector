@@ -7,6 +7,7 @@ wandb/
 !images/*
 !example_videos/*
 tmp/
+_tmp.py
 poses/
 exp
 out
@@ -22,7 +23,10 @@ data/*
 datasets/kinetics700_2020/*
 
 *.pyc
+
+# editor
 *.code-workspace
+pyrightconfig.json
 
 *.egg-info
 .*

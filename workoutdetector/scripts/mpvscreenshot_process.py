@@ -35,24 +35,82 @@ def name_to_png(vid: str, sec: float) -> str:
     return f"{vid}_{h:02}_{m:02}_{s:02}.{ms}.png"
 
 
-def folder_to_csv(path: str, csv_path: str) -> None:
-    """Convert a folder of mpv screenshots to csv
-    Labeled 0 and 1
+def folder_to_csv(path: str, csv_path: str, num_frame: int = 3) -> None:
+    """Convert a folder of mpv screenshots to csv. Can be used for video clipping.
+    Labeled 0 and 1.
+
+    Args:
+        path: str, folder of mpv screenshots. Must contain train, val, test folders.
+        csv_path: str, path to save csv
+        num_frame: int, number of frames of an rep. 3 for start, mid, end.
     """
 
-    assert os.path.isdir(path), f'{path} is not dir'
+    assert os.path.isdir(path), f'{path} must be dir'
+    assert osp.isdir(osj(path, 'train')), f'{path}/train must exists'
+    assert osp.isdir(osj(path, 'val')), f'{path}/val must exists'
+    assert osp.isdir(osj(path, 'test')), f'{path}/test must exists'
+    assert num_frame == 3, f'num_frame must be 3'
+    for split in ['train', 'val', 'test']:
+        l = os.listdir(osj(path, split))
+        assert len(
+            l) % num_frame == 0, f'{split} must have divisible frames by {num_frame}'
+        l.sort()
+        with open(csv_path, 'w') as f:
+            f.write('name,sec,label,split\n')
+            for s, m, e in zip(l[::3], l[1::3], l[2::3]):
+                name_0, sec_0 = process_screenshot(os.path.join(path, s))
+                name_1, sec_1 = process_screenshot(os.path.join(path, m))
+                name_2, sec_2 = process_screenshot(os.path.join(path, e))
+                f.write(f'{name_0},{sec_0},0,{split}\n')
+                f.write(f'{name_1},{sec_1},1,{split}\n')
+                f.write(f'{name_2},{sec_2},0,{split}\n')
+
+
+def build_general_image_dataset(path: str, out_dir: str, anno: str) -> None:
+    """Creates a dir os train, val, test. Each dir contains images.
+    And train.txt, val.txt, test.txt.
+    
+    Args:
+        path: str, folder of mpv screenshots. Expects num_frame == 3 for one rep.
+        start and mid will be used for class 0 and 1.
+        out_dir: str, path to save csv
+        anno: str, path to dataset annotation csv file.
+        Information used for determining train, val, test splits.
+    """
+
+    assert os.path.isdir(path), f'{path} must be dir'
+    os.makedirs(out_dir)
+    os.makedirs(os.path.join(out_dir, 'train'))
+    os.makedirs(os.path.join(out_dir, 'val'))
+    os.makedirs(os.path.join(out_dir, 'test'))
     l = os.listdir(path)
     l.sort()
-    with open(csv_path, 'w') as f:
-        for s, e in zip(l[::2], l[1::2]):
-            name_0, sec_0 = process_screenshot(os.path.join(path, s))
-            name_1, sec_1 = process_screenshot(os.path.join(path, e))
-            f.write(f'{name_0} {sec_0} 0\n')
-            f.write(f'{name_1} {sec_1} 1\n')
+
+    df = pd.read_csv(anno)
+
+    train_txt = open(os.path.join(out_dir, 'train.txt'), 'w')
+    val_txt = open(os.path.join(out_dir, 'val.txt'), 'w')
+    test_txt = open(os.path.join(out_dir, 'test.txt'), 'w')
+
+    for s, m, e in zip(l[::3], l[1::3], l[2::3]):
+        split = df.loc[df['name'] == s.split('.')].iloc[0]['split']
+        shutil.copy(os.path.join(path, s), os.path.join(out_dir, split, s))
+        shutil.copy(os.path.join(path, m), os.path.join(out_dir, split, m))
+        shutil.copy(os.path.join(path, e), os.path.join(out_dir, split, e))
+        if split == 'train':
+            train_txt.write(f'{s}\n')
+            train_txt.write(f'{m}\n')
+        elif split == 'val':
+            val_txt.write(f'{s}\n')
+            val_txt.write(f'{m}\n')
+        else:
+            test_txt.write(f'{s}\n')
+            test_txt.write(f'{m}\n')
 
 
 def build_image_folder(path: str, out_dir: str) -> None:
     """Build folder for ImageFolder dataset"""
+
     assert len(os.listdir(path)) % 2 == 0, f'{path} files not even'
     os.makedirs(out_dir)
     os.makedirs(os.path.join(out_dir, '0'))
@@ -108,7 +166,7 @@ def build_label(path: str, out_dir: str, anno_path: str) -> None:
 
 
 def label_from_folder(path: str, out_dir: str, anno: str) -> None:
-    """Given train val folders, create label files"""
+    """Given train val folders, create label txt files"""
 
     assert osp.isdir(osj(path, 'train')), f'{osj(path, "train")} not dir'
     assert osp.isdir(osj(path, 'val')), f'{osj(path, "val")} not dir'
@@ -131,9 +189,43 @@ def label_from_folder(path: str, out_dir: str, anno: str) -> None:
             f.write(f"{png_name} {class_}\n")
 
 
+def label_from_split(path: str) -> None:
+    """From path/train, path/val, path/test, creates label files
+    saved in path/train.txt, path/val.txt, path/test.txt
+
+    Args:
+        path: str, path to dir 
+    """
+
+    assert osp.isdir(osj(path, 'train')), f'{osj(path, "train")} not dir'
+    assert osp.isdir(osj(path, 'val')), f'{osj(path, "val")} not dir'
+    assert osp.isdir(osj(path, 'test')), f'{osj(path, "test")} not dir'
+    for split in ['train', 'val', 'test']:
+        with open(osj(path, split + '.txt'), 'w') as f:
+            l = os.listdir(osj(path, split))
+            l.sort()
+            for s, m, e in zip(l[::3], l[1::3], l[2::3]):
+                f.write(f'{split}/{s} 0\n')
+                f.write(f'{split}/{m} 1\n')
+
+
+def main():
+    """How to prepare data
+
+    1. The mpv screenshot filename template is `screenshot-template=~/Desktop/%f_%P`
+    2. Will get files like `stu2_48.mp4_00_00_09.943.png`
+    3. If saved in train, val, test folders, use label_from_split(root_dir)
+    4. If screenshots are saved in one folder, I need to write a new script.
+    5. And `folder_to_csv` can save timestamps to csv for future usage.
+    """
+
+    label_from_split('/home/umi/data/pull-up-relabeled/')
+
+
 if __name__ == '__main__':
-    folder_to_csv('/home/umi/tmp/situp', '/home/umi/data/situp/situp.csv')
+    # folder_to_csv('/home/umi/data/pull-up-relabeled',
+    #               '/home/umi/data/pull-up-relabeled/pull-up-relabeled.csv')
     # build_image_folder('/home/umi/tmp/situp', '/home/umi/data/situp')
-    # build_label('/home/umi/data/situp', '/home/umi/data/situp',REPCOUNT_ANNO_PATH)
-    label_from_folder('/home/umi/data/situp', '/home/umi/data/situp',
-                      '/home/umi/data/situp/situp.csv')
+    # build_label('/home/umi/data/pull-up-relabeled/', '/home/umi/data/pull-up-relabeled/',
+    #             REPCOUNT_ANNO_PATH)
+    main()

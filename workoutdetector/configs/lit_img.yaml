@@ -1,6 +1,6 @@
-seed: 3407
 trainer:
   default_root_dir: /home/umi/projects/WorkoutDetector/log
+  early_stopping: false
   max_epochs: 50
   enable_checkpointing: null
   num_nodes: 1
@@ -23,18 +23,17 @@ trainer:
   deterministic: true
   auto_lr_find: false
   prepare_data_per_node: null
-  early_stopping: true
   patience: 10
 optimizer:
   method: AdamW
   lr: 0.0001
   momentum: 0.9
   weight_decay: 0.00001
-  eps: 0.000000001
+  eps: 0.00000001
 lr_scheduler:
   policy: StepLR
   gamma: 0.1
-  step: 10
+  step: 7
 model:
   num_class: 2
   backbone_model: convnext_base
@@ -59,5 +58,9 @@ log:
   enable_wandb: true
   log_every_n_steps: 20
   wandb:
+    offline: False
     project: situp-image-selected
   output_dir: /home/umi/projects/WorkoutDetector/log/situp-image-selected
+seed: 0
+train: true
+checkpoint: null

@@ -1,11 +1,12 @@
 import os
-from workoutdetector.settings import PROJ_ROOT
-from torchvision.io.video import read_video
+
+import numpy as np
+import pandas as pd
+import torch
 import torchvision.transforms.functional as TF
 from PIL import Image
-import pandas as pd
-import numpy as np
-import torch
+from torchvision.io.video import read_video
+from workoutdetector.settings import PROJ_ROOT
 
 
 def build_image_rep(data_dir: str, anno_path: str, dest_dir: str) -> None:
@@ -22,7 +23,7 @@ def build_image_rep(data_dir: str, anno_path: str, dest_dir: str) -> None:
         os.makedirs(dest_dir)
     for split in ['train', 'val', 'test']:
         os.makedirs(os.path.join(dest_dir, split), exist_ok=True)
-        for i in range(len(CLASSES)*2):
+        for i in range(len(CLASSES) * 2):
             os.makedirs(os.path.join(dest_dir, split, str(i)), exist_ok=True)
     train_csv = open(os.path.join(dest_dir, 'train.csv'), 'a')
     val_csv = open(os.path.join(dest_dir, 'val.csv'), 'a')
@@ -43,7 +44,7 @@ def build_image_rep(data_dir: str, anno_path: str, dest_dir: str) -> None:
 
         reps = [int(x) for x in row['reps'].split()]
         start_sec = reps[0] / 30
-        end_sec = reps[1] / 30 # Select one sample from the one video
+        end_sec = reps[1] / 30  # Select one sample from the one video
         mid_sec = (start_sec + end_sec) / 2
 
         video = read_video(video_path, start_sec, mid_sec, pts_unit='sec')[0]

@@ -1,7 +1,7 @@
 import random
 import os
 import os.path as osp
-from typing import List
+from typing import List, Optional
 import PIL
 import cv2
 from matplotlib import pyplot as plt
@@ -14,7 +14,6 @@ import torch
 from torch import Tensor
 import torchvision.transforms as T
 import timm
-
 from workoutdetector.settings import PROJ_ROOT
 from workoutdetector.utils import Vis2DPose
 

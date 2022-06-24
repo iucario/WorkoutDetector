@@ -5,7 +5,8 @@ import cv2
 
 def build_video_rep(data_dir: str, anno_path: str, dest_dir: str) -> None:
     """Cut videos to rep states. Specifically, RepCount dataset 12 classes.
-    Generates label files train.csv, val.csv, test.csv in dest_dir
+    Generates label files train.csv, val.csv, test.csv in dest_dir.
+    Use OpenCV to read frame by frame and break at rep end.
     
     Args:
         data_dir: path like `data/RepCount/videos`. Expects train,val,test subfolders in it.

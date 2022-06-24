@@ -68,6 +68,7 @@ def draw_person_boxes(results:List[dict], frames: List[np.ndarray], out_path: st
 
 
 def bboxes_to_json(results: List[List[dict]], out_path: str) -> None:
+    # TODO: handle no person
     assert out_path.endswith('.json')
     threshold = 0.7
     with open(out_path, 'w') as f:
