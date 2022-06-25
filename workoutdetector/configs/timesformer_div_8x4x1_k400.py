@@ -1,6 +1,6 @@
 import time
 import os
-from workoutdetector.settings import PROJ_ROOT
+from WorkoutDetector.settings import PROJ_ROOT
 
 # model settings
 model = dict(

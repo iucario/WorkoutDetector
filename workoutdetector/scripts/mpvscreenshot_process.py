@@ -35,9 +35,14 @@ def name_to_png(vid: str, sec: float) -> str:
     return f"{vid}_{h:02}_{m:02}_{s:02}.{ms}.png"
 
 
-def folder_to_csv(path: str, csv_path: str, num_frame: int = 3) -> None:
+def screenshots_to_csv(path: str, csv_path: str, num_frame: int = 3) -> None:
     """Convert a folder of mpv screenshots to csv. Can be used for video clipping.
-    Labeled 0 and 1.
+    Labeled 0 and 1. Format:
+    ::
+        name,sec,label,split
+
+        stu10_35.mp4,6.2,0,train
+    ...
 
     Args:
         path: str, folder of mpv screenshots. Must contain train, val, test folders.
@@ -50,13 +55,15 @@ def folder_to_csv(path: str, csv_path: str, num_frame: int = 3) -> None:
     assert osp.isdir(osj(path, 'val')), f'{path}/val must exists'
     assert osp.isdir(osj(path, 'test')), f'{path}/test must exists'
     assert num_frame == 3, f'num_frame must be 3'
-    for split in ['train', 'val', 'test']:
-        l = os.listdir(osj(path, split))
-        assert len(
-            l) % num_frame == 0, f'{split} must have divisible frames by {num_frame}'
-        l.sort()
-        with open(csv_path, 'w') as f:
-            f.write('name,sec,label,split\n')
+
+    with open(csv_path, 'w') as f:
+        f.write('name,sec,label,split\n')
+        for split in ['train', 'val', 'test']:
+            l = os.listdir(osj(path, split))
+            assert len(
+                l) % num_frame == 0, f'{split} must have divisible frames by {num_frame}'
+            l.sort()
+
             for s, m, e in zip(l[::3], l[1::3], l[2::3]):
                 name_0, sec_0 = process_screenshot(os.path.join(path, s))
                 name_1, sec_1 = process_screenshot(os.path.join(path, m))
@@ -216,15 +223,16 @@ def main():
     2. Will get files like `stu2_48.mp4_00_00_09.943.png`
     3. If saved in train, val, test folders, use label_from_split(root_dir)
     4. If screenshots are saved in one folder, I need to write a new script.
-    5. And `folder_to_csv` can save timestamps to csv for future usage.
+    5. And `screenshots_to_csv` can save filenames with timestamp to csv for future usage.
     """
 
-    label_from_split('/home/umi/data/pull-up-relabeled/')
+    screenshots_to_csv('/home/umi/data/pull-up-relabeled',
+                       '/home/umi/data/pull-up-relabeled/pull-up-relabeled.csv')
+    # label_from_split('/home/umi/data/pull-up-relabeled/')
 
 
 if __name__ == '__main__':
-    # folder_to_csv('/home/umi/data/pull-up-relabeled',
-    #               '/home/umi/data/pull-up-relabeled/pull-up-relabeled.csv')
+
     # build_image_folder('/home/umi/tmp/situp', '/home/umi/data/situp')
     # build_label('/home/umi/data/pull-up-relabeled/', '/home/umi/data/pull-up-relabeled/',
     #             REPCOUNT_ANNO_PATH)
