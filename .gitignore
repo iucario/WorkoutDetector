@@ -19,7 +19,7 @@ log
 
 # data
 data/*
-
+tests/data/
 datasets/kinetics700_2020/*
 
 *.pyc

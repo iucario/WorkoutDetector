@@ -1,12 +1,14 @@
 import argparse
+import json
 import os
+import os.path as osp
 import time
 from bisect import bisect_left
 from collections import deque
+from os.path import join as osj
 from typing import Deque, List, Optional, Tuple, Union
 
 import cv2
-from mmaction.apis.inference import inference_recognizer
 import numpy as np
 import onnx
 import onnxruntime
@@ -14,8 +16,8 @@ import pandas as pd
 import PIL
 import torch
 import torchvision.transforms as T
-from torchvision.models.detection import fasterrcnn_resnet50_fpn
 from mmaction.apis import init_recognizer
+from mmaction.apis.inference import inference_recognizer
 from workoutdetector.datasets import RepcountHelper
 from workoutdetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 
@@ -60,86 +62,84 @@ def person_bbox(model: torch.nn.Module,
     return [(0, 0, 0, 0)]
 
 
-def inference_image(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
-                    frame: np.ndarray,
-                    threshold: float = 0.5) -> int:
-    assert type(model) is onnxruntime.InferenceSession
-    frame = data_transform(frame).unsqueeze(0).numpy()  # type: ignore
-    input_name = model.get_inputs()[0].name
-    ort_inputs = {input_name: frame}
-    ort_outs = model.run(None, ort_inputs)
-    score = ort_outs[0][0]
-    print(f'score={score}')
-    pred = score.argmax()
-
-    return pred
-
-
-def count_by_image_model(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
-                         video_path: str,
-                         ground_truth: Optional[List[int]] = None,
-                         output_path: Optional[str] = None) -> Tuple[int, List[int]]:
-    """Evaluate repetition count on a video, using image classification model.
+def save_scores_to_json(scores: List[np.ndarray], output_path: str, video_path: str,
+                        step: int) -> None:
+    """Save the prediction scores to a json file.
     
     Args:
-        ort_session: ONNX Runtime session.
-        video_path: video to be evaluated.
-        ground_truth: list, column `reps` in `annotation.csv`.
-        output_path: path to save the output video. If None, no video will be saved.
-
-    Returns:
-        Tuple[int, List[int]]: (repetition count, predicted reps).
-
-    Note:
-        Voting is used to determine the repetition count.
+        scores (List[numpy.ndarray]): prediction scores.
+        output_path (str): path to save the json file.
+        Will apppend '.json' if not ends with '.json'.
+        video_path (str): path to the input video.
+        step (int): step size of the predictions.
     """
 
-    print(f'{video_path}')
+    if not output_path.endswith('.json'):
+        output_path += '.json'
+    assert not osp.exists(output_path), f'{output_path} already exists.'
+    d = {'video_path': video_path, 'step': step}
+    s = {}
+    for i, score in enumerate(scores):
+        s[i] = score.tolist()
+    d['scores'] = s
+    json.dump(d, open(output_path, 'w'))
+
+
+def write_to_video(video_path: str,
+                   output_path: str,
+                   reps: List[int],
+                   states: List[int],
+                   step: int = 8) -> None:
+    """Write the predicted count to a video. '.mp4' will be added if no extension is given.
+    
+    Args:
+        video_path: path to the video.
+        output_path: path to save the output video.
+        reps: list of predicted start and end indices.
+        states: list of predicted states.
+        step: step size of the predictions.
+    """
+
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    if output_path:
+    if output_path.endswith('.webm'):
         out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'vp80'), fps,
                               (width, height))
-    result: Deque[int] = deque(maxlen=7)
-    count = 0
-    states: List[int] = []
-    frame_idx = 0
-    while True:
+    else:
+        if not output_path.endswith('.mp4'):
+            output_path += '.mp4'
+        out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps,
+                              (width, height))
+
+    for idx, res in enumerate(np.repeat(states, step)):
         ret, frame = cap.read()
         if not ret:
             break
-        curr_pred = inference_image(model, frame)
-        result.append(curr_pred)
-        pred = sum(result) > len(result) // 2  # vote of frames
-        states.append(pred)
-        frame_idx += 1
+        count_idx = bisect_left(reps[::2], idx)
+        cv2.putText(frame, str(res), (int(width * 0.2), int(height * 0.2)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, COLORS['cyan'], 2)
+        cv2.putText(frame, f'count {count_idx}', (int(width * 0.2), int(height * 0.4)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, COLORS['red'], 2)
+        out.write(frame)
     cap.release()
-
-    count, reps = pred_to_count(step=8, preds=states)
-    gt_count = len(ground_truth) // 2 if ground_truth else -1
-    correct = (abs(count - gt_count) <= 1)
-    print(f'count={count} gt_count={gt_count} correct={correct}')
-
-    if output_path and out.isOpened():  # type: ignore
-        out.release()  # type: ignore
-    return count, reps
+    out.release()
 
 
-def pred_to_count(step: int, preds: List[int]) -> Tuple[int, List[int]]:
+def pred_to_count(preds: List[int], step: int) -> Tuple[int, List[int]]:
     """Convert a list of predictions to a repetition count.
     
     Args:
-        step: step size of the predictions.
         preds: list of size total_frames//step in the video. If -1, it means no action.
+        step: step size of the predictions.
 
     Returns:
         A tuple of (repetition count, 
         list of preds of action start and end states, e.g. start_1, end_1, start_2, end_2, ...)
 
     Note:
-        The labels are of pairs. Because that's how I loaded the data.
+        The labels are in order. Because that's how I loaded the data.
         E.g. 0 and 1 represent the start and end of the same action.
         We consider action class as well as state changes.
         I can ensemble a standalone action recognition model if things don't work well.
@@ -174,44 +174,85 @@ def pred_to_count(step: int, preds: List[int]) -> Tuple[int, List[int]]:
     return count, reps  # len(rep) * step <= len(frames), last not full queue is discarded
 
 
-def write_to_video(video_path: str,
-                   output_path: str,
-                   reps: List[int],
-                   states: List[int],
-                   step: int = 8) -> None:
-    """Write the predicted count to a video.
+def inference_image(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
+                    frame: np.ndarray,
+                    threshold: float = 0.5) -> np.ndarray:
+    """Inference using image classification model.
     
     Args:
-        video_path: path to the video.
-        output_path: path to save the output video.
-        reps: list of predicted start and end indices.
-        states: list of predicted states.
-        step: step size of the predictions.
+        model: ONNX Runtime session or Pytorch model.
+        frame: numpy.ndarray, cv2 read image. Shape (H, W, 3).
+        threshold (Not used): float, used to filter background.
+    Returns:
+        numpy.ndarray: list of prediction scores. Sahpe (1, num_classes).
     """
 
-    cap = cv2.VideoCapture(video_path)
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    if output_path.endswith('.webm'):
-        out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'vp80'), fps,
-                              (width, height))
+    if type(model) == onnxruntime.InferenceSession:
+        frame = data_transform(frame).unsqueeze(0).numpy()  # type: ignore
+        input_name = model.get_inputs()[0].name
+        ort_inputs = {input_name: frame}
+        ort_outs = model.run(None, ort_inputs)
+        score = ort_outs[0][0]
     else:
-        out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps,
-                              (width, height))
+        score = model(data_transform(frame).cuda().unsqueeze(0))
+        score = score.detach().cpu().numpy()[0]
+    print(f'score={score}')  # score doesn't add up to 1. Is this normal?
+    return score.astype(np.float32)
 
-    for idx, res in enumerate(np.repeat(states, step)):
+
+def count_by_image_model(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
+                         video_path: str,
+                         ground_truth: Optional[List[int]] = None,
+                         video_out_path: Optional[str] = None,
+                         pred_out_path: Optional[str] = None,
+                         threshold: float = 0.1) -> Tuple[int, List[int]]:
+    """Counts repetition int a video, using image classification model.
+    
+    Args:
+        ort_session: ONNX Runtime session.
+        video_path: video to be evaluated.
+        ground_truth: list, column `reps` in `annotation.csv`.
+        If None, metrics will not be calculated.
+        output_path: path to save the output video. If None, no video will be saved.
+        pred_out_path: path to save the prediction in txt. The scores saved in one line per frame.
+        Separated by comma.
+        threshold: float, scores below this threshold will be viewed as background.
+
+    Returns:
+        Tuple[int, List[int]]: (repetition count, predicted reps).
+
+    Note:
+        Voting is used to determine the repetition count.
+    """
+
+    print(f'{video_path}')
+    cap = cv2.VideoCapture(video_path)
+
+    count = 0
+    que: Deque[int] = Deque(maxlen=7)
+    states: List[int] = []  # 0 or 1 of length video_length
+    scores: List[np.ndarray] = []  # scores without argmax
+    while True:
         ret, frame = cap.read()
         if not ret:
             break
-        count_idx = bisect_left(reps[::2], idx)
-        cv2.putText(frame, str(res), (int(width * 0.2), int(height * 0.2)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, COLORS['cyan'], 2)
-        cv2.putText(frame, f'count {count_idx}', (int(width * 0.2), int(height * 0.4)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, COLORS['red'], 2)
-        out.write(frame)
+        score = inference_image(model, frame)
+        scores.append(score)
+        states.append(int(score.argmax()))
+        que.append(states[-1])
+        states.append(sum(que) >= 4)
+
     cap.release()
-    out.release()
+
+    count, reps = pred_to_count(preds=states, step=1)
+    gt_count = len(ground_truth) // 2 if ground_truth else -1
+    correct = (abs(count - gt_count) <= 1)
+    print(f'count={count} gt_count={gt_count} correct={correct}')
+    if pred_out_path:
+        save_scores_to_json(scores, pred_out_path, video_path, step=1)
+    if video_out_path:
+        write_to_video(video_path, video_out_path, reps, states, step=1)
+    return count, reps
 
 
 def inference_video(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
@@ -248,7 +289,7 @@ def count_by_video_model(model: Union[onnxruntime.InferenceSession, torch.nn.Mod
                          video_path: str,
                          ground_truth: Optional[list] = None,
                          output_path: Optional[str] = None) -> Tuple[int, List[int]]:
-    """Evaluate repetition count on a video, using video classification model.
+    """Counts repetition in a video, using video classification model.
     
     Args:
         ort_session: ONNX Runtime session. [1, 8, 3, 224, 224]
@@ -286,7 +327,7 @@ def count_by_video_model(model: Union[onnxruntime.InferenceSession, torch.nn.Mod
         frame_idx += 1
     cap.release()
 
-    count, reps = pred_to_count(step=8, preds=states)
+    count, reps = pred_to_count(preds=states, step=8)
     gt_count = len(ground_truth) // 2 if ground_truth else -1
     correct = (abs(gt_count - count) <= 1)
     print(f'count={count}, gt_count={gt_count}, correct={correct}')
@@ -295,19 +336,30 @@ def count_by_video_model(model: Union[onnxruntime.InferenceSession, torch.nn.Mod
     return count, reps
 
 
-def infer_dataset(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
-                  action: List[str],
-                  split: str,
-                  model_type: str = 'video',
-                  output_dir: Optional[str] = None) -> None:
-    """Inference on a dataset test split.
+def eval_dataset(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
+                 action: List[str],
+                 split: str,
+                 model_type: str = 'video',
+                 output_dir: Optional[str] = None,
+                 csv_name: str = None,
+                 save_video: bool = False,
+                 threshold: float = 0.7) -> None:
+    """Inference on a dataset test split. Only evaluates count metrics for now.
+    The precise repetition metrics will be implemented when I read more papers on it.
+    Going to refer to action detection and action segmentation papers for the details.
     
     Args:
-        model: ONNX Runtime session or PyTorch model. [1, 8, 3, 224, 224]
+        model: ONNX Runtime session or PyTorch model. Supports image and video models.
         action: list of action name.
         split: str, split name.
         model_type: model type. Image or video model.
         output_dir: path to save the output videos and result csv.
+        csv_name: name of the csv file. 
+        If None, use the default name `eval_count_{model_type}_model.csv`.
+        save_video: if True, save the output videos in the output_dir.
+        threshold (float):  score smaller than threshold will be viewed as background.
+    TODO:
+        Implement the repetition metrics.
     """
 
     data_root = os.path.join(PROJ_ROOT, 'data/RepCount/')
@@ -317,7 +369,7 @@ def infer_dataset(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
     pred_dict = dict()
     for name, item in repcount_items.items():
         assert os.path.exists(item['video_path']), f'{item["video_path"]} not exists'
-        if output_dir is not None:
+        if save_video and output_dir is not None:
             assert os.path.isdir(output_dir)
             assert name.endswith('.mp4')
             output_path = os.path.join(output_dir, name)
@@ -328,11 +380,14 @@ def infer_dataset(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
                                                item.video_path,
                                                ground_truth=item.reps,
                                                output_path=output_path)
+
         elif model_type == 'image':
             count, reps = count_by_image_model(model,
                                                item.video_path,
                                                ground_truth=item.reps,
-                                               output_path=output_path)
+                                               video_out_path=output_path,
+                                               pred_out_path=None,
+                                               threshold=threshold)
         else:
             raise ValueError(f'Invalid model type: {model_type}')
         pred_dict[name] = count  # Only implemented count evaluation for now.
@@ -346,11 +401,12 @@ def infer_dataset(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
             dict_.pop('frames_path')
             res.append(dict_)
         df = pd.DataFrame.from_dict(res)
-        filename = f'eval_count_{model_type}_model.csv'
-        if os.path.isfile(filename):
-            filename = filename.split('.')[0] + '_' + str(time.time()) + '.csv'
-        df.to_csv(os.path.join(output_dir, filename))
-        print(f'Saved to {os.path.join(output_dir, filename)}')
+        if csv_name is None:
+            csv_name = f'eval_count_{model_type}_model.csv'
+        if os.path.isfile(csv_name):  # if exists, add timestamp
+            csv_name = csv_name.split('.')[0] + '_' + str(time.time()) + '.csv'
+        df.to_csv(os.path.join(output_dir, csv_name))
+        print(f'Saved to {os.path.join(output_dir, csv_name)}')
 
 
 def main(args) -> None:
@@ -359,18 +415,25 @@ def main(args) -> None:
             PROJ_ROOT, 'WorkoutDetector/configs/tsm_MultiActionRepCount_sthv2.py')
         model = init_recognizer(cfg_path, args.checkpoint, device='cuda')
     else:
-        assert args.onnx is not None
-        onnx_path = args.onnx
-        model = onnxruntime.InferenceSession(
-            onnx_path, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+        if args.checkpoint.endswith('.pt'):
+            model = torch.jit.load(args.checkpoint)
+            model.cuda()
+        elif args.checkpoint.endswith('.onnx'):
+            model = onnxruntime.InferenceSession(
+                args.checkpoint,
+                providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
 
     if not args.eval and args.video is not None:
         video_path = args.video
         if args.model_type == 'image':
+            video_name = os.path.basename(video_path)
+            pred_path = osj(os.path.dirname(args.output), f'{video_name}-score.json')
             count_by_image_model(model,
                                  video_path,
                                  ground_truth=[],
-                                 output_path=args.output)
+                                 video_out_path=args.output,
+                                 pred_out_path=pred_path,
+                                 threshold=args.threshold)
         elif args.model_type == 'video':
             count_by_video_model(model,
                                  video_path,
@@ -382,29 +445,34 @@ def main(args) -> None:
             action = CLASSES
         else:
             action = [args.action]
-        infer_dataset(model,
-                      action=action,
-                      split=args.split,
-                      model_type=args.model_type,
-                      output_dir=args.output)
+        csv_name = args.checkpoint.split('.')[0].split('/')[-1] + '.csv'
+        eval_dataset(model,
+                     action=action,
+                     split=args.split,
+                     model_type=args.model_type,
+                     output_dir=args.output,
+                     csv_name=csv_name)
 
 
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Evaluate RepCount')
-    parser.add_argument('--onnx', help='onnx path', required=False)
+    parser.add_argument(
+        '-ckpt',
+        '--checkpoint',
+        help='checkpoint path. Use onnx if ends with .onnx. Use torch script if .pt',
+        required=True)
     parser.add_argument('--mmlab', help='use mmlab model', action='store_true')
     parser.add_argument('-i', '--video', help='video path', required=False)
     parser.add_argument('--eval', help='evaluate dataset', action='store_true')
     parser.add_argument('-t', '--threshold', help='threshold', type=float, default=0.5)
-    parser.add_argument('-ckpt', '--checkpoint', help='checkpoint path', required=False)
     parser.add_argument('-o',
                         '--output',
-                        help='output path. If evaluate dataset, it is output_dir',
+                        help='video output path. If evaluate dataset, it is output_dir',
                         required=False)
     parser.add_argument('-m',
                         '--model-type',
-                        help='evaluate using image/video model',
-                        default='video',
+                        help='inference using image/video model',
+                        default='image',
                         choices=['image', 'video'])
     parser.add_argument('-a',
                         '--action',
@@ -426,16 +494,20 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 if __name__ == '__main__':
     example_args = [
-        '--onnx', 'checkpoints/tsm_video_all_20220616.onnx', '--threshold', '0.5',
+        '-ckpt', 'checkpoints/tsm_video_all_20220616.onnx', '--threshold', '0.5',
         '--video', 'data/RepCount/videos/test/stu1_27.mp4'
     ]
     example_dataset = [
-        '--onnx', 'checkpoints/tsm_video_all_20220616.onnx', '--eval', '--output', 'exp/',
+        '-ckpt', 'checkpoints/tsm_video_all_20220616.onnx', '--eval', '--output', 'out/',
         '--model-type', 'video', '--action', 'all'
     ]
     example_mmlab = [
-        '--mmlab', '-ckpt', 'checkpoints/tsm_video_all.pth', '--eval', '--output', 'exp/',
+        '--mmlab', '-ckpt', 'checkpoints/tsm_video_all.pth', '--eval', '--output', 'out/',
         '--model-type', 'video', '--action', 'pull_up'
+    ]
+    example_image = [
+        '-ckpt=checkpoints/pull-up-image-swin-1x3x224x224.onnx', '--model-type=image',
+        '--output=out/', '--action=pull_up', '--eval'
     ]
     args = parse_args()
     main(args)
