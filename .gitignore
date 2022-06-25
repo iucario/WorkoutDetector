@@ -13,7 +13,10 @@ out/
 detectron2_out/
 lightning_logs/
 log
-
+out
+pyrightconfig.json
+_tmp.py
+tests/data
 *.ipynb_checkpoints
 
 # data
