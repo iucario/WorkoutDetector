@@ -10,6 +10,7 @@ import numpy as np
 import base64
 from torchvision.datasets.utils import download_and_extract_archive, verify_str_arg
 from torchvision.io import read_image
+from .build import DATASET_REGISTRY
 
 
 def parse_onedrive(link: str) -> str:
@@ -445,7 +446,7 @@ class RepcountVideoDataset(RepcountDataset):
             label: 0 or 1
     
     Returns:
-        Tensor, shape (C, num_frames, H, W)
+        Tensor, shape (N, C, H, W)
         List[int], label
     """
 
@@ -475,7 +476,6 @@ class RepcountVideoDataset(RepcountDataset):
         if self.transform is not None:
             frame_list = [self.transform(frame) for frame in frame_list]
         frame_tensor = torch.stack(frame_list, 0)
-        frame_tensor = frame_tensor.permute(1, 0, 2, 3)
         assert frame_tensor.shape[1] == self.num_segments, \
             f'frame_list.shape[0] = {frame_tensor.shape[0]}, ' \
             f'but self.num_segments = {self.num_segments}'
@@ -485,6 +485,7 @@ class RepcountVideoDataset(RepcountDataset):
         return len(self.video_list)
 
 
+@DATASET_REGISTRY.register()
 class RepcountRecognitionDataset(torch.utils.data.Dataset):
     """RepCount action recognition(video classification) dataset
     
@@ -505,7 +506,8 @@ class RepcountRecognitionDataset(torch.utils.data.Dataset):
         self.split = split
         self.transform = transform
         assert os.path.isdir(root), f'{root} does not exist'
-        anno_path = os.path.join(root, '../../datasets/RepCount/annotation.csv')
+        anno_path = os.path.join(root, 'annotation.csv')
+        assert os.path.isfile(anno_path), f'{anno_path} does not exist'
         helper = RepcountHelper(data_root=root, anno_file=anno_path)
         if actions is None:
             actions = helper.classes

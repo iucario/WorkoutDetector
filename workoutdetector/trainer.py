@@ -20,7 +20,8 @@ from torch import Tensor, nn, optim
 from torch.utils.data import DataLoader
 from torchvision.models.detection import fasterrcnn_resnet50_fpn
 
-from workoutdetector.datasets import ImageDataset
+from workoutdetector.datasets import ImageDataset, build_dataset
+from workoutdetector.models import TSM
 from workoutdetector.settings import PROJ_ROOT
 
 
@@ -30,7 +31,7 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--cfg",
         dest="cfg_file",
         help="Path to the config file",
-        default=osj(PROJ_ROOT, "workoutdetector/configs/lit_img.yaml"),
+        default=osj(PROJ_ROOT, "workoutdetector/configs/tsm.yaml"),
         type=str,
     )
     parser.add_argument(
@@ -136,17 +137,6 @@ class Detector():
             cropped_images.append(person)
             assert person.shape[-2:] == (224, 224), f"{person.shape}"
         return cropped_images
-
-
-class MyModel(nn.Module):
-
-    def __init__(self, input_dim):
-        super().__init__()
-        self.layers = nn.Sequential(nn.Linear(input_dim, 128), nn.ReLU(),
-                                    nn.Linear(128, 1))
-
-    def forward(self, x):
-        return self.layers(x)
 
 
 class LitImageModel(LightningModule):
@@ -289,6 +279,119 @@ class ImageDataModule(LightningDataModule):
             return self.val_dataloader()
 
 
+class LitModel(LightningModule):
+    """Video classification model."""
+
+    def __init__(self, cfg: CfgNode):
+        super().__init__()
+        self.example_input_array = torch.randn(1 * cfg.model.num_segments, 3, 224, 224)
+        self.save_hyperparameters()
+        self.model = TSM(**cfg.model)
+        self.loss_module = nn.CrossEntropyLoss()
+        self.cfg = cfg
+
+    def forward(self, x):
+        x = x.view(-1, 3, 224, 224)
+        return self.model(x)
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self.forward(x)
+        loss = self.loss_module(y_hat, y)
+        acc = (y_hat.argmax(dim=1) == y).float().mean()
+        self.log("train/acc", acc, prog_bar=True, on_step=False, on_epoch=True)
+        self.log('train/loss', loss)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self.forward(x)
+        loss = self.loss_module(y_hat, y)
+        acc = (y_hat.argmax(dim=1) == y).float().mean()
+        self.log("val/acc", acc, prog_bar=True, on_step=False, on_epoch=True)
+        self.log('val/loss', loss)
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self.forward(x)
+        loss = self.loss_module(y_hat, y)
+        acc = (y_hat.argmax(dim=1) == y).float().mean()
+        self.log("test/acc", acc, on_step=False, on_epoch=True)
+        self.log('test/loss', loss, prog_bar=True)
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        return self(batch)
+
+    def configure_optimizers(self):
+        cfg = self.cfg
+        OPTIMIZER = cfg.optimizer.method.lower()
+        SCHEDULER = cfg.lr_scheduler.policy.lower()
+        if OPTIMIZER == 'sgd':
+            optimizer = optim.SGD(self.parameters(),
+                                  lr=cfg.optimizer.lr,
+                                  momentum=cfg.optimizer.momentum,
+                                  weight_decay=cfg.optimizer.weight_decay)
+        elif OPTIMIZER == 'adamw':
+            optimizer = optim.AdamW(self.parameters(),
+                                    lr=cfg.optimizer.lr,
+                                    eps=cfg.optimizer.eps,
+                                    weight_decay=cfg.optimizer.weight_decay)
+        else:
+            raise NotImplementedError(
+                f'Not implemented optimizer: {cfg.optimizer.method}')
+        if SCHEDULER == 'steplr':
+            scheduler = optim.lr_scheduler.StepLR(optimizer,
+                                                  step_size=cfg.lr_scheduler.step,
+                                                  gamma=cfg.lr_scheduler.gamma)
+        else:
+            raise NotImplementedError(f'Not implemented lr schedular: {cfg.lr_schedular}')
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": scheduler,
+            "monitor": "val/loss",
+        }
+
+
+class DataModule(LightningDataModule):
+    """Frame dataset
+
+    Args:
+        cfg (CfgNode): configs of cfg.data
+        is_train: bool, train or test. Default True
+    """
+
+    def __init__(self, cfg: CfgNode, is_train: bool = True) -> None:
+        super().__init__()
+        self.cfg = cfg
+
+    def train_dataloader(self):
+        train_set = build_dataset(self.cfg.dataset_type, self.cfg, 'train')
+        loader = DataLoader(train_set,
+                            num_workers=self.cfg.num_workers,
+                            batch_size=self.cfg.batch_size,
+                            shuffle=True)
+        return loader
+
+    def val_dataloader(self):
+        val_set = build_dataset(self.cfg.dataset_type, self.cfg, 'val')
+        loader = DataLoader(val_set,
+                            num_workers=self.cfg.num_workers,
+                            batch_size=self.cfg.batch_size,
+                            shuffle=False)
+        return loader
+
+    def test_dataloader(self):
+        if self.cfg.test.anno:
+            test_set = build_dataset(self.cfg.dataset_type, self.cfg, 'test')
+            loader = DataLoader(test_set,
+                                num_workers=self.cfg.num_workers,
+                                batch_size=self.cfg.batch_size,
+                                shuffle=False)
+            return loader
+        else:
+            return self.val_dataloader()
+
+
 def export_model(ckpt: str, onnx_path: Optional[str] = None) -> None:
     model = LitImageModel.load_from_checkpoint(ckpt)
     model.eval()
@@ -304,11 +407,8 @@ def cfg_to_dict(cfg: CfgNode) -> dict:
 
 
 def test(cfg: CfgNode) -> None:
-    data_module = ImageDataModule(cfg.data,
-                                  transform=data_transforms['train'],
-                                  target_transform=data_transforms['test'],
-                                  is_train=False)
-    model = LitImageModel.load_from_checkpoint(cfg.checkpoint)
+    data_module = DataModule(cfg.data, is_train=False)
+    model = LitModel.load_from_checkpoint(cfg.checkpoint)
     trainer = Trainer(
         default_root_dir=cfg.trainer.default_root_dir,
         accelerator=cfg.trainer.accelerator,
@@ -318,10 +418,8 @@ def test(cfg: CfgNode) -> None:
 
 
 def train(cfg: CfgNode) -> None:
-    data_module = ImageDataModule(cfg.data,
-                                  transform=data_transforms['train'],
-                                  target_transform=data_transforms['test'])
-    model = LitImageModel(cfg)
+    data_module = DataModule(cfg.data)
+    model = LitModel(cfg)
 
     timenow = time.strftime('%Y%m%d-%H%M%S', time.localtime())
     # callbacks
@@ -393,9 +491,7 @@ def train(cfg: CfgNode) -> None:
 
     model.load_from_checkpoint(checkpoint_callback.best_model_path)
     print(checkpoint_callback.best_model_path)
-    wandb_logger.experiment.config[
-        'best_model_path'] = checkpoint_callback.best_model_path
-    
+
     trainer.test(model, data_module)
 
 

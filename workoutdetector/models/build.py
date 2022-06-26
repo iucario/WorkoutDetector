@@ -10,7 +10,7 @@ The call should return a `torch.nn.Module` object.
 """
 
 
-def build_dataset(model_name: str, cfg) -> torch.nn.Module:
+def build_model(model_name: str, cfg) -> torch.nn.Module:
     """Build a model, defined by `model_name`.
     
     Args:

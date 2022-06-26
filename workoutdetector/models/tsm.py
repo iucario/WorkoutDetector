@@ -102,7 +102,7 @@ def make_temporal_shift(net, n_segment, n_div=8, place='blockres', temporal_pool
     else:
         n_segment_list = [n_segment] * 4
     assert n_segment_list[-1] > 0
-    print('=> n_segment per stage: {}'.format(n_segment_list))
+    # print('=> n_segment per stage: {}'.format(n_segment_list))
 
     import torchvision
     if isinstance(net, torchvision.models.ResNet):
@@ -110,7 +110,7 @@ def make_temporal_shift(net, n_segment, n_div=8, place='blockres', temporal_pool
 
             def make_block_temporal(stage, this_segment):
                 blocks = list(stage.children())
-                print('=> Processing stage with {} blocks'.format(len(blocks)))
+                # print('=> Processing stage with {} blocks'.format(len(blocks)))
                 for i, b in enumerate(blocks):
                     blocks[i] = TemporalShift(b, n_segment=this_segment, n_div=n_div)
                 return nn.Sequential(*(blocks))
@@ -124,11 +124,11 @@ def make_temporal_shift(net, n_segment, n_div=8, place='blockres', temporal_pool
             n_round = 1
             if len(list(net.layer3.children())) >= 23:
                 n_round = 2
-                print('=> Using n_round {} to insert temporal shift'.format(n_round))
+                # print('=> Using n_round {} to insert temporal shift'.format(n_round))
 
             def make_block_temporal(stage, this_segment):
                 blocks = list(stage.children())
-                print('=> Processing stage with {} blocks residual'.format(len(blocks)))
+                # print('=> Processing stage with {} blocks residual'.format(len(blocks)))
                 for i, b in enumerate(blocks):
                     if i % n_round == 0:
                         blocks[i].conv1 = TemporalShift(b.conv1,
@@ -147,7 +147,7 @@ def make_temporal_shift(net, n_segment, n_div=8, place='blockres', temporal_pool
 def make_temporal_pool(net, n_segment):
     import torchvision
     if isinstance(net, torchvision.models.ResNet):
-        print('=> Injecting nonlocal pooling')
+        # print('=> Injecting nonlocal pooling')
         net.layer2 = TemporalPool(net.layer2, n_segment)
     else:
         raise NotImplementedError
@@ -205,7 +205,7 @@ class TSM(nn.Module):
         img_feature_dim (int): I don't think it's used.
         crop_num (int): number of crops from one image, default 1
         partial_bn (bool): use partial bn or not, default True
-        print_spec (bool): print out the spec of the model, default True
+        print_spec (bool): print out the spec of the model, default False
         is_shift (bool): use temporal shift module or not, default True
         shift_div (int): the number of folds of temporal shift, default 8
         shift_place (str): 'block' or 'blockres', default 'blockres'
@@ -225,7 +225,7 @@ class TSM(nn.Module):
                  img_feature_dim=256,
                  crop_num=1,
                  partial_bn=True,
-                 print_spec=True,
+                 print_spec=False,
                  is_shift=True,
                  shift_div=8,
                  shift_place='blockres',
@@ -302,12 +302,12 @@ class TSM(nn.Module):
         return feature_dim
 
     def _prepare_base_model(self, base_model: str):
-        print('=> base model: {}'.format(base_model))
+        # print('=> base model: {}'.format(base_model))
 
         if 'resnet' in base_model:
             self.base_model = getattr(torchvision.models, base_model)(True)
             if self.is_shift:
-                print('Adding temporal shift...')
+                # print('Adding temporal shift...')
                 make_temporal_shift(self.base_model,
                                     self.num_segments,
                                     n_div=self.shift_div,
@@ -331,7 +331,6 @@ class TSM(nn.Module):
         super(TSM, self).train(mode)
         count = 0
         if self._enable_pbn and mode:
-            print("Freezing BatchNorm2D except the first one.")
             for m in self.base_model.modules():
                 if isinstance(m, nn.BatchNorm2d):
                     count += 1
