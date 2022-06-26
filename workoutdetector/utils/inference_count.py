@@ -184,7 +184,7 @@ def inference_image(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
         frame: numpy.ndarray, cv2 read image. Shape (H, W, 3).
         threshold (Not used): float, used to filter background.
     Returns:
-        numpy.ndarray: list of prediction scores. Sahpe (1, num_classes).
+        numpy.ndarray: list of prediction scores. Shape (1, num_classes).
     """
 
     if type(model) == onnxruntime.InferenceSession:
@@ -238,20 +238,19 @@ def count_by_image_model(model: Union[onnxruntime.InferenceSession, torch.nn.Mod
             break
         score = inference_image(model, frame)
         scores.append(score)
-        states.append(int(score.argmax()))
-        que.append(states[-1])
+        que.append(int(score.argmax()))
         states.append(sum(que) >= 4)
 
     cap.release()
 
-    count, reps = pred_to_count(preds=states, step=1)
+    count, reps = pred_to_count(preds=states, step=7)
     gt_count = len(ground_truth) // 2 if ground_truth else -1
     correct = (abs(count - gt_count) <= 1)
     print(f'count={count} gt_count={gt_count} correct={correct}')
     if pred_out_path:
         save_scores_to_json(scores, pred_out_path, video_path, step=1)
     if video_out_path:
-        write_to_video(video_path, video_out_path, reps, states, step=1)
+        write_to_video(video_path, video_out_path, reps, states, step=7)
     return count, reps
 
 
@@ -412,7 +411,7 @@ def eval_dataset(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
 def main(args) -> None:
     if args.mmlab:
         cfg_path = os.path.join(
-            PROJ_ROOT, 'WorkoutDetector/configs/tsm_MultiActionRepCount_sthv2.py')
+            PROJ_ROOT, 'workoutdetector/configs/tsm_MultiActionRepCount_sthv2.py')
         model = init_recognizer(cfg_path, args.checkpoint, device='cuda')
     else:
         if args.checkpoint.endswith('.pt'):

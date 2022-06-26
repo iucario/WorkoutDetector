@@ -1,3 +1,5 @@
+"""Why do I have this file?
+There is no SingleActionRepCount class in the codebase."""
 # model settings
 import os
 import time
@@ -11,7 +13,7 @@ model = dict(
                   norm_eval=False,
                   shift_div=8),
     cls_head=dict(type='TSMHead',
-                  num_classes=11,
+                  num_classes=2,
                   in_channels=2048,
                   spatial_type='avg',
                   consensus=dict(type='AvgConsensus', dim=1),
@@ -120,7 +122,7 @@ mp_start_method = 'fork'
 omnisource = False
 
 DATE = time.strftime('%Y%m%d-%H%M%S')
-work_dir = os.path.join(PROJ_ROOT, f'work_dirs/tsm_SingleActionRepCount_sthv2_{DATE}')
+work_dir = os.path.join(PROJ_ROOT, f'log/work_dirs/tsm_SingleActionRepCount_sthv2_{DATE}')
 
 log_config = dict(interval=20,
                   hooks=[

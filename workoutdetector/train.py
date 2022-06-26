@@ -29,7 +29,7 @@ CLASSES = [
     'front_raise', 'pull_up', 'squat', 'bench_pressing', 'jumping_jack', 'situp',
     'push_up', 'battle_rope', 'exercising_arm', 'lunge', 'mountain_climber'
 ]
-config = osp.join(PROJ_ROOT, 'WorkoutDetector/configs/tsm_action_recogition_sthv2.py')
+config = osp.join(PROJ_ROOT, 'workoutdetector/configs/tsm_action_recogition_sthv2.py')
 
 cfg = Config.fromfile(config)
 set_random_seed(0, deterministic=False)

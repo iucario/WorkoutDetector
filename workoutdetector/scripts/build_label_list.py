@@ -85,8 +85,9 @@ def relabeled_csv_to_rawframe_list(csv_path: str, dst_dir: str, video_dir: str) 
     """Converts relabeled csv to rawframe list.
     Creates 'train.txt', 'val.txt', and 'test.txt' files in `dst_dir`.
     Read video FPS from `video_dir`. Video path is `video_dir/{split}/{video_name}`.
+    Output is in the format: `{split}/video_no_ext start_frame num_frames label`.
     
-    Format of csv::
+    Format of input csv::
         name,sec,label,split
         stu10_35.mp4,6.2,0,train
 
@@ -105,7 +106,7 @@ def relabeled_csv_to_rawframe_list(csv_path: str, dst_dir: str, video_dir: str) 
     test_txt = open(osj(dst_dir, 'test.txt'), 'w')
 
     with open(csv_path) as f:
-        lines = f.readlines()[1:] # skip header
+        lines = f.readlines()[1:]  # skip header
         for s, m, e in zip(lines[::3], lines[1::3], lines[2::3]):
             name = s.split(',')[0]
             split = s.strip().split(',')[3]
@@ -120,15 +121,18 @@ def relabeled_csv_to_rawframe_list(csv_path: str, dst_dir: str, video_dir: str) 
             mid = int(float(m.split(',')[1]) * fps)
             end = int(float(e.split(',')[1]) * fps)
             assert start < mid < end, f'{name}, {start} {mid} {end} not in order'
+            name = name.split('.')[0]  # remove extension for rawframes folder
+            num_frames_1 = mid - start + 1
+            num_frames_2 = end - mid
             if split == 'train':
-                train_txt.write(f'{name} {start} {mid} 0\n')
-                train_txt.write(f'{name} {mid} {end} 1\n')
+                train_txt.write(f'train/{name} {start} {num_frames_1} 0\n')
+                train_txt.write(f'train/{name} {mid+1} {num_frames_2} 1\n')
             elif split == 'val':
-                val_txt.write(f'{name} {start} {mid} 0\n')
-                val_txt.write(f'{name} {mid} {end} 1\n')
+                val_txt.write(f'val/{name} {start} {num_frames_1} 0\n')
+                val_txt.write(f'val/{name} {mid+1} {num_frames_2} 1\n')
             elif split == 'test':
-                test_txt.write(f'{name} {start} {mid} 0\n')
-                test_txt.write(f'{name} {mid} {end} 1\n')
+                test_txt.write(f'test/{name} {start} {num_frames_1} 0\n')
+                test_txt.write(f'test/{name} {mid+1} {num_frames_2} 1\n')
     train_txt.close()
     val_txt.close()
     test_txt.close()
@@ -139,7 +143,7 @@ if __name__ == '__main__':
     # data_root = os.path.join(PROJ_ROOT, 'data')
     # dst_dir = os.path.join(data_root, 'Binary')
     # build_with_start(data_root, dst_dir)
-    # relabeled_csv_to_rawframe_list(
-    #     '/home/umi/data/pull-up-relabeled/pull-up-relabeled.csv',
-    #     osj(PROJ_ROOT, 'data/relabeled', 'pull_up'),
-    #     osj(PROJ_ROOT, 'data/RepCount/videos'))
+    relabeled_csv_to_rawframe_list(
+        '/home/umi/data/pull-up-relabeled/pull-up-relabeled.csv',
+        osj(PROJ_ROOT, 'data/relabeled', 'pull_up'), osj(PROJ_ROOT,
+                                                         'data/RepCount/videos'))
