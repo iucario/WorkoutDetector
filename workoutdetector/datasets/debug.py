@@ -12,6 +12,9 @@ class DebugDataset(torch.utils.data.Dataset):
         num_class (int): number of classes
         num_segments (int): number of segments for video dataset
         size (int): number of videos or images to generate
+    
+    Returns:
+        Tuple[Tensor, int], Tensor of shape (num_segments, 3, 224, 224), label
     """
 
     def __init__(self,
@@ -27,7 +30,7 @@ class DebugDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx) -> tuple:
         label = idx % self.num_class
-        x = torch.full((3, self.num_segments, 224, 224),
+        x = torch.full((self.num_segments, 3, 224, 224),
                        1 / (label + 1),
                        dtype=torch.float32)
         return x, label
@@ -38,7 +41,4 @@ if __name__ == '__main__':
     dataset = DebugDataset(num_class=10, size=20)
     for i in range(len(dataset)):
         x, y = dataset[i]
-        x = x.permute(1, 0, 2, 3)
         print(x.shape, y)
-        img = ToPILImage()(x[0])
-        img.save(f'tmp/{i}.png')
