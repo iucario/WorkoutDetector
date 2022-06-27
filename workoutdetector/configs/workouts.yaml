@@ -1,0 +1,78 @@
+trainer:
+  default_root_dir: exp/workouts-11_class-tsm
+  max_epochs: 20
+  early_stopping: false
+  enable_checkpointing: null
+  num_nodes: 1
+  devices: 1
+  gpus: 1
+  log_gpu_memory: true
+  enable_progress_bar: true
+  overfit_batches: 0.0
+  check_val_every_n_epoch: 1
+  min_epochs: 1
+  accelerator: auto
+  sync_batchnorm: false
+  precision: 32
+  enable_model_summary: true
+  weights_summary: top
+  weights_save_path: null
+  num_sanity_val_steps: 2
+  resume_from_checkpoint: null
+  benchmark: false
+  deterministic: true
+  auto_lr_find: false
+  prepare_data_per_node: null
+  patience: 10
+optimizer:
+  method: AdamW
+  lr: 0.005
+  momentum: 0.9
+  weight_decay: 1.0e-4
+  eps: 1.0e-8
+lr_scheduler:
+  policy: StepLR
+  gamma: 0.1
+  step: 5
+model:
+  num_class: 11
+  num_segments: 8
+  base_model: resnet50
+  consensus_type: avg
+  img_feature_dim: 256
+  is_shift: true
+  shift_div: 8
+  shift_place: blockres
+  fc_lr5: false
+  temporal_pool: false
+  non_local: false
+data:
+  dataset_type: FrameDataset
+  data_root: data/Workouts/rawframes/
+  num_segments: 8
+  filename_tmpl: 'img_{:05}.jpg'
+  anno_col: 3
+  batch_size: 2
+  train:
+    anno: data/Workouts/rawframes/train.txt
+    data_prefix: null
+  val:
+    anno: data/Workouts/rawframes/val.txt
+    data_prefix: null
+  test:
+    anno: data/Workouts/rawframes/test.txt
+    data_prefix: null
+  num_workers: 4
+log:
+  output_dir: exp/workouts-11_class-tsm
+  name: workouts-11_class-convnext_base-lr_5e-5
+  log_every_n_steps: 20
+  tensorboard:
+    enable: true
+  wandb:
+    enable: false
+    offline: false
+    project: workouts-11_class-tsm
+seed: 0
+train: true
+checkpoint: checkpoints/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth

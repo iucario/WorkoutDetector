@@ -32,7 +32,7 @@ CLASSES = [
 config = osp.join(PROJ_ROOT, 'workoutdetector/configs/tsm_action_recogition_sthv2.py')
 
 cfg = Config.fromfile(config)
-set_random_seed(0, deterministic=False)
+set_random_seed(0, deterministic=True)
 
 cfg.log_config = dict(interval=50,
                       hooks=[

@@ -125,7 +125,7 @@ def main(args):
     print(cfg.pretty_text)
 
     if args.export:
-        input_sample = torch.randn( 1,8,3, 224, 224)
+        input_sample = torch.randn(1, 8, 3, 224, 224)
         input_sample = input_sample.cuda()
         output = 'mmaction_model.onnx'
         model = build_model(cfg.model, train_cfg=None, test_cfg=cfg.get('test_cfg'))
@@ -139,11 +139,11 @@ def main(args):
             raise NotImplementedError(
                 'Please implement the forward method for exporting.')
         torch.onnx.export(model,
-                      input_sample,
-                      output,
-                      export_params=True,
-                      keep_initializers_as_inputs=True,
-                      opset_version=11)
+                          input_sample,
+                          output,
+                          export_params=True,
+                          keep_initializers_as_inputs=True,
+                          opset_version=11)
     else:
         train(cfg)
 

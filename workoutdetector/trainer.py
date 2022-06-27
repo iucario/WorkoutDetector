@@ -20,7 +20,8 @@ from torch import Tensor, nn, optim
 from torch.utils.data import DataLoader
 from torchvision.models.detection import fasterrcnn_resnet50_fpn
 
-from workoutdetector.datasets import ImageDataset
+from workoutdetector.datasets import ImageDataset, build_dataset
+from workoutdetector.models.tsm import TSM, create_model
 from workoutdetector.settings import PROJ_ROOT
 
 
@@ -30,7 +31,7 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--cfg",
         dest="cfg_file",
         help="Path to the config file",
-        default=osj(PROJ_ROOT, "workoutdetector/configs/lit_img.yaml"),
+        default=osj(PROJ_ROOT, "workoutdetector/configs/workouts.yaml"),
         type=str,
     )
     parser.add_argument(
@@ -138,32 +139,25 @@ class Detector():
         return cropped_images
 
 
-class MyModel(nn.Module):
-
-    def __init__(self, input_dim):
-        super().__init__()
-        self.layers = nn.Sequential(nn.Linear(input_dim, 128), nn.ReLU(),
-                                    nn.Linear(128, 1))
-
-    def forward(self, x):
-        return self.layers(x)
-
-
-class LitImageModel(LightningModule):
+class LitModel(LightningModule):
+    """Video classification model."""
 
     def __init__(self, cfg: CfgNode):
         super().__init__()
-        self.example_input_array = torch.randn(1, 3, 224, 224)
+        self.example_input_array = torch.randn(1 * cfg.model.num_segments, 3, 224, 224)
         self.save_hyperparameters()
-        backbone = timm.create_model(cfg.model.backbone_model,
-                                     pretrained=True,
-                                     num_classes=cfg.model.num_class)
-        self.classifier = backbone
+        self.model = create_model(cfg.model.num_class,
+                                  cfg.model.num_segments,
+                                  pretrained=True,
+                                  ckpt=cfg.checkpoint)
+        # self.model = TSM(**cfg.model)
         self.loss_module = nn.CrossEntropyLoss()
         self.cfg = cfg
+        self.best_val_acc = 0.0
 
     def forward(self, x):
-        return self.classifier(x)
+        x = x.view(-1, 3, 224, 224)
+        return self.model(x)
 
     def training_step(self, batch, batch_idx):
         x, y = batch
@@ -181,6 +175,8 @@ class LitImageModel(LightningModule):
         acc = (y_hat.argmax(dim=1) == y).float().mean()
         self.log("val/acc", acc, prog_bar=True, on_step=False, on_epoch=True)
         self.log('val/loss', loss)
+        self.best_val_acc = max(self.best_val_acc, acc.item())
+        self.log('val/best_acc', self.best_val_acc)
 
     def test_step(self, batch, batch_idx):
         x, y = batch
@@ -223,42 +219,33 @@ class LitImageModel(LightningModule):
         }
 
 
-class ImageDataModule(LightningDataModule):
-    """General image dataset
-    label text files of [image.png class] are required
+class DataModule(LightningDataModule):
+    """Frame dataset
 
     Args:
         cfg (CfgNode): configs of cfg.data
-        transform: Optional
-        target_transform: Optional
         is_train: bool, train or test. Default True
     """
 
-    def __init__(self,
-                 cfg: CfgNode,
-                 transform: Optional[Callable] = None,
-                 target_transform: Optional[Callable] = None,
-                 is_train: bool = True) -> None:
+    def __init__(self, cfg: CfgNode, is_train: bool = True, num_class: int = 2) -> None:
         super().__init__()
-        if is_train:
-            assert osp.exists(osj(
-                cfg.data_root,
-                cfg.train.anno)), f'{osj(cfg.data_root, cfg.train.anno)} does not exist'
-            assert osp.exists(
-                osj(cfg.data_root,
-                    cfg.val.anno)), f'{osj(cfg.data_root, cfg.val.anno)} does not exist'
-        if cfg.test.anno:
-            assert osp.exists(
-                osj(cfg.data_root,
-                    cfg.test.anno)), f'{osj(cfg.data_root, cfg.test.anno)} does not exist'
         self.cfg = cfg
-        self.transform = transform
-        self.target_transform = target_transform
+        self.num_class = num_class
+        # self._check_data()
+
+    def _check_data(self):
+        """Check data exists and annotation files are correct."""
+
+        print(f"Checking data at {self.cfg.data.path}")
+        for split in ['train', 'val', 'test']:
+            ds = build_dataset(self.cfg.dataset_type, self.cfg, split)
+            for i, (x, y) in enumerate(ds):
+                assert type(x) == torch.Tensor, f"{type(x) is not Tensor}"
+                assert 0 <= y < self.num_class, f"{y} is not in [0, {self.num_class})"
+        print("Data check passed.")
 
     def train_dataloader(self):
-        prefix = '' if self.cfg.train.data_prefix is None else self.cfg.train.data_prefix
-        train_set = ImageDataset(self.cfg.data_root, prefix, self.cfg.train.anno,
-                                 self.transform)
+        train_set = build_dataset(self.cfg.dataset_type, self.cfg, 'train')
         loader = DataLoader(train_set,
                             num_workers=self.cfg.num_workers,
                             batch_size=self.cfg.batch_size,
@@ -266,9 +253,7 @@ class ImageDataModule(LightningDataModule):
         return loader
 
     def val_dataloader(self):
-        prefix = '' if self.cfg.train.data_prefix is None else self.cfg.train.data_prefix
-        val_set = ImageDataset(self.cfg.data_root, prefix, self.cfg.val.anno,
-                               self.transform)
+        val_set = build_dataset(self.cfg.dataset_type, self.cfg, 'val')
         loader = DataLoader(val_set,
                             num_workers=self.cfg.num_workers,
                             batch_size=self.cfg.batch_size,
@@ -276,10 +261,8 @@ class ImageDataModule(LightningDataModule):
         return loader
 
     def test_dataloader(self):
-        prefix = '' if self.cfg.train.data_prefix is None else self.cfg.train.data_prefix
         if self.cfg.test.anno:
-            test_set = ImageDataset(self.cfg.data_root, prefix, self.cfg.test.anno,
-                                    self.transform)
+            test_set = build_dataset(self.cfg.dataset_type, self.cfg, 'test')
             loader = DataLoader(test_set,
                                 num_workers=self.cfg.num_workers,
                                 batch_size=self.cfg.batch_size,
@@ -290,7 +273,7 @@ class ImageDataModule(LightningDataModule):
 
 
 def export_model(ckpt: str, onnx_path: Optional[str] = None) -> None:
-    model = LitImageModel.load_from_checkpoint(ckpt)
+    model = LitModel.load_from_checkpoint(ckpt)
     model.eval()
     if onnx_path is None:
         onnx_path = ckpt.replace('.ckpt', '.onnx')
@@ -304,11 +287,8 @@ def cfg_to_dict(cfg: CfgNode) -> dict:
 
 
 def test(cfg: CfgNode) -> None:
-    data_module = ImageDataModule(cfg.data,
-                                  transform=data_transforms['train'],
-                                  target_transform=data_transforms['test'],
-                                  is_train=False)
-    model = LitImageModel.load_from_checkpoint(cfg.checkpoint)
+    data_module = DataModule(cfg.data, is_train=False)
+    model = LitModel.load_from_checkpoint(cfg.checkpoint)
     trainer = Trainer(
         default_root_dir=cfg.trainer.default_root_dir,
         accelerator=cfg.trainer.accelerator,
@@ -318,10 +298,8 @@ def test(cfg: CfgNode) -> None:
 
 
 def train(cfg: CfgNode) -> None:
-    data_module = ImageDataModule(cfg.data,
-                                  transform=data_transforms['train'],
-                                  target_transform=data_transforms['test'])
-    model = LitImageModel(cfg)
+    data_module = DataModule(cfg.data, num_class=cfg.model.num_class)
+    model = LitModel(cfg)
 
     timenow = time.strftime('%Y%m%d-%H%M%S', time.localtime())
     # callbacks
@@ -349,7 +327,7 @@ def train(cfg: CfgNode) -> None:
     # loggers
     cfg_dict = cfg_to_dict(cfg)
     LOGGER: List[Any] = []
-    if cfg.log.enable_wandb:
+    if cfg.log.wandb.enable:
         wandb_logger = WandbLogger(
             save_dir=osj(cfg.log.output_dir),
             project=cfg.log.wandb.project,
@@ -360,7 +338,7 @@ def train(cfg: CfgNode) -> None:
         wandb_logger.watch(model, log="all")
         LOGGER.append(wandb_logger)
 
-    if cfg.log.enable_tensorboard:
+    if cfg.log.tensorboard.enable:
         tensorboard_logger = TensorBoardLogger(save_dir=cfg.log.output_dir,
                                                name=cfg.log.name,
                                                default_hp_metric=False)
@@ -392,10 +370,8 @@ def train(cfg: CfgNode) -> None:
     trainer.fit(model, data_module)
 
     model.load_from_checkpoint(checkpoint_callback.best_model_path)
-    print(checkpoint_callback.best_model_path)
-    wandb_logger.experiment.config[
-        'best_model_path'] = checkpoint_callback.best_model_path
-    
+    print(f"===>Best model saved at:\n{checkpoint_callback.best_model_path}")
+
     trainer.test(model, data_module)
 
 

@@ -1,0 +1,77 @@
+trainer:
+  default_root_dir: log
+  early_stopping: false
+  max_epochs: 50
+  enable_checkpointing: null
+  num_nodes: 1
+  devices: 1
+  gpus: 1
+  log_gpu_memory: true
+  enable_progress_bar: true
+  overfit_batches: 0.0
+  check_val_every_n_epoch: 1
+  min_epochs: 1
+  accelerator: auto
+  sync_batchnorm: false
+  precision: 32
+  enable_model_summary: true
+  weights_summary: top
+  weights_save_path: null
+  num_sanity_val_steps: 2
+  resume_from_checkpoint: null
+  benchmark: false
+  deterministic: true
+  auto_lr_find: false
+  prepare_data_per_node: null
+  patience: 10
+optimizer:
+  method: AdamW
+  lr: 0.001
+  momentum: 0.9
+  weight_decay: 1.0e-5
+  eps: 1.0e-8
+lr_scheduler:
+  policy: StepLR
+  gamma: 0.1
+  step: 7
+model:
+  num_class: 2
+  num_segments: 8
+  base_model: resnet50
+  consensus_type: avg
+  img_feature_dim: 512
+  is_shift: true
+  shift_div: 8
+  shift_place: blockres
+  fc_lr5: false
+  temporal_pool: false
+  non_local: false
+data:
+  dataset_type: FrameDataset
+  data_root: data/RepCount/rawframes
+  num_segments: 8
+  filename_tmpl: 'img_{:05}.jpg'
+  batch_size: 2
+  train:
+    anno: data/relabeled/pull_up/test.txt
+    data_prefix: null
+  val:
+    anno: data/relabeled/pull_up/val.txt
+    data_prefix: null
+  test:
+    anno: data/relabeled/pull_up/test.txt
+    data_prefix: null
+  num_workers: 4
+log:
+  name: pull-up-relabeled
+  output_dir: log/pull-up-relabeled
+  log_every_n_steps: 20
+  tensorboard:
+    enable: true
+  wandb:
+    enable: false
+    offline: False
+    project: pull-up
+seed: 0
+train: true
+checkpoint: null

@@ -107,41 +107,61 @@ data/Workouts/
 
 ## Train an exercise state recognition model
 
-Classification of action states, e.g. for action `push_up`, up and down are two states.
-Also supports multiple actions and multiple states.
+### Train video
 
-Training code is in `workoutdetector/train_rep.py`. Uses `mmaction2` to train and Time shift module.
-Configs are in `workoutdetector/configs`.
+- Train video with tsm (Does not work. I don't know why.😢😢)
+  `python workoutdetector/trainer.py --cfg workoutdetector/configs/tsm.yaml`
 
-1. Prepare label files.
-   The row in the label file is of format: `path/to/rawframe_dir start_frame num_frames label`.
-   Frames of indices `start_frame` to `start_frame + num_frames` will be used.
-   Don't need to move and rename frames in this way. Just need to modify the label file.
+- Train video with mmaction2
+  `python workoutdetector/train.py`
+  config: `configs/tsm_action_recogition_sthv2.py`
+
+- Train rep with mmaction2
+  ```
+  python workoutdetector/train_rep.py \
+   --action=pull_up \
+   --data-prefix=data/RepCount/rawframes/ \
+   --ann-dir=data/relabeled/pull_up \
+   --ckpt=work_dirs/tsm_MultiActionRepCount_sthv2_20220625-224626/best_top1_acc_epoch_5.pth
+  ```
+
+  Classification of action states, e.g. for action `push_up`, up and down are two states.
+  Also supports multiple actions and multiple states.
+
+  Training code is in `workoutdetector/train_rep.py`. Uses `mmaction2` to train the time shift module.
+  Configs are in `workoutdetector/configs`.
+
+  1. Prepare label files.
+    The row in the label file is of format: `path/to/rawframe_dir start_frame num_frames label`.
+    Frames of indices `start_frame` to `start_frame + num_frames` will be used.
+    Don't need to move and rename frames in this way. Just need to modify the label file.
 
 ## Train an image recognition model
 
-Uses PyTorch Lightning to train a model. Code is in `workoutdetector/trainer.py`.
+`python workoutdetector/train_img.py --cfg workoutdetector/configs/pull_up.yaml`
+
+Uses PyTorch Lightning to train a model.
 
 ## Count repetitions
 
 ### workoutdetector/utils/inference_count.py
 
-It does not work.😭
+It does not work.
 
 - Inference every frames in a video using image model. Will write count to the `--output` file.
-   And save predicted scores to a JSON file in `--output` directory.
+  And save predicted scores to a JSON file in `--output` directory.
   ```
   python workoutdetector/utils/inference_count.py \
   -ckpt checkpoints/pull-up-image-swin-1x3x224x224.onnx \
   --model-type image \
   -i path/to/input/video.mp4 \
   --output out/video.mp4 \
-  --action pull_up 
+  --action pull_up
   ```
 
 ## Scripts
 
-I don't remember what those scripts I wrote last week do.😖 `workoutdetector/scripts/`
+`workoutdetector/scripts/`
 
 - `mpvscreenshot_process.py`
   Before I create or find a video segment tool, I'll use this script to annotate videos.
