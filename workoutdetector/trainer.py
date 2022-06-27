@@ -190,28 +190,35 @@ class LitModel(LightningModule):
         return self(batch)
 
     def configure_optimizers(self):
-        cfg = self.cfg
-        OPTIMIZER = cfg.optimizer.method.lower()
-        SCHEDULER = cfg.lr_scheduler.policy.lower()
-        if OPTIMIZER == 'sgd':
-            optimizer = optim.SGD(self.parameters(),
-                                  lr=cfg.optimizer.lr,
-                                  momentum=cfg.optimizer.momentum,
-                                  weight_decay=cfg.optimizer.weight_decay)
-        elif OPTIMIZER == 'adamw':
-            optimizer = optim.AdamW(self.parameters(),
-                                    lr=cfg.optimizer.lr,
-                                    eps=cfg.optimizer.eps,
-                                    weight_decay=cfg.optimizer.weight_decay)
+        OPTIMIZER = self.cfg.optimizer.method.lower()
+        SCHEDULER = self.cfg.lr_scheduler.policy.lower()
+        if self.model._get_name() == 'TSM':
+            print('==> Use TSM policies')
+            policies = self.model.get_optim_policies()
+            optimizer = optim.SGD(policies,
+                                  lr=self.cfg.optimizer.lr,
+                                  momentum=self.cfg.optimizer.momentum,
+                                  weight_decay=self.cfg.optimizer.weight_decay)
         else:
-            raise NotImplementedError(
-                f'Not implemented optimizer: {cfg.optimizer.method}')
+            if OPTIMIZER == 'sgd':
+                optimizer = optim.SGD(self.parameters(),
+                                    lr=self.cfg.optimizer.lr,
+                                    momentum=self.cfg.optimizer.momentum,
+                                    weight_decay=self.cfg.optimizer.weight_decay)
+            elif OPTIMIZER == 'adamw':
+                optimizer = optim.AdamW(self.parameters(),
+                                        lr=self.cfg.optimizer.lr,
+                                        eps=self.cfg.optimizer.eps,
+                                        weight_decay=self.cfg.optimizer.weight_decay)
+            else:
+                raise NotImplementedError(
+                    f'Not implemented optimizer: {self.cfg.optimizer.method}')
         if SCHEDULER == 'steplr':
             scheduler = optim.lr_scheduler.StepLR(optimizer,
-                                                  step_size=cfg.lr_scheduler.step,
-                                                  gamma=cfg.lr_scheduler.gamma)
+                                                step_size=self.cfg.lr_scheduler.step,
+                                                gamma=self.cfg.lr_scheduler.gamma)
         else:
-            raise NotImplementedError(f'Not implemented lr schedular: {cfg.lr_schedular}')
+            raise NotImplementedError(f'Not implemented lr schedular: {self.cfg.lr_schedular}')
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,
