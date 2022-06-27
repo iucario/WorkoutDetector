@@ -104,3 +104,25 @@ data/Workouts/
 ├── train.txt
 └── val.txt
 ```
+
+### Train image
+
+`python workoutdetector/train_img.py --cfg workoutdetector/configs/pull_up.yaml`
+
+### Train video
+
+- Train video with tsm (Does not work. I don't know why.😢😢)
+  `python workoutdetector/trainer.py --cfg workoutdetector/configs/tsm.yaml`
+
+- Train video with mmaction2
+  `python workoutdetector/train.py`
+  config: `configs/tsm_action_recogition_sthv2.py`
+
+- Train rep with mmaction2
+  ```
+  python workoutdetector/train_rep.py \
+   --action=pull_up \
+   --data-prefix=data/RepCount/rawframes/ \
+   --ann-dir=data/relabeled/pull_up \
+   --ckpt=work_dirs/tsm_MultiActionRepCount_sthv2_20220625-224626/best_top1_acc_epoch_5.pth
+  ```

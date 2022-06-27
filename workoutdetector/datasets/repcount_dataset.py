@@ -490,9 +490,10 @@ class RepcountRecognitionDataset(torch.utils.data.Dataset):
     """RepCount action recognition(video classification) dataset
     
     Args:
-        root: str, data root, e.g. './data/RepCount'
-        split: str, 'train' or 'val'
+        root (str): data root, e.g. './data/RepCount'
+        split (str): 'train' or 'val'
         transform: torch.transforms.Compose, transform for image
+        num_segments (int): number of frames in one video
         download: bool, whether to download the dataset
     """
 

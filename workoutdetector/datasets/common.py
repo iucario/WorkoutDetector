@@ -12,7 +12,7 @@ import torchvision.transforms as T
 from torch import Tensor, nn, optim, utils
 from torch.utils.data import DataLoader
 from torchvision.datasets import ImageFolder
-from torchvision.io import read_image
+from torchvision.io import read_image, read_video
 from workoutdetector.settings import PROJ_ROOT
 
 from workoutdetector.datasets.build import DATASET_REGISTRY
@@ -33,6 +33,11 @@ class FrameDataset(torch.utils.data.Dataset):
         num_segments (int): number of segments to sample from each video
         filename_tmpl (str): template of the frame filename, e.g. `img_{:05}.jpg`
         transform (callable, optional): transform to apply to the frames
+        anno_col (int): columns in the annotation file, default is 4
+        3-column annotation file:
+            `frame_dir total_frames label`
+        4-column annotation file:
+            `frame_dir start_index total_frames label`
 
     Returns:
         Tensor, shape (N, C, H, W)
@@ -45,7 +50,8 @@ class FrameDataset(torch.utils.data.Dataset):
                  data_prefix: Optional[str] = None,
                  num_segments: int = 8,
                  filename_tmpl='img_{:05}.jpg',
-                 transform: Optional[Callable] = None) -> None:
+                 transform: Optional[Callable] = None,
+                 anno_col: int = 4) -> None:
         super().__init__()
         assert osp.isfile(anno_path), f'{anno_path} is not file'
         self.data_root = data_root
@@ -53,27 +59,39 @@ class FrameDataset(torch.utils.data.Dataset):
         self.transform = transform
         self.num_segments = num_segments
         self.tmpl = filename_tmpl
+        self.anno_col = anno_col
         self.anno: List[dict] = self.load_annotation(anno_path)
 
     def load_annotation(self, anno_path: str) -> List[dict]:
         video_infos = []
         with open(anno_path, 'r') as f:
-            for line in f:
-                frame_dir, start_index, total_frames, label = line.split()
-                if self.data_prefix is not None and int(total_frames) > 0:
-                    frame_dir = os.path.join(self.data_prefix, frame_dir)
-                video_infos.append(
-                    dict(frame_dir=frame_dir,
-                         start_index=int(start_index)+1,
-                         total_frames=int(total_frames),
-                         label=int(label)))
+            if self.anno_col == 4:
+                for line in f:
+                    frame_dir, start_index, total_frames, label = line.split()
+                    if self.data_prefix is not None and int(total_frames) > 0:
+                        frame_dir = os.path.join(self.data_prefix, frame_dir)
+                    video_infos.append(
+                        dict(frame_dir=frame_dir,
+                             start_index=int(start_index) + 1,
+                             total_frames=int(total_frames),
+                             label=int(label)))
+            elif self.anno_col == 3:
+                for line in f:
+                    frame_dir, total_frames, label = line.split()
+                    if self.data_prefix is not None and int(total_frames) > 0:
+                        frame_dir = os.path.join(self.data_prefix, frame_dir)
+                    video_infos.append(
+                        dict(frame_dir=frame_dir,
+                             start_index=1,
+                             total_frames=int(total_frames),
+                             label=int(label)))
         return video_infos
 
     def __getitem__(self, idx: int) -> Tuple[Tensor, int]:
         frame_list = []
         video_info = self.anno[idx]
         frame_dir = video_info['frame_dir']
-        start_index = video_info['start_index']
+        start_index = video_info['start_index'] if self.anno_col == 4 else 1
         total_frames = video_info['total_frames']
         label = video_info['label']
         samples = sample_frames(total_frames, self.num_segments, start_index)
@@ -96,25 +114,28 @@ class FrameDataset(torch.utils.data.Dataset):
 @DATASET_REGISTRY.register()
 class ImageDataset(torch.utils.data.Dataset):
     """General image dataset
-    label text files of [image.png class] are required
+    label text files of format `path/to/image.png class` are required
 
     Args:
-        data_root: str
-        data_prefix: str, will be appended to data_root
-        anno_path: str, abusolute annotation path
-        transform: Optional[Callable], data transform
+        data_root (str): final path will be `data_root/data_prefix/path/to/image.png`
+        data_prefix (str): will be appended to data_root
+        anno_path (str): absolute annotation path
+        transform (Optional[Callable]):, data transform
     """
 
     def __init__(self,
                  data_root: str,
-                 data_prefix: str,
+                 data_prefix: Optional[str] = None,
                  anno_path: str = 'train.txt',
-                 transform: Optional[Callable] = None) -> None:
+                 transform: Optional[Callable] = None,
+                 pipeline: Optional[str] = None) -> None:
         super().__init__()
         assert osp.isfile(anno_path), f'{anno_path} is not file'
         self.data_root = data_root
-        self.data_prefix = osj(data_root, data_prefix)
+        self.data_prefix = osj(data_root, data_prefix if data_prefix else '')
         self.transform = transform
+        if pipeline is not None:  # not implemented yet
+            self.pipeline = pipeline
         self.anno: List[Tuple[str, int]] = self.read_txt(anno_path)
 
     def __getitem__(self, index: int) -> Tuple[Tensor, int]:
@@ -177,6 +198,65 @@ def sample_frames(total: int, num: int, offset: int = 0) -> List[int]:
         assert indices[i] > indices[i - 1], f'indices[{i}]={indices[i]}'
     assert num == len(indices), f'num={num}'
     return [data[i] + offset for i in indices]
+
+
+class Pipeline:
+    """Pipeline for data processing and augmentation
+    
+    Args:
+        crop_size: Tuple[int, int], crop size
+        scale_size: Tuple[int, int], scale size
+        mean: Tuple[float, float, float], mean of RGB
+        std: Tuple[float, float, float], std of RGB
+    """
+
+    def __init__(self,
+                 scale_size: Tuple[int, int] = (256, 256),
+                 crop_size: Tuple[int, int] = (224, 224),
+                 mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
+                 std: Tuple[float, float, float] = (0.229, 0.224, 0.225)):
+        self.pipeline_read_video = T.Compose([
+            T.ConvertImageDtype(torch.float32),
+            T.Resize(scale_size),
+            T.RandomCrop(crop_size),
+            T.RandomHorizontalFlip(),
+            T.Normalize(mean, std),
+        ])
+        self.pipeline_read_image = T.Compose([
+            T.ToPILImage(),
+            T.Resize(scale_size),
+            T.RandomCrop(crop_size),
+            T.RandomHorizontalFlip(),
+            T.ToTensor(),
+            T.Normalize(mean, std),
+        ])
+
+    def transform_read_video(self, frames: Tensor, samples: int = 8) -> Tensor:
+        """Transform `torchvision.io.read_video()` output frames
+        
+        Args:
+            frames (Tensor): frame to transform
+            samples (int): number of frames to sample from video, if -1, use all frames
+        Returns:
+            Tensor, transformed frame
+        """
+        if samples > 0:
+            indices = sample_frames(frames.shape[0], samples)
+            frames = frames[indices]
+        frames = einops.rearrange(frames, 'b h w c -> b c h w')
+        return self.pipeline_read_video(frames)
+
+    def transform_read_image(self, image: Tensor) -> Tensor:
+        """Transform `torchvision.io.read_image()` output image
+        
+        Args:
+            image (Tensor): images to transform
+            
+        Returns:
+            Tensor, transformed images
+        """
+
+        return self.pipeline_read_image(image)
 
 
 if __name__ == '__main__':

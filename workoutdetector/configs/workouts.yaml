@@ -1,7 +1,7 @@
 trainer:
-  default_root_dir: log
+  default_root_dir: exp/workouts-11_class-tsm
+  max_epochs: 20
   early_stopping: false
-  max_epochs: 50
   enable_checkpointing: null
   num_nodes: 1
   devices: 1
@@ -26,20 +26,20 @@ trainer:
   patience: 10
 optimizer:
   method: AdamW
-  lr: 0.001
+  lr: 0.005
   momentum: 0.9
-  weight_decay: 1.0e-5
+  weight_decay: 1.0e-4
   eps: 1.0e-8
 lr_scheduler:
   policy: StepLR
   gamma: 0.1
-  step: 7
+  step: 5
 model:
-  num_class: 2
+  num_class: 11
   num_segments: 8
   base_model: resnet50
   consensus_type: avg
-  img_feature_dim: 512
+  img_feature_dim: 256
   is_shift: true
   shift_div: 8
   shift_place: blockres
@@ -48,30 +48,31 @@ model:
   non_local: false
 data:
   dataset_type: FrameDataset
-  data_root: data/RepCount/rawframes
+  data_root: data/Workouts/rawframes/
   num_segments: 8
   filename_tmpl: 'img_{:05}.jpg'
+  anno_col: 3
   batch_size: 2
   train:
-    anno: data/relabeled/pull_up/test.txt
+    anno: data/Workouts/rawframes/train.txt
     data_prefix: null
   val:
-    anno: data/relabeled/pull_up/val.txt
+    anno: data/Workouts/rawframes/val.txt
     data_prefix: null
   test:
-    anno: data/relabeled/pull_up/test.txt
+    anno: data/Workouts/rawframes/test.txt
     data_prefix: null
   num_workers: 4
 log:
-  name: pull-up-relabeled
-  output_dir: log/pull-up-relabeled
+  output_dir: exp/workouts-11_class-tsm
+  name: workouts-11_class-convnext_base-lr_5e-5
   log_every_n_steps: 20
   tensorboard:
     enable: true
   wandb:
     enable: false
-    offline: False
-    project: pull-up
+    offline: false
+    project: workouts-11_class-tsm
 seed: 0
 train: true
-checkpoint: null
+checkpoint: checkpoints/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth

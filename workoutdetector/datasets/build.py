@@ -57,11 +57,33 @@ def build_dataset(dataset_name: str, cfg, split: str) -> torch.utils.data.Datase
             prefix = cfg.test.data_prefix
             transform = data_transforms['test']
 
-        dataset = DATASET_REGISTRY.get('FrameDataset')(data_root=cfg.data_root,
-                                                       anno_path=anno_path,
+        dataset = DATASET_REGISTRY.get('FrameDataset')(
+            data_root=cfg.data_root,
+            anno_path=anno_path,
+            data_prefix=prefix,
+            num_segments=cfg.num_segments,
+            filename_tmpl=cfg.filename_tmpl,
+            transform=transform,
+            anno_col=cfg.anno_col,
+        )
+        return dataset
+    elif dataset_name == 'ImageDataset':
+        if split == 'train':
+            anno_path = cfg.train.anno
+            prefix = cfg.train.data_prefix
+            transform = data_transforms['train']
+        elif split == 'val':
+            anno_path = cfg.val.anno
+            prefix = cfg.val.data_prefix
+            transform = data_transforms['test']
+        elif split == 'test':
+            anno_path = cfg.test.anno
+            prefix = cfg.test.data_prefix
+            transform = data_transforms['test']
+
+        dataset = DATASET_REGISTRY.get('ImageDataset')(data_root=cfg.data_root,
                                                        data_prefix=prefix,
-                                                       num_segments=cfg.num_segments,
-                                                       filename_tmpl=cfg.filename_tmpl,
+                                                       anno_path=anno_path,
                                                        transform=transform)
         return dataset
     return DATASET_REGISTRY.get(dataset_name)(cfg)

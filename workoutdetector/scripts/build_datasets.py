@@ -43,17 +43,17 @@ def build_image_rep(data_dir: str, anno_path: str, dest_dir: str) -> None:
         video_name = row['name']
 
         reps = [int(x) for x in row['reps'].split()]
-        start_sec = reps[0] / 30
-        end_sec = reps[1] / 30  # Select one sample from the one video
-        mid_sec = (start_sec + end_sec) / 2
+        video = read_video(video_path)[0]
+        start_idx = reps[0]
+        end_idx = reps[1]
+        mid_idx = (start_idx + end_idx) // 2
 
-        video = read_video(video_path, start_sec, mid_sec, pts_unit='sec')[0]
         name_no_ext = video_name.split('.')[0]
         rep_class = CLASSES.index(row["class_"]) * 2
-        print(video_path, start_sec, mid_sec)
-        Image.fromarray(video[0].numpy()).save(
+        print(video_path, start_idx, mid_idx)
+        Image.fromarray(video[end_idx].numpy()).save(
             os.path.join(dest_dir, split, str(rep_class), f'{name_no_ext}.png'))
-        Image.fromarray(video[-1].numpy()).save(
+        Image.fromarray(video[mid_idx].numpy()).save(
             os.path.join(dest_dir, split, str(rep_class + 1), f'{name_no_ext}.png'))
 
     print('Done')

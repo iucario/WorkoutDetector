@@ -1,25 +1,59 @@
 import argparse
 import os
 import os.path as osp
+import time
 from os.path import join as osj
-from typing import Tuple, List, Optional, Callable
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pytorch_lightning as pl
 import timm
 import torch
 import torchvision.transforms as T
+import torchvision.transforms.functional as TF
+import yaml
+from fvcore.common.config import CfgNode
 from pytorch_lightning import LightningDataModule, LightningModule, Trainer
-from pytorch_lightning.callbacks import LearningRateMonitor, early_stopping
+from pytorch_lightning.callbacks import (LearningRateMonitor, ModelCheckpoint,
+                                         early_stopping)
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
-from torch import Tensor, nn, optim, utils
-from torchvision.io import read_image
+from torch import Tensor, nn, optim
 from torch.utils.data import DataLoader
-from torchvision.datasets import ImageFolder
 from torchvision.models.detection import fasterrcnn_resnet50_fpn
 
-from workoutdetector.datasets import RepcountImageDataset
+from workoutdetector.datasets import build_dataset
 from workoutdetector.settings import PROJ_ROOT
-from workoutdetector.datasets import ImageDataset
+
+
+def parse_args(argv=None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description='Train image model')
+    parser.add_argument(
+        "--cfg",
+        dest="cfg_file",
+        help="Path to the config file",
+        default=osj(PROJ_ROOT, "workoutdetector/configs/pull_up.yaml"),
+        type=str,
+    )
+    parser.add_argument(
+        "opts",
+        help="See workoutdetector/configs/lit_img.yaml for all options",
+        default=None,
+        nargs=argparse.REMAINDER,
+    )
+    return parser.parse_args(argv)
+
+
+def load_config(args) -> CfgNode:
+    """
+    Given the arguemnts, load and initialize the configs.
+    Args:
+        args (argument): arguments includes `cfg_file`.
+    """
+    cfg = CfgNode(new_allowed=True)
+    cfg.merge_from_file(args.cfg_file)
+    if args.opts is not None:
+        cfg.merge_from_list(args.opts)
+    return cfg
+
 
 data_transforms = {
     'train':
@@ -42,39 +76,6 @@ data_transforms = {
 }
 
 
-def get_data_loaders(action: str,
-                     batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
-    data_root = os.path.join(PROJ_ROOT, 'data')
-    train_set = RepcountImageDataset(root=data_root,
-                                     action=action,
-                                     split='train',
-                                     transform=data_transforms['train'])
-    train_loader = DataLoader(train_set,
-                              batch_size=batch_size,
-                              shuffle=True,
-                              num_workers=4,
-                              pin_memory=True)
-    val_set = RepcountImageDataset(root=data_root,
-                                   action=action,
-                                   split='val',
-                                   transform=data_transforms['val'])
-    val_loader = DataLoader(val_set,
-                            batch_size=batch_size,
-                            shuffle=False,
-                            num_workers=4,
-                            pin_memory=True)
-    test_set = RepcountImageDataset(root=data_root,
-                                    action=action,
-                                    split='test',
-                                    transform=data_transforms['val'])
-    test_loader = DataLoader(test_set,
-                             batch_size=batch_size,
-                             shuffle=False,
-                             num_workers=4,
-                             pin_memory=True)
-    return train_loader, val_loader, test_loader
-
-
 class Detector():
 
     def __init__(self):
@@ -82,40 +83,74 @@ class Detector():
         self.model.eval()
         self.model.cuda()
 
-    def detect(self, image: Tensor, threshold: float = 0.7) -> Tensor:
-        result: List[dict] = self.model(image)
-        person_boxes = result[0]['boxes'][result[0]['labels'] == 1]
-        scores = result[0]['scores'][result[0]['labels'] == 1]
-        scores = scores[scores > threshold]
+    @torch.no_grad()
+    def detect(self, images: List[Tensor], threshold: float = 0.7) -> List[Tensor]:
+        """Detect human
+
+        Args:
+            images, List[Tensor]: list of images to fastrcnn
+            threshold, float: threshold. Defaults to 0.7.
+        Returns:
+            List[Tensor]: list of bounding boxes of shape (N, 4)
+        """
+
+        results: List[Dict[str, Tensor]] = self.model(images)
+        persons: List[Tensor] = []
+        for r in results:
+            persons.append(self._get_one_frame(r, threshold))
+        return persons
+
+    def _get_one_frame(self, result: dict, threshold: float = 0.7) -> Tensor:
+        human_inds = result['labels'] == 1
+        person_boxes = result['boxes'][human_inds]
+        scores = result['scores'][human_inds]
         person_boxes = person_boxes[scores > threshold]
-        x1, y1, x2, y2 = person_boxes[0].cpu().numpy()
+        person_boxes.cpu().numpy()
         return person_boxes
 
+    def crop_person(self, images: List[Tensor]) -> List[Tensor]:
+        """Crop person from images. One person per image.
 
-class MyModel(nn.Module):
+        Args:
+            image, List[Tensor]: image to crop person from.
+        Returns:
+            List[Tensor]: cropped image padded or resized to 224x224.
+        TODO:
+            Person tracking in video
+        """
 
-    def __init__(self, input_dim):
-        super().__init__()
-        self.layers = nn.Sequential(nn.Linear(input_dim, 128), nn.ReLU(),
-                                    nn.Linear(128, 1))
+        boxes = self.detect(images)
+        cropped_images: List[Tensor] = []
+        for persons in boxes:
+            x1, y1, x2, y2 = persons[0]
+            # make box larger by 10%
+            x1, y1, x2, y2 = list(map(int, [x1 * 0.9, y1 * 0.9, x2 * 1.1, y2 * 1.1]))
+            person = TF.crop(images[0], x1, y1, x2 - x1, y2 - y1)
+            h, w = person.shape[:2]
+            max_hw = max(h, w)
+            person = TF.pad(person,
+                            padding=(max_hw - h, max_hw - w),
+                            fill=0,
+                            padding_mode='constant')
+            person = TF.resize(person, size=(224, 224))
+            cropped_images.append(person)
+            assert person.shape[-2:] == (224, 224), f"{person.shape}"
+        return cropped_images
 
-    def forward(self, x):
-        return self.layers(x)
 
+class LitModel(LightningModule):
 
-class LitImageModel(LightningModule):
-
-    def __init__(self, num_class: int, backbone_model, learning_rate):
+    def __init__(self, cfg: CfgNode):
         super().__init__()
         self.example_input_array = torch.randn(1, 3, 224, 224)
         self.save_hyperparameters()
-        # init a pretrained resnet
-        backbone = timm.create_model(backbone_model,
+        backbone = timm.create_model(cfg.model.backbone_model,
                                      pretrained=True,
-                                     num_classes=num_class)
+                                     num_classes=cfg.model.num_class)
         self.classifier = backbone
         self.loss_module = nn.CrossEntropyLoss()
-        self.learning_rate = learning_rate
+        self.cfg = cfg
+        self.best_val_acc = 0
 
     def forward(self, x):
         return self.classifier(x)
@@ -124,8 +159,6 @@ class LitImageModel(LightningModule):
         x, y = batch
         y_hat = self.forward(x)
         loss = self.loss_module(y_hat, y)
-        # classes = (y_hat > 0.5).float()
-        # acc = (classes == y).float().mean()
         acc = (y_hat.argmax(dim=1) == y).float().mean()
         self.log("train/acc", acc, prog_bar=True, on_step=False, on_epoch=True)
         self.log('train/loss', loss)
@@ -135,275 +168,224 @@ class LitImageModel(LightningModule):
         x, y = batch
         y_hat = self.forward(x)
         loss = self.loss_module(y_hat, y)
-        # classes = (y_hat > 0.5).float()
-        # acc = (classes == y).float().mean()
         acc = (y_hat.argmax(dim=1) == y).float().mean()
         self.log("val/acc", acc, prog_bar=True, on_step=False, on_epoch=True)
         self.log('val/loss', loss)
+        return y_hat.argmax(dim=1) == y
+
+    def validation_epoch_end(self, outputs):
+        acc = 0 # TODO: acc on epoch
+        self.best_val_acc = max(self.best_val_acc, acc.item())
+        self.log('val/best_acc', self.best_val_acc)
 
     def test_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self.forward(x)
         loss = self.loss_module(y_hat, y)
-        # classes = (y_hat > 0.5).float()
-        # acc = (classes == y).float().mean()
         acc = (y_hat.argmax(dim=1) == y).float().mean()
         self.log("test/acc", acc, on_step=False, on_epoch=True)
         self.log('test/loss', loss, prog_bar=True)
 
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        return self(batch)
+
     def configure_optimizers(self):
-        return optim.AdamW(self.parameters(), lr=self.hparams.learning_rate)
-        optimizer = optim.SGD(self.parameters(),
-                              lr=self.learning_rate,
-                              momentum=0.9,
-                              weight_decay=0.0001)
-        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer)
-        # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 10)
+        cfg = self.cfg
+        OPTIMIZER = cfg.optimizer.method.lower()
+        SCHEDULER = cfg.lr_scheduler.policy.lower()
+        if OPTIMIZER == 'sgd':
+            optimizer = optim.SGD(self.parameters(),
+                                  lr=cfg.optimizer.lr,
+                                  momentum=cfg.optimizer.momentum,
+                                  weight_decay=cfg.optimizer.weight_decay)
+        elif OPTIMIZER == 'adamw':
+            optimizer = optim.AdamW(self.parameters(),
+                                    lr=cfg.optimizer.lr,
+                                    eps=cfg.optimizer.eps,
+                                    weight_decay=cfg.optimizer.weight_decay)
+        else:
+            raise NotImplementedError(
+                f'Not implemented optimizer: {cfg.optimizer.method}')
+        if SCHEDULER == 'steplr':
+            scheduler = optim.lr_scheduler.StepLR(optimizer,
+                                                  step_size=cfg.lr_scheduler.step,
+                                                  gamma=cfg.lr_scheduler.gamma)
+        else:
+            raise NotImplementedError(f'Not implemented lr schedular: {cfg.lr_schedular}')
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,
             "monitor": "val/loss",
         }
 
-    def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        return self(batch)
-
 
 class DataModule(LightningDataModule):
-
-    def __init__(self, data_root: str, batch_size: int, num_workers: int = 4) -> None:
-        super().__init__()
-        self.prepare_data_per_node = False
-        self.batch_size = num_workers
-        self.num_workers = 4
-        self.train_set, self.val_set, self.test_set = [
-            ImageFolder(
-                os.path.join(data_root, split),
-                transform=data_transforms['train' if split == 'train' else 'test'])
-            for split in ('train', 'val', 'test')
-        ]
-
-    def train_dataloader(self):
-        loader = DataLoader(self.train_set,
-                            batch_size=self.batch_size,
-                            num_workers=self.num_workers,
-                            shuffle=True)
-        return loader
-
-    def val_dataloader(self):
-        loader = DataLoader(self.val_set,
-                            num_workers=self.num_workers,
-                            batch_size=self.batch_size,
-                            shuffle=False)
-        return loader
-
-    def test_dataloader(self):
-        loader = DataLoader(self.test_set,
-                            num_workers=self.num_workers,
-                            batch_size=self.batch_size,
-                            shuffle=False)
-        return loader
-
-
-class NoSplitData(LightningDataModule):
-
-    def __init__(self, data_root: str, batch_size: int, num_workers: int = 4) -> None:
-        super().__init__()
-        self.prepare_data_per_node = False
-        self.batch_size = num_workers
-        self.num_workers = 4
-        dataset = ImageFolder(data_root)
-        ratio = [int(len(dataset) * 0.7), len(dataset) - int(len(dataset) * 0.7)]
-        self.train_set, self.val_set = torch.utils.data.random_split(
-            dataset, ratio, generator=torch.Generator().manual_seed(42))
-
-    def train_dataloader(self):
-        loader = DataLoader(self.train_set,
-                            num_workers=self.num_workers,
-                            batch_size=self.batch_size,
-                            shuffle=True)
-        return loader
-
-    def val_dataloader(self):
-        loader = DataLoader(self.val_set,
-                            num_workers=self.num_workers,
-                            batch_size=self.batch_size,
-                            shuffle=False)
-        return loader
-
-    def test_dataloader(self):
-        loader = DataLoader(self.val_set,
-                            num_workers=self.num_workers,
-                            batch_size=self.batch_size,
-                            shuffle=False)
-        return loader
-
-class ImageDataModule(LightningDataModule):
     """General image dataset
     label text files of [image.png class] are required
+
+    Args:
+        cfg (CfgNode): configs of cfg.data
+        is_train: bool, train or test. Default True
     """
 
-    def __init__(self,
-                 data_root: str,
-                 batch_size: int,
-                 train_anno: str = 'train.txt',
-                 val_anno: str = 'val.txt',
-                 test_anno: Optional[str] = None,
-                 train_data_prefix: Optional[str] = None,
-                 val_data_prefix: Optional[str] = None,
-                 test_data_prefix: Optional[str] = None,
-                 num_workers: int = 4,
-                 transform: Optional[Callable] = None,
-                 target_transform: Optional[Callable] = None) -> None:
+    def __init__(self, cfg: CfgNode, is_train: bool = True, num_class: int = 0) -> None:
         super().__init__()
-        assert osp.exists(osj(data_root,
-                              train_anno)), f'{osj(data_root, train_anno)} does not exist'
-        assert osp.exists(osj(data_root,
-                              val_anno)), f'{osj(data_root, val_anno)} does not exist'
-        if test_anno:
-            assert osp.exists(osj(
-                data_root, test_anno)), f'{osj(data_root, test_anno)} does not exist'
-        self.prepare_data_per_node = False
-        self.data_root = data_root
-        self.batch_size = num_workers
-        self.num_workers = num_workers
-        self.train_anno = train_anno
-        self.val_anno = val_anno
-        self.test_anno = test_anno
-        self.train_data_prefix = train_data_prefix
-        self.val_data_prefix = val_data_prefix
-        self.test_data_prefix = test_data_prefix
-        self.transform = transform
-        self.target_transform = target_transform
+        self.cfg = cfg
+        self.num_class = num_class
+        self._check_data()
+
+    def _check_data(self):
+        """Check data exists and annotation files are correct."""
+        for split in ['train', 'val', 'test']:
+            ds = build_dataset(self.cfg.dataset_type, self.cfg, split)
+            for i, (x, y) in enumerate(ds):
+                assert type(x) == torch.Tensor, f"{type(x) is not Tensor}"
+                assert 0 <= y < self.num_class, f"{y} is not in [0, {self.num_class})"
 
     def train_dataloader(self):
-        train_set = ImageDataset(self.data_root, self.train_data_prefix, self.train_anno,
-                                 self.transform)
+        train_set = build_dataset(self.cfg.dataset_type, self.cfg, 'train')
         loader = DataLoader(train_set,
-                            num_workers=self.num_workers,
-                            batch_size=self.batch_size,
+                            num_workers=self.cfg.num_workers,
+                            batch_size=self.cfg.batch_size,
                             shuffle=True)
         return loader
 
     def val_dataloader(self):
-        val_set = ImageDataset(self.data_root, self.val_data_prefix, self.val_anno,
-                               self.transform)
+        val_set = build_dataset(self.cfg.dataset_type, self.cfg, 'val')
         loader = DataLoader(val_set,
-                            num_workers=self.num_workers,
-                            batch_size=self.batch_size,
+                            num_workers=self.cfg.num_workers,
+                            batch_size=self.cfg.batch_size,
                             shuffle=False)
         return loader
 
     def test_dataloader(self):
-        if self.test_anno:
-            test_set = ImageDataset(self.data_root, self.test_data_prefix, self.test_anno,
-                                    self.transform)
+        if self.cfg.test.anno:
+            test_set = build_dataset(self.cfg.dataset_type, self.cfg, 'test')
             loader = DataLoader(test_set,
-                                num_workers=self.num_workers,
-                                batch_size=self.batch_size,
+                                num_workers=self.cfg.num_workers,
+                                batch_size=self.cfg.batch_size,
                                 shuffle=False)
             return loader
         else:
             return self.val_dataloader()
 
 
-def export_model(ckpt):
-    model = LitImageModel.load_from_checkpoint(ckpt)
+def export_model(ckpt: str, onnx_path: Optional[str] = None) -> None:
+    model = LitModel.load_from_checkpoint(ckpt)
     model.eval()
-    onnx_path = ckpt.replace('.ckpt', '.onnx')
-    model.to_onnx(onnx_path, export_params=True)
+    if onnx_path is None:
+        onnx_path = ckpt.replace('.ckpt', '.onnx')
+    model.to_onnx(onnx_path, input_sample=model.example_input_array, export_params=True)
 
 
-def main(args):
-    batch_size = args.batch_size
-    lr = args.lr
-    epochs = args.epochs
-    backbone = args.backbone
+def cfg_to_dict(cfg: CfgNode) -> dict:
+    x = cfg.dump()
+    y = yaml.safe_load(x)
+    return y
 
-    pl.seed_everything(0)
-    data_root = os.path.expanduser('~/data/situp')
-    # data_module = DataModule(data_root, batch_size)
-    data_module = ImageDataModule(data_root,
-                                  batch_size,
-                                  train_anno=osj(data_root, 'train.txt'),
-                                  val_anno=osj(data_root, 'val.txt'),
-                                  test_anno=None,
-                                  train_data_prefix='train',
-                                  val_data_prefix='val',
-                                  test_data_prefix=None,
-                                  num_workers=4,
-                                  transform=data_transforms['train'],
-                                  target_transform=data_transforms['test'])
-    # print(data_module.train_dataloader())
-    # exit(1)
-    # callbacks
-    lr_monitor = LearningRateMonitor(logging_interval='step')
-    early_stop = early_stopping.EarlyStopping(monitor='train/loss',
-                                              mode='min',
-                                              patience=10)
-    # loggers
-    # wandb_logger = WandbLogger(
-    #     save_dir=os.path.join(PROJ_ROOT, 'log/image_model'),
-    #     project="binary-action-classification",
-    # )
-    # wandb_logger.log_hyperparams(args)
-    tensorboard_logger = TensorBoardLogger(save_dir=os.path.join(
-        PROJ_ROOT, f'log/{args.project}/tensorboard'),
-                                           default_hp_metric=False)
-    tensorboard_logger.log_hyperparams(args,
-                                       metrics={
-                                           'train/acc': 0,
-                                           'val/acc': 0,
-                                           'test/acc': 0,
-                                           'train/loss': 1,
-                                           'val/loss': 1,
-                                           'test/loss': 1
-                                       })
 
-    torch.backends.cudnn.determinstic = True
-    torch.backends.cudnn.benchmark = False
-
-    model = LitImageModel(num_class=args.num_class,
-                          backbone_model=backbone,
-                          learning_rate=lr)
-    # wandb_logger.watch(model, log="all")
-
+def test(cfg: CfgNode) -> None:
+    data_module = DataModule(cfg.data, is_train=False)
+    model = LitModel.load_from_checkpoint(cfg.checkpoint)
     trainer = Trainer(
-        default_root_dir=os.path.join(PROJ_ROOT, f'log/{args.project}'),
-        max_epochs=epochs,
-        accelerator='gpu',
-        devices=1,
-        logger=[tensorboard_logger],
-        callbacks=[lr_monitor, early_stop],
-        auto_lr_find=True,
+        default_root_dir=cfg.trainer.default_root_dir,
+        accelerator=cfg.trainer.accelerator,
+        devices=cfg.trainer.devices,
     )
-    # lr_finder = trainer.tuner.lr_find(model, train_loader, val_loader)
-    # new_lr = lr_finder.suggestion()
-    # model.hparams.learning_rate = new_lr
-
-    trainer.fit(model, data_module)
     trainer.test(model, data_module)
 
 
+def train(cfg: CfgNode) -> None:
+    data_module = DataModule(cfg.data, num_class=cfg.model.num_class)
+    model = LitModel(cfg)
+
+    timenow = time.strftime('%Y%m%d-%H%M%S', time.localtime())
+
+    # callbacks
+    CALLBACKS: List[Any] = []
+
+    lr_monitor = LearningRateMonitor(logging_interval='step')
+    CALLBACKS.append(lr_monitor)
+
+    checkpoint_callback = ModelCheckpoint(
+        save_top_k=1,
+        save_weights_only=True,
+        monitor="val/acc",
+        mode="max",
+        dirpath=osj(cfg.trainer.default_root_dir, 'checkpoints'),
+        filename="best-val-acc={val/acc:.2f}-epoch={epoch:02d}-" +
+        f"-{cfg.model.backbone_model}-{timenow}",
+        auto_insert_metric_name=False)
+    CALLBACKS.append(checkpoint_callback)
+
+    if cfg.trainer.early_stopping:
+        early_stop = early_stopping.EarlyStopping(monitor='train/loss',
+                                                  mode='min',
+                                                  patience=cfg.trainer.patience)
+        CALLBACKS.append(early_stop)
+
+    # loggers
+    cfg_dict = cfg_to_dict(cfg)
+    LOGGER: List[Any] = []
+    if cfg.log.wandb.enable:
+        wandb_logger = WandbLogger(
+            save_dir=osj(cfg.log.output_dir),
+            project=cfg.log.wandb.project,
+            name=cfg.log.name,
+            offline=cfg.log.wandb.offline,
+        )
+        wandb_logger.log_hyperparams(cfg_dict)
+        wandb_logger.watch(model, log="all")
+        LOGGER.append(wandb_logger)
+
+    if cfg.log.tensorboard.enable:
+        tensorboard_logger = TensorBoardLogger(save_dir=cfg.log.output_dir,
+                                               name=cfg.log.name,
+                                               default_hp_metric=False)
+        tensorboard_logger.log_hyperparams(cfg_dict,
+                                           metrics={
+                                               'train/acc': 0,
+                                               'val/acc': 0,
+                                               'test/acc': 0,
+                                               'train/loss': 1,
+                                               'val/loss': 1,
+                                               'test/loss': 1
+                                           })
+        LOGGER.append(tensorboard_logger)
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    trainer = Trainer(
+        default_root_dir=cfg.trainer.default_root_dir,
+        max_epochs=cfg.trainer.max_epochs,
+        accelerator=cfg.trainer.accelerator,
+        devices=cfg.trainer.devices,
+        logger=LOGGER,
+        callbacks=CALLBACKS,
+        auto_lr_find=cfg.trainer.auto_lr_find,
+        log_every_n_steps=cfg.log.log_every_n_steps,
+    )
+
+    trainer.fit(model, data_module)
+
+    model.load_from_checkpoint(checkpoint_callback.best_model_path)
+    print(f"===>Best model saved at:\n{checkpoint_callback.best_model_path}")
+
+    trainer.test(model, data_module)
+
+
+def main(cfg: CfgNode) -> None:
+    pl.seed_everything(cfg.seed)
+
+    if cfg.train:
+        train(cfg)
+    else:
+        test(cfg)
+
+
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-ck',
-                        '--ckpt',
-                        type=str,
-                        default=None,
-                        help='checkpoint to load')
-    parser.add_argument('-lr', '--lr', type=float, default=5e-3, help='learning rate')
-    parser.add_argument('-e', '--epochs', type=int, default=20, help='epochs')
-    parser.add_argument('-b',
-                        '--backbone',
-                        type=str,
-                        default='convnext_base',
-                        help='backbone')
-    parser.add_argument('-bs', '--batch_size', type=int, default=8, help='batch size')
-    parser.add_argument('--num-class', type=int, default=2, help='number of classes')
-    parser.add_argument('--project',
-                        type=str,
-                        default='situp-image-selected',
-                        help='project name. Effects logger dirs')
-    args = parser.parse_args()
-    main(args)
+
+    args = parse_args()
+    cfg = load_config(args)
+    main(cfg)

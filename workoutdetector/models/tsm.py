@@ -13,6 +13,7 @@ from torch.nn.init import constant_, normal_
 import torchvision
 from .build import MODEL_REGISTRY
 
+
 class TemporalShift(nn.Module):
 
     def __init__(self, net, n_segment=3, n_div=8, inplace=False):
@@ -201,7 +202,7 @@ class TSM(nn.Module):
         modality (str): modality of input data, default 'RGB'
         base_model (str): base model name, default 'resnet50'
         consensus_type (str): 'avg' or 'identity', default 'avg'.
-        dropout (float): dropout rate, default 0.8
+        dropout (float): dropout rate, default 0.5
         img_feature_dim (int): I don't think it's used.
         crop_num (int): number of crops from one image, default 1
         partial_bn (bool): use partial bn or not, default True
@@ -221,7 +222,7 @@ class TSM(nn.Module):
                  base_model='resnet50',
                  consensus_type='avg',
                  before_softmax=True,
-                 dropout=0.8,
+                 dropout=0.5,
                  img_feature_dim=256,
                  crop_num=1,
                  partial_bn=True,
@@ -305,7 +306,7 @@ class TSM(nn.Module):
         # print('=> base model: {}'.format(base_model))
 
         if 'resnet' in base_model:
-            self.base_model = getattr(torchvision.models, base_model)(True)
+            self.base_model = getattr(torchvision.models, base_model)(pretrained=True)
             if self.is_shift:
                 # print('Adding temporal shift...')
                 make_temporal_shift(self.base_model,
@@ -507,17 +508,23 @@ def create_model(num_class: int = 2,
                 non_local=False)
     if pretrained:
         checkpoint = torch.load(ckpt, map_location=device)
-        checkpoint = checkpoint['state_dict']
+        state_dict = checkpoint['state_dict']
+        dim_feature = state_dict['module.new_fc.weight'].shape
+        if dim_feature[0] != num_class:
+            state_dict['module.new_fc.weight'] = torch.zeros(num_class, dim_feature[1]).cuda()
+            state_dict['module.new_fc.bias'] = torch.zeros(num_class).cuda()
         base_dict = OrderedDict(
-            ('.'.join(k.split('.')[1:]), v) for k, v in checkpoint.items())
-        replace_dict = {
-            'base_model.classifier.weight': 'new_fc.weight',
-            'base_model.classifier.bias': 'new_fc.bias',
-        }
-        for k, v in replace_dict.items():
-            if k in base_dict:
-                base_dict[v] = base_dict.pop(k)
+            ('.'.join(k.split('.')[1:]), v) for k, v in state_dict.items())
+        # replace_dict = {
+        #     'base_model.classifier.weight': 'new_fc.weight',
+        #     'base_model.classifier.bias': 'new_fc.bias',
+        # }
+        # for k, v in replace_dict.items():
+        #     if k in base_dict:
+        #         base_dict[v] = base_dict.pop(k)
+
         model.load_state_dict(base_dict)
+
     model.to(device)
     return model
 
