@@ -62,7 +62,7 @@ Method is naive. The transition of states is counted as one repetition. It's onl
         -o path/to/output/video.mp4
    ```
 
-## Train
+## Train an action recognition model
 
 ### Colab
 
@@ -104,3 +104,56 @@ data/Workouts/
 ├── train.txt
 └── val.txt
 ```
+
+## Train an exercise state recognition model
+
+Classification of action states, e.g. for action `push_up`, up and down are two states.
+Also supports multiple actions and multiple states.
+
+Training code is in `workoutdetector/train_rep.py`. Uses `mmaction2` to train and Time shift module.
+Configs are in `workoutdetector/configs`.
+
+1. Prepare label files.
+   The row in the label file is of format: `path/to/rawframe_dir start_frame num_frames label`.
+   Frames of indices `start_frame` to `start_frame + num_frames` will be used.
+   Don't need to move and rename frames in this way. Just need to modify the label file.
+
+## Train an image recognition model
+
+Uses PyTorch Lightning to train a model. Code is in `workoutdetector/trainer.py`.
+
+## Count repetitions
+
+### workoutdetector/utils/inference_count.py
+
+It does not work.😭
+
+- Inference every frames in a video using image model. Will write count to the `--output` file.
+   And save predicted scores to a JSON file in `--output` directory.
+  ```
+  python workoutdetector/utils/inference_count.py \
+  -ckpt checkpoints/pull-up-image-swin-1x3x224x224.onnx \
+  --model-type image \
+  -i path/to/input/video.mp4 \
+  --output out/video.mp4 \
+  --action pull_up 
+  ```
+
+## Scripts
+
+I don't remember what those scripts I wrote last week do.😖 `workoutdetector/scripts/`
+
+- `mpvscreenshot_process.py`
+  Before I create or find a video segment tool, I'll use this script to annotate videos.
+  How to use:
+
+  1.  The mpv screenshot filename template config is `screenshot-template=~/Desktop/%f_%P`
+  2.  Will get files like `stu2_48.mp4_00_00_09.943.png`
+  3.  If saved in train, val, test folders, use `label_from_split(root_dir)`
+  4.  If screenshots are saved in a single folder, I need to write a new script.
+  5.  And `screenshots_to_csv` can save filenames with timestamp to csv for future usage.
+
+- `build_label_list.py`
+  - `relabeled_csv_to_rawframe_list`
+    Use this with `mpvscreenshot_process.py` together.
+    Generates label files for mmaction rawframe datasets.
