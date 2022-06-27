@@ -1,7 +1,7 @@
 trainer:
-  default_root_dir: /home/umi/projects/WorkoutDetector/log
+  default_root_dir: exp/
+  max_epochs: 30
   early_stopping: false
-  max_epochs: 50
   enable_checkpointing: null
   num_nodes: 1
   devices: 1
@@ -26,41 +26,43 @@ trainer:
   patience: 10
 optimizer:
   method: AdamW
-  lr: 0.0001
+  lr: 0.00005
   momentum: 0.9
-  weight_decay: 0.00001
+  weight_decay: 0.0001
   eps: 0.00000001
 lr_scheduler:
   policy: StepLR
   gamma: 0.1
-  step: 7
+  step: 10
 model:
   num_class: 2
   backbone_model: convnext_base
 data:
   dataset_type: ImageDataset
-  data_root: /home/umi/data/situp
+  data_root: data/pull-up-relabeled
   batch_size: 8
   train:
-    anno: /home/umi/data/situp/train.txt
-    data_prefix: train
+    anno: data/pull-up-relabeled/train.txt
+    data_prefix: null
   val:
-    anno: /home/umi/data/situp/val.txt
-    data_prefix: val
+    anno: data/pull-up-relabeled/val.txt
+    data_prefix: null
   test:
-    anno: null
+    anno: data/pull-up-relabeled/test.txt
     data_prefix: null
   num_workers: 4
   transform: null
   target_transform: null
 log:
-  enable_tensorboard: true
-  enable_wandb: true
+  output_dir: exp/pull-up-compare
+  name: pull-up-relabel-convnext_base-lr_5e-5
   log_every_n_steps: 20
+  tensorboard:
+    enable: true
   wandb:
-    offline: False
-    project: situp-image-selected
-  output_dir: /home/umi/projects/WorkoutDetector/log/situp-image-selected
+    enable: false
+    offline: false
+    project: pull-up
 seed: 0
 train: true
 checkpoint: null

@@ -1,5 +1,5 @@
 trainer:
-  default_root_dir: /home/umi/projects/WorkoutDetector/exp/situp-mid
+  default_root_dir: exp/situp-mid
   max_epochs: 50
   enable_checkpointing: null
   num_nodes: 1
@@ -39,16 +39,16 @@ model:
   backbone_model: convnext_base
 data:
   dataset_type: ImageDataset
-  data_root: /home/umi/data/situp
+  data_root: data/situp
   batch_size: 8
   train:
-    anno: /home/umi/data/situp-mid/train.txt
+    anno: situp-mid/train.txt
     data_prefix: train
   val:
-    anno: /home/umi/data/situp-mid/val.txt
+    anno: situp-mid/val.txt
     data_prefix: val
   test:
-    anno: /home/umi/data/situp/val.txt
+    anno: situp/val.txt
     data_prefix: val
   num_workers: 4
   transform: null
@@ -59,7 +59,7 @@ log:
   log_every_n_steps: 20
   wandb:
     project: situp-image-mid
-  output_dir: /home/umi/projects/WorkoutDetector/exp/situp-mid
+  output_dir: exp/situp-mid
 seed: 3407
 train: true
 checkpoint: null

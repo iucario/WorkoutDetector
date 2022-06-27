@@ -39,16 +39,16 @@ model:
   backbone_model: convnext_base
 data:
   dataset_type: ImageDataset
-  data_root: /home/umi/data/pull-up-relabeled
+  data_root: data/pull-up-relabeled
   batch_size: 8
   train:
-    anno: /home/umi/data/pull-up-relabeled/train.txt
+    anno: data/pull-up-relabeled/train.txt
     data_prefix: null
   val:
-    anno: /home/umi/data/pull-up-relabeled/val.txt
+    anno: data/pull-up-relabeled/val.txt
     data_prefix: null
   test:
-    anno: /home/umi/data/pull-up-relabeled/test.txt
+    anno: data/pull-up-relabeled/test.txt
     data_prefix: null
   num_workers: 4
   transform: null
