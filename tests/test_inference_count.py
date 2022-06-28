@@ -1,7 +1,7 @@
 from typing import List
 
 from pytest import fixture
-from WorkoutDetector.utils.inference_count import infer_dataset, pred_to_count, parse_args, main
+from workoutdetector.utils.inference_count import eval_dataset, pred_to_count, parse_args, main
 
 
 # TODO: load annotation.csv
@@ -28,20 +28,5 @@ def test_pred_to_count():
     y4_reps = [0, 3, 7, 9]
     assert pred_to_count(step=step, preds=x4) == (y4_count, [x * step for x in y4_reps])
 
-
-
-def test_infer_dataset():
-    args_video = [
-        '--onnx', 'checkpoints/tsm_video_all_20220616.onnx', '--threshold', '0.5',
-        '--video', 'data/RepCount/videos/test/stu1_27.mp4'
-    ]
-    args_dataset = [
-        '--onnx', 'checkpoints/tsm_video_all_20220616.onnx', '--eval', '--output', 'exp/',
-        '--model-type', 'video', '--action', 'pull_up'
-    ]
-    args_mmlab = [
-        '--mmlab', '-ckpt', 'checkpoints/tsm_video_all.pth', '--eval', '--output', 'exp/',
-        '--model-type', 'video', '--action', 'pull_up'
-    ]
-    args = parse_args(args_mmlab)
-    main(args)
+    x5 = [0,0,0,1,1,1,1,0,0,1,1,0,0,1,1,0,1,1]
+    y5_count = 3

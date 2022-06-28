@@ -13,7 +13,7 @@ This project uses the [MMAction2](https://github.com/open-mmlab/mmaction2)
 ## Installation
 
 ```
-git clone --recursive https://github.com/iucario/WorkoutDetector.git
+git clone --recursive https://github.com/iucario/workoutdetector.git
 cd WorkoutDetector
 
 conda env create -f conda_env.yml
@@ -62,7 +62,7 @@ Method is naive. The transition of states is counted as one repetition. It's onl
         -o path/to/output/video.mp4
    ```
 
-## Train
+## Train an action recognition model
 
 ### Colab
 

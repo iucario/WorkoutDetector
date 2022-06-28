@@ -1,5 +1,5 @@
 import torch
-from WorkoutDetector.train_video import VideoModel
+from workoutdetector.train_video import VideoModel
 
 
 def test_VideoModel():
