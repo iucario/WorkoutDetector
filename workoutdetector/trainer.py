@@ -56,27 +56,6 @@ def load_config(args) -> CfgNode:
     return cfg
 
 
-data_transforms = {
-    'train':
-        T.Compose([
-            T.ToPILImage(),
-            T.Resize(256),
-            T.RandomCrop(224),
-            T.RandomHorizontalFlip(),
-            T.ToTensor(),
-            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ]),
-    'test':
-        T.Compose([
-            T.ToPILImage(),
-            T.Resize(256),
-            T.CenterCrop(224),
-            T.ToTensor(),
-            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ]),
-}
-
-
 class Detector():
 
     def __init__(self):
@@ -169,6 +148,8 @@ class LitModel(LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
+        """Returns y_hat, y, step_acc for calculating best val_acc per epoch."""
+
         x, y = batch
         y_hat = self.forward(x)
         loss = self.loss_module(y_hat, y)
@@ -177,6 +158,14 @@ class LitModel(LightningModule):
         self.log('val/loss', loss)
         self.best_val_acc = max(self.best_val_acc, acc.item())
         self.log('val/best_acc', self.best_val_acc)
+        return {'y_hat': y_hat, 'y': y, 'acc': acc}
+
+    def validation_epoch_end(self, outputs):
+        y_hat = torch.cat([output['y_hat'] for output in outputs], dim=0)
+        y = torch.cat([output['y'] for output in outputs], dim=0)
+        acc = (y_hat.argmax(dim=1) == y).float().mean()
+        self.best_val_acc = max(self.best_val_acc, acc.item())
+        self.log('val/best_acc', acc)
 
     def test_step(self, batch, batch_idx):
         x, y = batch
@@ -202,9 +191,9 @@ class LitModel(LightningModule):
         else:
             if OPTIMIZER == 'sgd':
                 optimizer = optim.SGD(self.parameters(),
-                                    lr=self.cfg.optimizer.lr,
-                                    momentum=self.cfg.optimizer.momentum,
-                                    weight_decay=self.cfg.optimizer.weight_decay)
+                                      lr=self.cfg.optimizer.lr,
+                                      momentum=self.cfg.optimizer.momentum,
+                                      weight_decay=self.cfg.optimizer.weight_decay)
             elif OPTIMIZER == 'adamw':
                 optimizer = optim.AdamW(self.parameters(),
                                         lr=self.cfg.optimizer.lr,
@@ -215,10 +204,11 @@ class LitModel(LightningModule):
                     f'Not implemented optimizer: {self.cfg.optimizer.method}')
         if SCHEDULER == 'steplr':
             scheduler = optim.lr_scheduler.StepLR(optimizer,
-                                                step_size=self.cfg.lr_scheduler.step,
-                                                gamma=self.cfg.lr_scheduler.gamma)
+                                                  step_size=self.cfg.lr_scheduler.step,
+                                                  gamma=self.cfg.lr_scheduler.gamma)
         else:
-            raise NotImplementedError(f'Not implemented lr schedular: {self.cfg.lr_schedular}')
+            raise NotImplementedError(
+                f'Not implemented lr schedular: {self.cfg.lr_schedular}')
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,
@@ -314,17 +304,23 @@ def train(cfg: CfgNode) -> None:
 
     lr_monitor = LearningRateMonitor(logging_interval='step')
     CALLBACKS.append(lr_monitor)
-
+    
+    # ModelCheckpoint callback
+    if cfg.callbacks.modelcheckpoint.dirpath:
+        DIRPATH = cfg.callbacks.modelcheckpoint.dirpath
+    else:
+        DIRPATH = osj(cfg.trainer.default_root_dir, 'checkpoints')
     checkpoint_callback = ModelCheckpoint(
-        save_top_k=1,
-        save_weights_only=True,
-        monitor="val/acc",
-        mode="max",
-        dirpath=osj(cfg.trainer.default_root_dir, 'checkpoints'),
+        save_top_k=cfg.callbacks.modelcheckpoint.save_top_k,
+        save_weights_only=cfg.callbacks.modelcheckpoint.save_weights_only,
+        monitor=cfg.callbacks.modelcheckpoint.monitor,
+        mode=cfg.callbacks.modelcheckpoint.mode,
+        dirpath=DIRPATH,
         filename="best-val-acc={val/acc:.2f}-epoch={epoch:02d}" + f"-{timenow}",
         auto_insert_metric_name=False)
     CALLBACKS.append(checkpoint_callback)
 
+    # EarlyStopping callback
     if cfg.trainer.early_stopping:
         early_stop = early_stopping.EarlyStopping(monitor='train/loss',
                                                   mode='min',
@@ -354,9 +350,9 @@ def train(cfg: CfgNode) -> None:
                                                'train/acc': 0,
                                                'val/acc': 0,
                                                'test/acc': 0,
-                                               'train/loss': 1,
-                                               'val/loss': 1,
-                                               'test/loss': 1
+                                               'train/loss': -1,
+                                               'val/loss': -1,
+                                               'test/loss': -1
                                            })
         LOGGER.append(tensorboard_logger)
 

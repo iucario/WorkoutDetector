@@ -3,10 +3,9 @@ import os.path as osp
 from os.path import join as osj
 
 import pandas as pd
-import yaml
 from torchvision.io import VideoReader
 from workoutdetector.datasets import RepcountDataset
-from workoutdetector.utils.inference_count import PROJ_ROOT
+from workoutdetector.settings import PROJ_ROOT
 
 
 def build_label() -> None:
@@ -140,10 +139,6 @@ def relabeled_csv_to_rawframe_list(csv_path: str, dst_dir: str, video_dir: str) 
 
 if __name__ == '__main__':
     print('project root:', PROJ_ROOT)
-    # data_root = os.path.join(PROJ_ROOT, 'data')
-    # dst_dir = os.path.join(data_root, 'Binary')
-    # build_with_start(data_root, dst_dir)
-    relabeled_csv_to_rawframe_list(
-        '/home/umi/data/pull-up-relabeled/pull-up-relabeled.csv',
-        osj(PROJ_ROOT, 'data/relabeled', 'pull_up'), osj(PROJ_ROOT,
-                                                         'data/RepCount/videos'))
+    data_root = os.path.join(PROJ_ROOT, 'data')
+    dst_dir = os.path.join(data_root, 'Binary')
+    build_with_start(data_root, dst_dir)

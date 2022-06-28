@@ -107,34 +107,45 @@ data/Workouts/
 
 ## Train an exercise state recognition model
 
-### Train video
+### Train video with tsm
 
-- Train video with tsm
-  `python workoutdetector/trainer.py --cfg workoutdetector/configs/tsm.yaml`
+`python workoutdetector/trainer.py --cfg workoutdetector/configs/tsm.yaml`
 
-- Train video with mmaction2
-  `python workoutdetector/train.py`
-  config: `configs/tsm_action_recogition_sthv2.py`
+- Configs
+  Best weigths are saved in directory `{cfg.trainer.default_root_dir}/checkpoints`,
+  in format `best-val-acc={val/acc:.2f}-epoch={epoch:02d}" + f"-{timenow}.ckpt`.
+  Modify `callbacks.modelcheckpoint.dirpath` to save weights in a different directory.
 
-- Train rep with mmaction2
-  ```
-  python workoutdetector/train_rep.py \
-   --action=pull_up \
-   --data-prefix=data/RepCount/rawframes/ \
-   --ann-dir=data/relabeled/pull_up \
-   --ckpt=work_dirs/tsm_MultiActionRepCount_sthv2_20220625-224626/best_top1_acc_epoch_5.pth
-  ```
+  Tensorboard logs are in `{cfg.log.output_dir}/{cfg.log.name}/version_{num}`.
 
-  Classification of action states, e.g. for action `push_up`, up and down are two states.
-  Also supports multiple actions and multiple states.
+  Wandb logs are in `{cfg.log.output_dir}/wandb`.
 
-  Training code is in `workoutdetector/train_rep.py`. Uses `mmaction2` to train the time shift module.
-  Configs are in `workoutdetector/configs`.
 
-  1. Prepare label files.
-    The row in the label file is of format: `path/to/rawframe_dir start_frame num_frames label`.
-    Frames of indices `start_frame` to `start_frame + num_frames` will be used.
-    Don't need to move and rename frames in this way. Just need to modify the label file.
+### Train video with mmaction2
+
+`python workoutdetector/train.py`
+config: `configs/tsm_action_recogition_sthv2.py`
+
+### Train rep with mmaction2
+
+```
+python workoutdetector/train_rep.py \
+ --action=pull_up \
+ --data-prefix=data/RepCount/rawframes/ \
+ --ann-dir=data/relabeled/pull_up \
+ --ckpt=work_dirs/tsm_MultiActionRepCount_sthv2_20220625-224626/best_top1_acc_epoch_5.pth
+```
+
+Classification of action states, e.g. for action `push_up`, up and down are two states.
+Also supports multiple actions and multiple states.
+
+Training code is in `workoutdetector/train_rep.py`. Uses `mmaction2` to train the time shift module.
+Configs are in `workoutdetector/configs`.
+
+1. Prepare label files.
+   The row in the label file is of format: `path/to/rawframe_dir start_frame num_frames label`.
+   Frames of indices `start_frame` to `start_frame + num_frames` will be used.
+   Don't need to move and rename frames in this way. Just need to modify the label file.
 
 ## Train an image recognition model
 
