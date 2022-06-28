@@ -16,7 +16,6 @@ import pandas as pd
 import PIL
 import torch
 import torchvision.transforms as T
-from torchvision.models.detection import fasterrcnn_resnet50_fpn
 from mmaction.apis import init_recognizer
 from mmaction.apis.inference import inference_recognizer
 from workoutdetector.datasets import RepcountHelper
@@ -49,11 +48,6 @@ COLORS = {
 }
 
 
-<<<<<<< HEAD:WorkoutDetector/utils/inference_count.py
-<<<<<<< HEAD
-=======
-=======
->>>>>>> tsm:workoutdetector/utils/inference_count.py
 def person_bbox(model: torch.nn.Module,
                 imgs: List[PIL.Image.Image]) -> List[Tuple[int, int, int, int]]:
     """Get bounding box of person in the frame.
@@ -66,25 +60,6 @@ def person_bbox(model: torch.nn.Module,
         list of Tuple[int, int, int, int]: (x, y, w, h).
     """
     return [(0, 0, 0, 0)]
-<<<<<<< HEAD:WorkoutDetector/utils/inference_count.py
-
-
->>>>>>> dev
-def inference_image(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
-                    frame: np.ndarray,
-                    threshold: float = 0.5) -> int:
-    assert type(model) is onnxruntime.InferenceSession
-    frame = data_transform(frame).unsqueeze(0).numpy()  # type: ignore
-    input_name = model.get_inputs()[0].name
-    ort_inputs = {input_name: frame}
-    ort_outs = model.run(None, ort_inputs)
-    score = ort_outs[0][0]
-    print(f'score={score}')
-    pred = score.argmax()
-
-    return pred
-=======
->>>>>>> tsm:workoutdetector/utils/inference_count.py
 
 
 def save_scores_to_json(scores: List[np.ndarray], output_path: str, video_path: str,
@@ -198,16 +173,6 @@ def pred_to_count(preds: List[int], step: int) -> Tuple[int, List[int]]:
     assert count * 2 == len(reps)
     return count, reps  # len(rep) * step <= len(frames), last not full queue is discarded
 
-
-    assert count * 2 == len(reps)
-    return count, reps  # len(rep) * step <= len(frames), last not full queue is discarded
-
-def write_to_video(video_path: str,
-                   output_path: str,
-                   reps: List[int],
-                   states: List[int],
-                   step: int = 8) -> None:
-    """Write the predicted count to a video.
 
 def inference_image(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
                     frame: np.ndarray,
