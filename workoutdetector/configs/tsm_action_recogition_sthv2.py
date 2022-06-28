@@ -38,12 +38,12 @@ total_epochs = 5
 
 # dataset settings
 dataset_type = 'RawframeDataset'
-data_root = os.path.join(PROJ_ROOT, 'data/Workouts/rawframes/')
-data_root_val = os.path.join(PROJ_ROOT, 'data/Workouts/rawframes/')
-data_root_test = os.path.join(PROJ_ROOT, 'data/Workouts/rawframes/')
-ann_file_train = os.path.join(PROJ_ROOT, 'data/Workouts/rawframes/train.txt')
-ann_file_val = os.path.join(PROJ_ROOT, 'data/Workouts/rawframes/val.txt')
-ann_file_test = os.path.join(PROJ_ROOT, 'data/Workouts/rawframes/test.txt')
+data_root = os.path.join(PROJ_ROOT, 'data/Workout/rawframes/')
+data_root_val = os.path.join(PROJ_ROOT, 'data/Workout/rawframes/')
+data_root_test = os.path.join(PROJ_ROOT, 'data/Workout/rawframes/')
+ann_file_train = os.path.join(PROJ_ROOT, 'data/Workout/rawframes/train.txt')
+ann_file_val = os.path.join(PROJ_ROOT, 'data/Workout/rawframes/val.txt')
+ann_file_test = os.path.join(PROJ_ROOT, 'data/Workout/rawframes/test.txt')
 
 img_norm_cfg = dict(mean=[123.675, 116.28, 103.53],
                     std=[58.395, 57.12, 57.375],
@@ -100,7 +100,10 @@ data = dict(videos_per_gpu=2,
                       pipeline=val_pipeline))
 
 # runtime settings
-evaluation = dict(interval=1, save_best='auto', metrics=['top_k_accuracy'], topk=(1,))
+evaluation = dict(interval=1,
+                  save_best='auto',
+                  metrics=['top_k_accuracy', 'mean_class_accuracy'],
+                  topk=(1,))
 checkpoint_config = dict(interval=5)
 
 dist_params = dict(backend='nccl')

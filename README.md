@@ -109,6 +109,9 @@ data/Workouts/
 
 ### Train video with tsm
 
+Download weights pretrained on SSV2:
+https://hanlab.mit.edu/projects/tsm/models/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth
+
 `python workoutdetector/trainer.py --cfg workoutdetector/configs/tsm.yaml`
 
 - Configs
