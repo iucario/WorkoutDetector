@@ -16,15 +16,12 @@ certifi==2019.11.28
 chardet==3.0.4
 charset-normalizer==2.0.12
 Click==7.0
-cloud-init==22.1
 colorama==0.4.3
-command-not-found==0.3
 configobj==5.0.6
 constantly==15.1.0
 cryptography==2.8
 dbus-python==1.2.16
 distro==1.4.0
-distro-info===0.23ubuntu1
 dnspython==2.2.1
 einops==0.4.1
 email-validator==1.2.1
@@ -46,7 +43,6 @@ jsonpatch==1.22
 jsonpointer==2.0
 jsonschema==3.2.0
 keyring==18.0.1
-language-selector==0.1
 launchpadlib==1.10.13
 lazr.restfulclient==0.14.2
 lazr.uri==1.0.3
