@@ -26,6 +26,9 @@ class FrameDataset(torch.utils.data.Dataset):
     
     Labels are built using `scripts/build_label_list.py`
 
+    Note:
+        `start_index` should be 1-based.
+
     Args:
         data_root (str): root directory of the dataset
         data_prefix (str): prefix relative to `data_root`. 
@@ -72,7 +75,7 @@ class FrameDataset(torch.utils.data.Dataset):
                         frame_dir = os.path.join(self.data_prefix, frame_dir)
                     video_infos.append(
                         dict(frame_dir=frame_dir,
-                             start_index=int(start_index) + 1,
+                             start_index=int(start_index),
                              total_frames=int(total_frames),
                              label=int(label)))
             elif self.anno_col == 3:

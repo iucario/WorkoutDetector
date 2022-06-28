@@ -3,10 +3,9 @@ import os.path as osp
 from os.path import join as osj
 
 import pandas as pd
-import yaml
 from torchvision.io import VideoReader
 from workoutdetector.datasets import RepcountDataset
-from workoutdetector.utils.inference_count import PROJ_ROOT
+from workoutdetector.settings import PROJ_ROOT
 
 
 def build_label() -> None:

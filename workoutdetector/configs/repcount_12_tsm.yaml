@@ -1,5 +1,5 @@
 trainer:
-  default_root_dir: /content/exp/workouts-11-tsm
+  default_root_dir: exp/repcount-12-tsm
   max_epochs: 50
   early_stopping: false
   enable_checkpointing: null
@@ -33,9 +33,9 @@ optimizer:
 lr_scheduler:
   policy: StepLR
   gamma: 0.1
-  step: 5
+  step: 10
 model:
-  num_class: 11
+  num_class: 12
   num_segments: 8
   base_model: resnet50
   consensus_type: avg
@@ -48,34 +48,34 @@ model:
   non_local: false
 data:
   dataset_type: FrameDataset
-  data_root: /content/WorkoutDetector/data/Workouts/rawframes/
+  data_root: data/Workouts/rawframes/
   num_segments: 8
   filename_tmpl: 'img_{:05}.jpg'
-  anno_col: 3
-  batch_size: 2
+  anno_col: 4
+  batch_size: 4
   train:
-    anno: data/Workouts/rawframes/train.txt
+    anno: data/Binary/all-train.txt
     data_prefix: null
   val:
-    anno: data/Workouts/rawframes/val.txt
+    anno: data/Binary/all-val.txt
     data_prefix: null
   test:
-    anno: data/Workouts/rawframes/test.txt
+    anno: data/Binary/all-test.txt
     data_prefix: null
   num_workers: 4
 log:
-  output_dir: /content/WorkoutDetector/exp/workouts-11-tsm
-  name: workouts-11-tsm
+  output_dir: exp/repcount-12-tsm
+  name: repcount-12-tsm
   log_every_n_steps: 20
   tensorboard:
     enable: true
   wandb:
     enable: true
     offline: false
-    project: workouts-11-tsm
+    project: repcount-12-tsm
 seed: 0
 train: true
-checkpoint: /content/WorkoutDetector/checkpoints/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth
+checkpoint: checkpoints/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth
 
 callbacks:
   modelcheckpoint:
