@@ -165,7 +165,7 @@ class LitModel(LightningModule):
         y = torch.cat([output['y'] for output in outputs], dim=0)
         acc = (y_hat.argmax(dim=1) == y).float().mean()
         self.best_val_acc = max(self.best_val_acc, acc.item())
-        self.log('val/best_acc', acc)
+        self.log('val/best_acc', self.best_val_acc)
 
     def test_step(self, batch, batch_idx):
         x, y = batch
