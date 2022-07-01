@@ -1,4 +1,4 @@
-FROM pytorch/pytorch:1.12.0-cuda11.3-cudnn8-devel
+FROM pytorch/pytorch:1.9.0-cuda10.2-cudnn7-devel
 
 # Remove any third-party apt sources to avoid issues with expiring keys.
 RUN rm -f /etc/apt/sources.list.d/*.list
@@ -13,12 +13,12 @@ RUN apt-get update && apt-get install -y \
     libx11-6 \
  && rm -rf /var/lib/apt/lists/*
 
-RUN apt update && DEBIAN_FRONTEND=noninteractive apt install -y
-RUN  apt-get clean && \
-  rm -rf /var/lib/apt
-  
-ENV TZ=Japan/Tokyo
-RUN sudo ln -snf /usr/share/zoneinfo/$TZ /etc/localtime
+# Timezone
+RUN apt-get update && \
+    apt-get install -yq tzdata && \
+    dpkg-reconfigure -f noninteractive tzdata &&\
+    rm /etc/localtime && \
+    ln -fs /usr/share/zoneinfo/Asia/Tokyo /etc/localtime    
 
 # Create a working directory
 RUN mkdir /app
@@ -65,7 +65,9 @@ RUN pip install pytorch_lightning \
     fvcore \
     timm \
     scikit-learn \
-    scipy
+    scipy \
+    pandas \
+    matplotlib
 
 # Set the default command to python3
 CMD ["python3"]

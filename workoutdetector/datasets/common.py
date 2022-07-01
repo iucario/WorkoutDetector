@@ -137,7 +137,6 @@ class ImageDataset(torch.utils.data.Dataset):
                  pipeline: Optional[str] = None) -> None:
         super().__init__()
         assert osp.isfile(anno_path), f'{anno_path} is not file'
-        self.data_root = data_root
         self.data_prefix = osj(data_root, data_prefix if data_prefix else '')
         self.transform = transform
         if pipeline is not None:  # not implemented yet

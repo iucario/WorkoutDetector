@@ -1,5 +1,12 @@
 import os
-os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+
+os.environ['NCCL_DEBUG'] = 'INFO'
+os.environ['NCCL_DEBUG_SUBSYS'] = 'ENV'
+os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'
+os.environ['NCCL_P2P_LEVEL'] = 'LOC'
+os.environ['CUDA_LAUNCH_BLOCKING'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
+
 from typing import Optional
 import torch
 from torch import nn
@@ -8,30 +15,6 @@ from torch.utils.data import random_split, DataLoader, Subset
 from torchvision import transforms as T
 from torchvision.datasets import CIFAR10, MNIST
 from torchvision.models import resnet50
-
-
-class DataParallelModel(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.block1 = nn.Linear(28 * 28, 100)
-        self.block2 = nn.Linear(100, 10)
-
-    def forward(self, x):
-        x = x.view(-1, 28 * 28)
-        x = self.block1(x)
-        x = self.block2(x)
-        return x
-
-
-class Model(nn.Module):
-
-    def __init__(self, dim_in, dim_out):
-        super().__init__()
-        self.fc = nn.Linear(dim_in, dim_out)
-
-    def forward(self, x):
-        return self.fc(x)
 
 
 def train_epoch(model, batch, loss_fn, optimizer, device):
@@ -59,7 +42,7 @@ def val_epoch(model, batch, loss_fn, device):
 
 
 def main():
-    device = 'cuda:1'
+    device = 'cuda'
 
     dataset = CIFAR10('./data',
                       'train',
@@ -73,7 +56,6 @@ def main():
     val_loader = DataLoader(val_set, batch_size=16, shuffle=False)
     print(dataset[0][0].shape)
 
-    # model = Model(28 * 28, 10)
     model = resnet50(pretrained=True)
     model = model.to(device)
 

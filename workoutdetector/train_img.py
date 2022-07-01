@@ -6,6 +6,7 @@ from os.path import join as osj
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pytorch_lightning as pl
+from pytorch_lightning.strategies import DDPStrategy
 import timm
 import torch
 import torchvision.transforms as T
@@ -22,120 +23,6 @@ from torchvision.models.detection import fasterrcnn_resnet50_fpn
 
 from workoutdetector.datasets import build_dataset
 from workoutdetector.settings import PROJ_ROOT
-
-
-def parse_args(argv=None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description='Train image model')
-    parser.add_argument(
-        "--cfg",
-        dest="cfg_file",
-        help="Path to the config file",
-        default=osj(PROJ_ROOT, "workoutdetector/configs/pull_up.yaml"),
-        type=str,
-    )
-    parser.add_argument(
-        "opts",
-        help="See workoutdetector/configs/lit_img.yaml for all options",
-        default=None,
-        nargs=argparse.REMAINDER,
-    )
-    return parser.parse_args(argv)
-
-
-def load_config(args) -> CfgNode:
-    """
-    Given the arguemnts, load and initialize the configs.
-    Args:
-        args (argument): arguments includes `cfg_file`.
-    """
-    cfg = CfgNode(new_allowed=True)
-    cfg.merge_from_file(args.cfg_file)
-    if args.opts is not None:
-        cfg.merge_from_list(args.opts)
-    return cfg
-
-
-data_transforms = {
-    'train':
-        T.Compose([
-            T.ToPILImage(),
-            T.Resize(256),
-            T.RandomCrop(224),
-            T.RandomHorizontalFlip(),
-            T.ToTensor(),
-            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ]),
-    'test':
-        T.Compose([
-            T.ToPILImage(),
-            T.Resize(256),
-            T.CenterCrop(224),
-            T.ToTensor(),
-            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ]),
-}
-
-
-class Detector():
-
-    def __init__(self):
-        self.model = fasterrcnn_resnet50_fpn(pretrained=True)
-        self.model.eval()
-        self.model.cuda()
-
-    @torch.no_grad()
-    def detect(self, images: List[Tensor], threshold: float = 0.7) -> List[Tensor]:
-        """Detect human
-
-        Args:
-            images, List[Tensor]: list of images to fastrcnn
-            threshold, float: threshold. Defaults to 0.7.
-        Returns:
-            List[Tensor]: list of bounding boxes of shape (N, 4)
-        """
-
-        results: List[Dict[str, Tensor]] = self.model(images)
-        persons: List[Tensor] = []
-        for r in results:
-            persons.append(self._get_one_frame(r, threshold))
-        return persons
-
-    def _get_one_frame(self, result: dict, threshold: float = 0.7) -> Tensor:
-        human_inds = result['labels'] == 1
-        person_boxes = result['boxes'][human_inds]
-        scores = result['scores'][human_inds]
-        person_boxes = person_boxes[scores > threshold]
-        person_boxes.cpu().numpy()
-        return person_boxes
-
-    def crop_person(self, images: List[Tensor]) -> List[Tensor]:
-        """Crop person from images. One person per image.
-
-        Args:
-            image, List[Tensor]: image to crop person from.
-        Returns:
-            List[Tensor]: cropped image padded or resized to 224x224.
-        TODO:
-            Person tracking in video
-        """
-
-        boxes = self.detect(images)
-        cropped_images: List[Tensor] = []
-        for persons in boxes:
-            x1, y1, x2, y2 = persons[0]
-            # make box larger by 10%
-            x1, y1, x2, y2 = list(map(int, [x1 * 0.9, y1 * 0.9, x2 * 1.1, y2 * 1.1]))
-            person = TF.crop(images[0], x1, y1, x2 - x1, y2 - y1)
-            h, w = person.shape[:2]
-            max_hw = max(h, w)
-            person = TF.pad(person,
-                            padding=(max_hw - h, max_hw - w),
-                            fill=0,
-                            padding_mode='constant')
-            person = TF.resize(person, size=(224, 224))
-            cropped_images.append(person)
-            assert person.shape[-2:] == (224, 224), f"{person.shape}"
-        return cropped_images
 
 
 class LitModel(LightningModule):
@@ -173,10 +60,14 @@ class LitModel(LightningModule):
         self.log('val/loss', loss)
         return y_hat.argmax(dim=1) == y
 
-    def validation_epoch_end(self, outputs):
-        acc = 0 # TODO: acc on epoch
+    def validation_epoch_end(self, batch_parts_outputs):
+        outputs = self.all_gather(batch_parts_outputs)
+        y_hat = torch.cat([output['y_hat'] for output in outputs], dim=0)
+        y = torch.cat([output['y'] for output in outputs], dim=0)
+        acc = (y_hat.argmax(dim=1) == y).float().mean()
         self.best_val_acc = max(self.best_val_acc, acc.item())
-        self.log('val/best_acc', self.best_val_acc)
+        if self.trainer.is_global_zero:
+            self.log('val/best_acc', acc, rank_zero_only=True)
 
     def test_step(self, batch, batch_idx):
         x, y = batch
@@ -270,20 +161,6 @@ class DataModule(LightningDataModule):
             return self.val_dataloader()
 
 
-def export_model(ckpt: str, onnx_path: Optional[str] = None) -> None:
-    model = LitModel.load_from_checkpoint(ckpt)
-    model.eval()
-    if onnx_path is None:
-        onnx_path = ckpt.replace('.ckpt', '.onnx')
-    model.to_onnx(onnx_path, input_sample=model.example_input_array, export_params=True)
-
-
-def cfg_to_dict(cfg: CfgNode) -> dict:
-    x = cfg.dump()
-    y = yaml.safe_load(x)
-    return y
-
-
 def test(cfg: CfgNode) -> None:
     data_module = DataModule(cfg.data, is_train=False)
     model = LitModel.load_from_checkpoint(cfg.checkpoint)
@@ -307,14 +184,18 @@ def train(cfg: CfgNode) -> None:
     lr_monitor = LearningRateMonitor(logging_interval='step')
     CALLBACKS.append(lr_monitor)
 
+    # ModelCheckpoint callback
+    if cfg.callbacks.modelcheckpoint.dirpath:
+        DIRPATH = cfg.callbacks.modelcheckpoint.dirpath
+    else:
+        DIRPATH = osj(cfg.trainer.default_root_dir, 'checkpoints')
     checkpoint_callback = ModelCheckpoint(
-        save_top_k=1,
-        save_weights_only=True,
-        monitor="val/acc",
-        mode="max",
-        dirpath=osj(cfg.trainer.default_root_dir, 'checkpoints'),
-        filename="best-val-acc={val/acc:.2f}-epoch={epoch:02d}-" +
-        f"-{cfg.model.backbone_model}-{timenow}",
+        save_top_k=cfg.callbacks.modelcheckpoint.save_top_k,
+        save_weights_only=cfg.callbacks.modelcheckpoint.save_weights_only,
+        monitor=cfg.callbacks.modelcheckpoint.monitor,
+        mode=cfg.callbacks.modelcheckpoint.mode,
+        dirpath=DIRPATH,
+        filename="best-val-acc={val/acc:.2f}-epoch={epoch:02d}" + f"-{timenow}",
         auto_insert_metric_name=False)
     CALLBACKS.append(checkpoint_callback)
 
@@ -347,9 +228,9 @@ def train(cfg: CfgNode) -> None:
                                                'train/acc': 0,
                                                'val/acc': 0,
                                                'test/acc': 0,
-                                               'train/loss': 1,
-                                               'val/loss': 1,
-                                               'test/loss': 1
+                                               'train/loss': -1,
+                                               'val/loss': -1,
+                                               'test/loss': -1
                                            })
         LOGGER.append(tensorboard_logger)
 
@@ -365,6 +246,8 @@ def train(cfg: CfgNode) -> None:
         callbacks=CALLBACKS,
         auto_lr_find=cfg.trainer.auto_lr_find,
         log_every_n_steps=cfg.log.log_every_n_steps,
+        fast_dev_run=cfg.trainer.fast_dev_run,
+        strategy=DDPStrategy(find_unused_parameters=False),
     )
 
     trainer.fit(model, data_module)
@@ -373,6 +256,51 @@ def train(cfg: CfgNode) -> None:
     print(f"===>Best model saved at:\n{checkpoint_callback.best_model_path}")
 
     trainer.test(model, data_module)
+
+
+def export_model(ckpt: str, onnx_path: Optional[str] = None) -> None:
+    model = LitModel.load_from_checkpoint(ckpt)
+    model.eval()
+    if onnx_path is None:
+        onnx_path = ckpt.replace('.ckpt', '.onnx')
+    model.to_onnx(onnx_path, input_sample=model.example_input_array, export_params=True)
+
+
+def cfg_to_dict(cfg: CfgNode) -> dict:
+    x = cfg.dump()
+    y = yaml.safe_load(x)
+    return y
+
+
+def parse_args(argv=None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description='Train image model')
+    parser.add_argument(
+        "--cfg",
+        dest="cfg_file",
+        help="Path to the config file",
+        default=osj(PROJ_ROOT, "workoutdetector/configs/lit_img.yaml"),
+        type=str,
+    )
+    parser.add_argument(
+        "opts",
+        help="See workoutdetector/configs/lit_img.yaml for all options",
+        default=None,
+        nargs=argparse.REMAINDER,
+    )
+    return parser.parse_args(argv)
+
+
+def load_config(args) -> CfgNode:
+    """
+    Given the arguemnts, load and initialize the configs.
+    Args:
+        args (argument): arguments includes `cfg_file`.
+    """
+    cfg = CfgNode(new_allowed=True)
+    cfg.merge_from_file(args.cfg_file)
+    if args.opts is not None:
+        cfg.merge_from_list(args.opts)
+    return cfg
 
 
 def main(cfg: CfgNode) -> None:

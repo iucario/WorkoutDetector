@@ -74,24 +74,30 @@ class ToyModel(nn.Module):
         return self.model(x)
 
 
+class Net(nn.Module):
+
+    def __init__(self, num_class: int = 10):
+        super(Net, self).__init__()
+        fx = resnet18(pretrained=True)
+        fx.fc = nn.Linear(512, num_class)
+        self.model = fx
+
+    def forward(self, x):
+        return self.model(x)
+
+
 def example(rank, world_size):
-    # create default process group
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
-    # create local model
     # model = resnet18(weights='ResNet18_Weights.IMAGENET1K_V1').to(rank)
-    model = CNN(1000).to(rank)
-    # construct DDP model
+    model = Net(10).to(rank)
     ddp_model = DDP(model, device_ids=[rank])
-    # define loss function and optimizer
+
     loss_fn = nn.MSELoss()
     optimizer = optim.SGD(ddp_model.parameters(), lr=0.001)
 
-    # forward pass
-    outputs = ddp_model(torch.randn(10, 3, 224, 224).to(rank))
-    labels = torch.randn(10, 1000).to(rank)
-    # backward pass
+    outputs = ddp_model(torch.randn(8, 3, 224, 224).to(rank))
+    labels = torch.randn(8, 10).to(rank)
     loss_fn(outputs, labels).backward()
-    # update parameters
     optimizer.step()
 
 
@@ -100,9 +106,9 @@ def main():
     print("We have available ", torch.cuda.device_count(), "GPUs! Using ", world_size,
           " GPUs")
 
-    y = CNN(1000)(torch.randn(1, 3, 224, 224))
+    y = Net(10)(torch.randn(1, 3, 224, 224))
     print(y.shape)
-    
+
     mp.spawn(example, args=(world_size,), nprocs=world_size, join=True)
 
 

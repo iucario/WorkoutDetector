@@ -1,11 +1,12 @@
 trainer:
-  default_root_dir: exp/
+  default_root_dir: exp/rep_image_12
   max_epochs: 30
   early_stopping: false
   enable_checkpointing: null
   num_nodes: 1
-  devices: 1
-  gpus: 1
+  devices: auto
+  gpus: auto
+  strategy: ddp
   log_gpu_memory: true
   enable_progress_bar: true
   overfit_batches: 0.0
@@ -24,9 +25,10 @@ trainer:
   auto_lr_find: false
   prepare_data_per_node: null
   patience: 10
+  fast_dev_run: true
 optimizer:
   method: AdamW
-  lr: 0.00005
+  lr: 0.0005
   momentum: 0.9
   weight_decay: 0.0001
   eps: 0.00000001
@@ -35,34 +37,44 @@ lr_scheduler:
   gamma: 0.1
   step: 10
 model:
-  num_class: 2
+  num_class: 12
   backbone_model: convnext_base
+
 data:
   dataset_type: ImageDataset
-  data_root: data/pull-up-relabeled
-  batch_size: 8
+  data_root: data/RepCount
+  batch_size: 1
+  filename_tmpl: null
+  anno_col: null
   train:
-    anno: data/pull-up-relabeled/train.txt
+    anno: data/RepImage/train.txt
     data_prefix: null
   val:
-    anno: data/pull-up-relabeled/val.txt
+    anno: data/RepImage/val.txt
     data_prefix: null
   test:
-    anno: data/pull-up-relabeled/test.txt
+    anno: data/RepImage/test.txt
     data_prefix: null
   num_workers: 4
-  transform: null
-  target_transform: null
+
 log:
   output_dir: exp/pull-up-compare
-  name: pull-up-relabel-convnext_base-lr_5e-5
+  name: rep_image_12-convnext_base-lr_5e-4
   log_every_n_steps: 20
   tensorboard:
     enable: true
   wandb:
     enable: false
     offline: false
-    project: pull-up
+    project: rep-image-12
 seed: 0
 train: true
 checkpoint: null
+
+callbacks:
+  modelcheckpoint:
+    save_top_k: 1
+    save_weights_only: false
+    monitor: val/acc
+    mode: max
+    dirpath: null

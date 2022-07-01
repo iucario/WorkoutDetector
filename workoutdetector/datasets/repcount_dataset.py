@@ -58,15 +58,16 @@ def build_label_list(data_root: str, anno_file: str, actions: List[str],
         start_img = filename_tmpl.format(start_idx + 1)
         mid_img = filename_tmpl.format(mid_idx + 1)
         cls_idx = actions.index(item.class_)
+        rel_path = osp.relpath( item.frames_path, data_root)
         if item['split'] == 'train':
-            train.write(f"{item.frames_path}/{start_img} {cls_idx*2}\n")
-            train.write(f"{item.frames_path}/{mid_img} {cls_idx*2+1}\n")
+            train.write(f"{rel_path}/{start_img} {cls_idx*2}\n")
+            train.write(f"{rel_path}/{mid_img} {cls_idx*2+1}\n")
         elif item['split'] == 'val':
-            val.write(f"{item.frames_path}/{start_img} {cls_idx*2}\n")
-            val.write(f"{item.frames_path}/{mid_img} {cls_idx*2+1}\n")
+            val.write(f"{rel_path}/{start_img} {cls_idx*2}\n")
+            val.write(f"{rel_path}/{mid_img} {cls_idx*2+1}\n")
         elif item['split'] == 'test':
-            test.write(f"{item.frames_path}/{start_img} {cls_idx*2}\n")
-            test.write(f"{item.frames_path}/{mid_img} {cls_idx*2+1}\n")
+            test.write(f"{rel_path}/{start_img} {cls_idx*2}\n")
+            test.write(f"{rel_path}/{mid_img} {cls_idx*2+1}\n")
     train.close()
     val.close()
     test.close()

@@ -3,4 +3,3 @@ docker run --rm -it \
   --user="$(id -u):$(id -g)" \
   --volume="$PWD:/app" \
   work:latest python3 tmp/multi_gpu.py
-#   --ipc=host \
