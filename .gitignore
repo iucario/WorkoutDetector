@@ -6,7 +6,6 @@ wandb/
 *.mp4
 !images/*
 !example_videos/*
-tmp/
 _tmp.py
 poses/
 exp

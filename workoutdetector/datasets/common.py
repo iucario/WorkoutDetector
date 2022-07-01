@@ -3,8 +3,11 @@ import math
 import os
 import os.path as osp
 from os.path import join as osj
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 import einops
+import torchvision.transforms.functional as TF
+from torchvision.models.detection import fasterrcnn_resnet50_fpn
+
 import numpy as np
 import timm
 import torch
@@ -260,6 +263,68 @@ class Pipeline:
         """
 
         return self.pipeline_read_image(image)
+
+
+class Detector():
+
+    def __init__(self):
+        self.model = fasterrcnn_resnet50_fpn(pretrained=True)
+        self.model.eval()
+        self.model.cuda()
+
+    @torch.no_grad()
+    def detect(self, images: List[Tensor], threshold: float = 0.7) -> List[Tensor]:
+        """Detect human
+
+        Args:
+            images, List[Tensor]: list of images to fastrcnn
+            threshold, float: threshold. Defaults to 0.7.
+        Returns:
+            List[Tensor]: list of bounding boxes of shape (N, 4)
+        """
+
+        results: List[Dict[str, Tensor]] = self.model(images)
+        persons: List[Tensor] = []
+        for r in results:
+            persons.append(self._get_one_frame(r, threshold))
+        return persons
+
+    def _get_one_frame(self, result: dict, threshold: float = 0.7) -> Tensor:
+        human_inds = result['labels'] == 1
+        person_boxes = result['boxes'][human_inds]
+        scores = result['scores'][human_inds]
+        person_boxes = person_boxes[scores > threshold]
+        person_boxes.cpu().numpy()
+        return person_boxes
+
+    def crop_person(self, images: List[Tensor]) -> List[Tensor]:
+        """Crop person from images. One person per image.
+
+        Args:
+            image, List[Tensor]: image to crop person from.
+        Returns:
+            List[Tensor]: cropped image padded or resized to 224x224.
+        TODO:
+            Person tracking in video
+        """
+
+        boxes = self.detect(images)
+        cropped_images: List[Tensor] = []
+        for persons in boxes:
+            x1, y1, x2, y2 = persons[0]
+            # make box larger by 10%
+            x1, y1, x2, y2 = list(map(int, [x1 * 0.9, y1 * 0.9, x2 * 1.1, y2 * 1.1]))
+            person = TF.crop(images[0], x1, y1, x2 - x1, y2 - y1)
+            h, w = person.shape[:2]
+            max_hw = max(h, w)
+            person = TF.pad(person,
+                            padding=(max_hw - h, max_hw - w),
+                            fill=0,
+                            padding_mode='constant')
+            person = TF.resize(person, size=(224, 224))
+            cropped_images.append(person)
+            assert person.shape[-2:] == (224, 224), f"{person.shape}"
+        return cropped_images
 
 
 if __name__ == '__main__':
