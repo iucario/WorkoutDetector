@@ -1,9 +1,6 @@
 import argparse
 import os
 
-os.environ['NCCL_P2P_LEVEL'] = 'LOC'
-os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
-os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 import os.path as osp
 import time
 from os.path import join as osj
@@ -18,6 +15,7 @@ from pytorch_lightning import LightningDataModule, LightningModule, Trainer
 from pytorch_lightning.callbacks import (LearningRateMonitor, ModelCheckpoint,
                                          early_stopping)
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
+from pytorch_lightning.strategies import DDPStrategy
 from torch import Tensor, nn, optim
 from torch.utils.data import DataLoader
 
@@ -74,14 +72,13 @@ class LitModel(LightningModule):
                  on_epoch=True,
                  sync_dist=True)
         self.log('val/loss', loss, sync_dist=True)
-        return {'y_hat': y_hat, 'y': y, 'acc': acc}
+        return (y_hat.argmax(dim=1) == y).flatten()
 
-    def validation_epoch_end(self, batch_parts_outputs):
-        outputs = self.all_gather(batch_parts_outputs)
-        y_hat = torch.cat([output['y_hat'] for output in outputs], dim=0)
-        y = torch.cat([output['y'] for output in outputs], dim=0)
-        acc = (y_hat.argmax(dim=1) == y).float().mean()
-        self.best_val_acc = max(self.best_val_acc, acc.item())
+    def validation_epoch_end(self, outputs):
+        total = sum(len(o) for o in outputs)
+        correct = sum(o.sum().item() for o in outputs)
+        acc = correct / total
+        self.best_val_acc = max(self.best_val_acc, acc)
         if self.trainer.is_global_zero:
             self.log('val/best_acc', acc, rank_zero_only=True)
 
@@ -91,7 +88,7 @@ class LitModel(LightningModule):
         loss = self.loss_module(y_hat, y)
         acc = (y_hat.argmax(dim=1) == y).float().mean()
         self.log("test/acc", acc, on_step=False, on_epoch=True, sync_dist=True)
-        self.log('test/loss', loss, prog_bar=True, sync_dist=True)
+        self.log('test/loss', loss, sync_dist=True)
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         return self(batch)
@@ -214,6 +211,10 @@ def train(cfg: CfgNode) -> None:
         DIRPATH = cfg.callbacks.modelcheckpoint.dirpath
     else:
         DIRPATH = osj(cfg.trainer.default_root_dir, 'checkpoints')
+    if not os.path.isdir(DIRPATH):
+        print(f'Create checkpoint directory: {DIRPATH}')
+        os.makedirs(DIRPATH)
+
     checkpoint_callback = ModelCheckpoint(
         save_top_k=cfg.callbacks.modelcheckpoint.save_top_k,
         save_weights_only=cfg.callbacks.modelcheckpoint.save_weights_only,
@@ -267,19 +268,22 @@ def train(cfg: CfgNode) -> None:
         default_root_dir=cfg.trainer.default_root_dir,
         max_epochs=cfg.trainer.max_epochs,
         accelerator=cfg.trainer.accelerator,
-        strategy=cfg.trainer.strategy,
         devices=cfg.trainer.devices,
         logger=LOGGER,
         callbacks=CALLBACKS,
         auto_lr_find=cfg.trainer.auto_lr_find,
         log_every_n_steps=cfg.log.log_every_n_steps,
+        fast_dev_run=cfg.trainer.fast_dev_run,
+        strategy=DDPStrategy(find_unused_parameters=True, process_group_backend='gloo'),
     )
 
     trainer.fit(model, data_module)
 
-    # model.load_from_checkpoint(checkpoint_callback.best_model_path)
-    # print(f"===>Best model saved at:\n{checkpoint_callback.best_model_path}")
+    if not cfg.trainer.fast_dev_run:
+        model.load_from_checkpoint(checkpoint_callback.best_model_path)
+        print(f"===>Best model saved at:\n{checkpoint_callback.best_model_path}")
 
+    trainer = Trainer(logger=LOGGER, callbacks=CALLBACKS)
     trainer.test(model, data_module)
 
 
