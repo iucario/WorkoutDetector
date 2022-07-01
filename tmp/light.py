@@ -6,8 +6,8 @@ os.environ['NCCL_P2P_LEVEL'] = "LOC"
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'
 
-
 import pytorch_lightning as pl
+from pytorch_lightning.strategies import DDPStrategy
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -63,7 +63,7 @@ class VGG16(nn.Module):
             self.block(512, 512),
             nn.MaxPool2d(2, 2),
         )
-        
+
         self.classifier = nn.Sequential(
             nn.AdaptiveAvgPool2d((7, 7)),
             nn.Flatten(),
@@ -107,12 +107,13 @@ class LitModel(pl.LightningModule):
     def __init__(self, dim_out: int = 10):
         super().__init__()
         # fx = resnet18(pretrained=True)
-        fx = vgg16()
-        # fx = timm.create_model('resnet18', pretrained=False)
-        in_features = fx.classifier[0].in_features
-        fx.fc = nn.Linear(in_features, dim_out)
+        in_features = 512
+        # fx = vgg16()
+        fx = timm.create_model('resnet50', pretrained=True, num_classes=dim_out)
+        # in_features = fx.classifier[0].in_features
+        # fx.fc = nn.Linear(in_features, dim_out)
         self.model = fx
-        
+
         # self.model = CNN(dim_out)
         # self.model = VGG16(dim_out)
 
@@ -126,8 +127,23 @@ class LitModel(pl.LightningModule):
         self.log('train_loss', loss, prog_bar=True, sync_dist=True)
         return loss
 
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        z = self.model(x)
+        loss = F.cross_entropy(z, y)
+        acc = (z.argmax(dim=1) == y).float().mean()
+        self.log('val_acc', acc, prog_bar=True, sync_dist=True, on_epoch=True)
+        return loss
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        z = self.model(x)
+        acc = (z.argmax(dim=1) == y).float().mean()
+        self.log('test_acc', acc, prog_bar=True, sync_dist=True)
+        return acc
+
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+        optimizer = torch.optim.SGD(self.parameters(), lr=1e-3)
         return optimizer
 
 
@@ -147,11 +163,15 @@ class DataModule(pl.LightningDataModule):
                                download=True)
 
     def train_dataloader(self):
-        return DataLoader(Subset(self.dataset, list(range(200))),
+        return DataLoader(Subset(self.dataset, list(range(100))),
                           batch_size=self.batch_size,
                           shuffle=True)
 
     def val_dataloader(self):
+        return DataLoader(Subset(self.dataset, list(range(100, 200))),
+                          batch_size=self.batch_size,
+                          shuffle=True)
+    def test_dataloader(self):
         return DataLoader(Subset(self.dataset, list(range(200, 300))),
                           batch_size=self.batch_size,
                           shuffle=True)
@@ -174,11 +194,11 @@ def run():
         fast_dev_run=False,
         accelerator="gpu",
         devices="auto",
-        strategy="ddp",
-        # find_unused_parameters=False,
+        strategy=DDPStrategy(find_unused_parameters=False),
         max_epochs=3,
     )
-    trainer.fit(model=model, train_dataloaders=train_loader)
+    trainer.fit(model=model, datamodule=dataset)
+    trainer.test(model, dataset)
 
 
 if __name__ == "__main__":
