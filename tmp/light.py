@@ -2,9 +2,12 @@ import os
 
 os.environ["NCCL_DEBUG"] = "INFO"
 os.environ["CUDA_LAUNCH_BLOCKING"] = '1'
-os.environ['NCCL_P2P_LEVEL'] = 'LOC'
+os.environ['NCCL_P2P_LEVEL'] = "LOC"
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'
 
+
+import pytorch_lightning as pl
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -12,8 +15,7 @@ from torchvision import transforms as T
 from torchvision.datasets import MNIST, CIFAR10
 import timm
 from torchvision.models import resnet18, vgg16
-from torch.utils.data import DataLoader, random_split
-import pytorch_lightning as pl
+from torch.utils.data import DataLoader, random_split, Subset
 
 
 class CNN(nn.Module):
@@ -28,16 +30,12 @@ class CNN(nn.Module):
             nn.MaxPool2d(2, 2),
             nn.Conv2d(64, 128, 3),
             nn.MaxPool2d(2, 2),
-            # self.block(256, 512),
-            # nn.MaxPool2d(2, 2),
-            # self.block(512, 512),
-            # nn.MaxPool2d(2, 2),
         )
         self.classifier = nn.Sequential(
             nn.AdaptiveAvgPool2d((1, 1)),
             nn.Flatten(),
             nn.Linear(128, 100),
-            # nn.ReLU(inplace=True),
+            nn.ReLU(inplace=True),
             nn.Dropout(0.5),
             nn.Linear(100, num_classes),
         )
@@ -65,8 +63,10 @@ class VGG16(nn.Module):
             self.block(512, 512),
             nn.MaxPool2d(2, 2),
         )
-        self.avg = nn.AdaptiveAvgPool2d((7, 7))
+        
         self.classifier = nn.Sequential(
+            nn.AdaptiveAvgPool2d((7, 7)),
+            nn.Flatten(),
             nn.Linear(512 * 7 * 7, 4096),
             nn.ReLU(inplace=True),
             nn.Dropout(0.5),
@@ -106,8 +106,14 @@ class LitModel(pl.LightningModule):
 
     def __init__(self, dim_out: int = 10):
         super().__init__()
-        # self.model = MyModel(dim_out)
-        self.model = CNN(dim_out)
+        # fx = resnet18(pretrained=True)
+        fx = vgg16()
+        # fx = timm.create_model('resnet18', pretrained=False)
+        in_features = fx.classifier[0].in_features
+        fx.fc = nn.Linear(in_features, dim_out)
+        self.model = fx
+        
+        # self.model = CNN(dim_out)
         # self.model = VGG16(dim_out)
 
     def forward(self, x):
@@ -133,6 +139,7 @@ class DataModule(pl.LightningDataModule):
         transforms = T.Compose([
             T.ToTensor(),
             T.Resize(size=(224, 224)),
+            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
         self.dataset = CIFAR10(root='./data',
                                train=True,
@@ -140,10 +147,14 @@ class DataModule(pl.LightningDataModule):
                                download=True)
 
     def train_dataloader(self):
-        return DataLoader(self.dataset, batch_size=self.batch_size, shuffle=True)
+        return DataLoader(Subset(self.dataset, list(range(200))),
+                          batch_size=self.batch_size,
+                          shuffle=True)
 
     def val_dataloader(self):
-        return DataLoader(self.dataset, batch_size=self.batch_size, shuffle=True)
+        return DataLoader(Subset(self.dataset, list(range(200, 300))),
+                          batch_size=self.batch_size,
+                          shuffle=True)
 
 
 def run():
@@ -160,10 +171,12 @@ def run():
 
     trainer = pl.Trainer(
         default_root_dir=os.getcwd(),
-        fast_dev_run=True,
+        fast_dev_run=False,
         accelerator="gpu",
         devices="auto",
         strategy="ddp",
+        # find_unused_parameters=False,
+        max_epochs=3,
     )
     trainer.fit(model=model, train_dataloaders=train_loader)
 
