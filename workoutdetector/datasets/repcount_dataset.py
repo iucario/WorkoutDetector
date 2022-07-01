@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 import math
 import os
+import os.path as osp
+from os.path import join as osj
 from typing import List, Optional, Tuple, Dict
 import einops
 import torch
@@ -12,6 +14,65 @@ from torchvision.datasets.utils import download_and_extract_archive, verify_str_
 from torchvision.io import read_image
 from .build import DATASET_REGISTRY
 
+
+def build_label_list(data_root: str, anno_file: str, actions: List[str],
+                     out_dir: str, overwrite: bool = False) -> None:
+    """Build label list for common.ImageDataset
+    
+    Args:
+        data_root (str): root directory of the RepCount dataset. Like `data/RepCount`.
+        Will be used in RepcountHelper.
+        annO_file (str): path to annotation file. Used in RepcountHelper.
+        actions: list of str, action names. 
+        Choose from ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
+        out_dir (str): train.txt, val.txt, test.txt will be save in `out_dir`
+
+    Example:
+        >>> data_root = osj(PROJ_ROOT, 'data/RepCount')
+        >>> actions = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
+        >>> out_dir = osp.join(PROJ_ROOT, 'data/RepImage')
+        >>> build_label_list(data_root, REPCOUNT_ANNO_PATH, actions, out_dir, True)
+    """
+    ACTIONS = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
+    for a in actions:
+        assert a in ACTIONS, f'action {a} not in {ACTIONS}'
+    train_txt, val_txt, test_txt = (osj(out_dir, 'train.txt'), osj(out_dir, 'val.txt'),
+                                    osj(out_dir, 'test.txt'))
+    if not osp.exists(out_dir):
+        print('Creating directory:', out_dir)
+        os.makedirs(out_dir)
+    elif not overwrite:
+        if osp.isfile(train_txt) or osp.isfile(val_txt) or osp.isfile(test_txt):
+            print('Files already exist, will not overwrite')
+            return
+    filename_tmpl = "img_{:05d}.jpg"  # Index starts from 1
+    helper = RepcountHelper(data_root=data_root, anno_file=anno_file)
+    data = helper.get_rep_data(split=['train', 'val', 'test'], action=actions)
+    train, val, test = open(train_txt, 'w'), open(val_txt, 'w'), open(test_txt, 'w')
+    for item in data.values():
+        if item.count < 1:
+            print(f'Skip {item.video_name} because count={item.count}')
+            continue
+        start_idx, end_idx = item.reps[0], item.reps[1]  # Select the first rep
+        mid_idx = (start_idx + end_idx) // 2
+        start_img = filename_tmpl.format(start_idx + 1)
+        mid_img = filename_tmpl.format(mid_idx + 1)
+        cls_idx = actions.index(item.class_)
+        if item['split'] == 'train':
+            train.write(f"{item.frames_path}/{start_img} {cls_idx*2}\n")
+            train.write(f"{item.frames_path}/{mid_img} {cls_idx*2+1}\n")
+        elif item['split'] == 'val':
+            val.write(f"{item.frames_path}/{start_img} {cls_idx*2}\n")
+            val.write(f"{item.frames_path}/{mid_img} {cls_idx*2+1}\n")
+        elif item['split'] == 'test':
+            test.write(f"{item.frames_path}/{start_img} {cls_idx*2}\n")
+            test.write(f"{item.frames_path}/{mid_img} {cls_idx*2+1}\n")
+    train.close()
+    val.close()
+    test.close()
+    with open(train_txt) as f:
+        line = f.readline()
+    print(f'Done. First line in {train_txt}:\n{line}')
 
 def parse_onedrive(link: str) -> str:
     """Parse onedrive link to download link.
