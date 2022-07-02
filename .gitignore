@@ -13,7 +13,7 @@ out
 detectron2_out/
 lightning_logs/
 log
-
+tmp
 *.ipynb_checkpoints
 
 # data
