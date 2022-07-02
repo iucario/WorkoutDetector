@@ -1,8 +1,8 @@
 import os
 
-PROJ_ROOT = '/work'
+PROJ_ROOT = '/app'
 
-if os.environ['PROJ_ROOT'] is not None:
+if os.environ.get('PROJ_ROOT') is not None:
     PROJ_ROOT = os.environ['PROJ_ROOT']
 
 _repcount_anno_relative_path = 'datasets/RepCount/annotation.csv'

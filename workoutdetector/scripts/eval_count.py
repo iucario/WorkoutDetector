@@ -5,7 +5,7 @@ import re
 from typing import Optional
 import pandas as pd
 import matplotlib.pyplot as plt
-from workoutdetector.trainer import LitImageModel
+from workoutdetector.trainer import LitModel
 from workoutdetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 
 anno = pd.read_csv(REPCOUNT_ANNO_PATH)

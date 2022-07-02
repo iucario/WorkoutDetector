@@ -11,10 +11,10 @@ cd ../../../
 mkdir data/Workout/rawframes/RepCount/
 mkdir data/Workout/rawframes/Countix/
 
-ln -s data/RepCount/rawframes/train data/Workout/rawframes/RepCount/train
-ln -s data/RepCount/rawframes/val data/Workout/rawframes/RepCount/val
-ln -s data/RepCount/rawframes/test data/Workout/rawframes/RepCount/test
-ln -s data/Countix/rawframes/train data/Workout/rawframes/Countix/train
-ln -s data/Countix/rawframes/val data/Workout/rawframes/Countix/val
+ln -s $PWD/data/RepCount/rawframes/train data/Workout/rawframes/RepCount/train
+ln -s $PWD/data/RepCount/rawframes/val data/Workout/rawframes/RepCount/val
+ln -s $PWD/data/RepCount/rawframes/test data/Workout/rawframes/RepCount/test
+ln -s $PWD/data/Countix/rawframes/train data/Workout/rawframes/Countix/train
+ln -s $PWD/data/Countix/rawframes/val data/Workout/rawframes/Countix/val
 
 echo "Done building workout dataset."

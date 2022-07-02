@@ -4,14 +4,22 @@ import cv2
 
 
 def build_video_rep(data_dir: str, anno_path: str, dest_dir: str) -> None:
-    """Cut videos to rep states. Specifically, RepCount dataset 12 classes.
-    Generates label files train.csv, val.csv, test.csv in dest_dir.
+    """Cut videos to rep states. Matches the SlowFast Kinetics dataset format.
+    Specifically, RepCount dataset 12 classes.
+    Generates label files `train.csv`, `val.csv`, `test.csv` in `dest_dir`.
     Use OpenCV to read frame by frame and break at rep end.
     
     Args:
         data_dir: path like `data/RepCount/videos`. Expects train,val,test subfolders in it.
         anno_path: csv file path
         dest_dir: cutted videos will be saved int `dest_dir/split/video_name`. 
+
+    Example:
+        >>> data_dir = '~/data/RepCount/video'
+        >>> anno_path = '~/data/RepCount/annotation.csv'
+        >>> dest_dir = '~/data/RepCount/rep_video'
+        >>> build_video_rep(data_dir, anno_path, dest_dir)
+        # first line in train.txt: train/train951_0.mp4 10
     """
 
     if not os.path.exists(dest_dir):
@@ -86,7 +94,7 @@ def build_video_rep(data_dir: str, anno_path: str, dest_dir: str) -> None:
 
 
 if __name__ == '__main__':
-    data_dir = '~/data/RepCount/video'
-    anno_path = '~/data/RepCount/annotation.csv'
-    dest_dir = '~/data/RepCount/rep_video'
+    data_dir = 'data/RepCount/videos'
+    anno_path = 'datasets/RepCount/annotation.csv'
+    dest_dir = 'data/RepCount/rep_video'
     build_video_rep(data_dir, anno_path, dest_dir)

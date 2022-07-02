@@ -1,13 +1,13 @@
 trainer:
   default_root_dir: exp/workouts-11-tsm
-  max_epochs: 10
+  max_epochs: 30
   early_stopping: false
   enable_checkpointing: null
   num_nodes: 1
-  devices: 1
-  gpus: 1
-  strategy: dp
-  accelerator: gpu
+  devices: auto
+  gpus: auto
+  strategy: ddp
+  accelerator: auto
   auto_select_gpus: true
   log_gpu_memory: true
   enable_progress_bar: true
@@ -26,12 +26,12 @@ trainer:
   auto_lr_find: false
   prepare_data_per_node: null
   patience: 10
-  fast_dev_run: true
+  fast_dev_run: false
 optimizer:
   method: SGD
-  lr: 0.005
+  lr: 0.0075
   momentum: 0.9
-  weight_decay: 1.0e-4
+  weight_decay: 5.0e-4
   eps: 1.0e-8
 lr_scheduler:
   policy: StepLR
@@ -55,7 +55,7 @@ data:
   num_segments: 8
   filename_tmpl: 'img_{:05}.jpg'
   anno_col: 3
-  batch_size: 8
+  batch_size: 6
   train:
     anno: data/Workout/rawframes/train.txt
     data_prefix: null

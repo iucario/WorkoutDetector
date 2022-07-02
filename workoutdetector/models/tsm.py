@@ -202,6 +202,7 @@ class TSM(nn.Module):
         modality (str): modality of input data, default 'RGB'
         base_model (str): base model name, default 'resnet50'
         consensus_type (str): 'avg' or 'identity', default 'avg'.
+        before_softmax (bool): If True, output raw score, else softmax. Default True.
         dropout (float): dropout rate, default 0.5
         img_feature_dim (int): I don't think it's used.
         crop_num (int): number of crops from one image, default 1
@@ -210,7 +211,8 @@ class TSM(nn.Module):
         is_shift (bool): use temporal shift module or not, default True
         shift_div (int): the number of folds of temporal shift, default 8
         shift_place (str): 'block' or 'blockres', default 'blockres'
-        fc_lr5 (bool): I don't know what it is.
+        fc_lr5 (bool): If True, multiply nn.Linear layers' weights by 5, 
+        and multiply nn.Linear layers' bias by 10. default False
         temporal_pool (bool): use temporal pooling or not, default False
         non_local (bool): use non-local module or not, default False
     """
@@ -394,8 +396,8 @@ class TSM(nn.Module):
             elif len(m._modules) == 0:
                 if len(list(m.parameters())) > 0:
                     raise ValueError(
-                        "New atomic module type: {}. Need to give it a learning policy".
-                        format(type(m)))
+                        f"New atomic module type: {type(m)}. Need to give it a learning policy"
+                    )
 
         return [
             {
@@ -491,27 +493,37 @@ def create_model(num_class: int = 2,
                  base_model: str = 'resnet50',
                  pretrained: bool = False,
                  ckpt: str = None,
-                 device: str = None) -> nn.Module:
+                 device: str = None,
+                 fc_lr5: bool = True,
+                 temporal_pool: bool = False,
+                 shift_div: int = 8,
+                 shift_place: str = 'blockres',
+                 consensus_type: str = 'avg',
+                 img_feature_dim: int = 256) -> nn.Module:
     if device is None:
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    assert consensus_type in ['avg', 'identity']
+    assert shift_place in ['blockres', 'block']
 
     model = TSM(num_class=num_class,
                 num_segments=num_seg,
                 base_model=base_model,
-                consensus_type='avg',
-                img_feature_dim=512,
+                consensus_type=consensus_type,
+                img_feature_dim=img_feature_dim,
                 is_shift=True,
-                shift_div=8,
-                shift_place='blockres',
-                fc_lr5=False,
-                temporal_pool=False,
+                shift_div=shift_div,
+                shift_place=shift_place,
+                fc_lr5=fc_lr5,
+                temporal_pool=temporal_pool,
                 non_local=False)
     if pretrained:
         checkpoint = torch.load(ckpt, map_location=device)
         state_dict = checkpoint['state_dict']
         dim_feature = state_dict['module.new_fc.weight'].shape
         if dim_feature[0] != num_class:
-            state_dict['module.new_fc.weight'] = torch.zeros(num_class, dim_feature[1]).cuda()
+            state_dict['module.new_fc.weight'] = torch.zeros(num_class,
+                                                             dim_feature[1]).cuda()
             state_dict['module.new_fc.bias'] = torch.zeros(num_class).cuda()
         base_dict = OrderedDict(
             ('.'.join(k.split('.')[1:]), v) for k, v in state_dict.items())

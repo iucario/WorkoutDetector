@@ -25,7 +25,7 @@ trainer:
   auto_lr_find: false
   prepare_data_per_node: null
   patience: 10
-  fast_dev_run: true
+  fast_dev_run: false
 optimizer:
   method: AdamW
   lr: 0.0005
@@ -43,7 +43,7 @@ model:
 data:
   dataset_type: ImageDataset
   data_root: data/RepCount
-  batch_size: 1
+  batch_size: 16
   filename_tmpl: null
   anno_col: null
   train:
@@ -77,4 +77,4 @@ callbacks:
     save_weights_only: false
     monitor: val/acc
     mode: max
-    dirpath: null
+    dirpath: exp/rep_image_12
