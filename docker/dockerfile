@@ -1,7 +1,20 @@
-FROM pytorch/pytorch:1.9.0-cuda10.2-cudnn7-devel
+FROM nvidia/cuda:11.3.1-cudnn8-devel-ubuntu20.04
 
-# Remove any third-party apt sources to avoid issues with expiring keys.
-RUN rm -f /etc/apt/sources.list.d/*.list
+ARG PYTHON_VERSION=3.9.12
+ARG PYTORCH_VERSION=1.10.2
+ARG PYTORCH_VERSION_SUFFIX=+cu113
+ARG TORCHVISION_VERSION=0.11.3
+ARG TORCHVISION_VERSION_SUFFIX=+cu113
+ARG TORCHAUDIO_VERSION=0.10.2
+ARG TORCHAUDIO_VERSION_SUFFIX=+cu113
+ARG PYTORCH_DOWNLOAD_URL=https://download.pytorch.org/whl/cu113/torch_stable.html
+
+ARG IMAGE_TAG=1.10.2-py3.9.12-cuda11.3.1-devel-ubuntu20.04
+ENV NVIDIA_DRIVER_CAPABILITIES ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
+
+# Fix Nvidia key
+RUN rm /etc/apt/sources.list.d/cuda.list && \
+    rm /etc/apt/sources.list.d/nvidia-ml.list
 
 # Install some basic utilities
 RUN apt-get update && apt-get install -y \
@@ -11,7 +24,26 @@ RUN apt-get update && apt-get install -y \
     git \
     bzip2 \
     libx11-6 \
- && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
+
+# Python
+RUN cd /tmp && \
+    wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz && \
+    tar -xvf Python-${PYTHON_VERSION}.tgz && \
+    cd Python-${PYTHON_VERSION} && \
+    ./configure --enable-optimizations && \
+    make && make install && \
+    cd .. && rm -r Python-${PYTHON_VERSION} && \
+    ln -s /usr/local/bin/python3 /usr/local/bin/python && \
+    ln -s /usr/local/bin/pip3 /usr/local/bin/pip
+
+# Pytorch
+RUN pip install \
+    torch==${PYTORCH_VERSION}${PYTORCH_VERSION_SUFFIX} \
+    torchvision==${TORCHVISION_VERSION}${TORCHVISION_VERSION_SUFFIX} \
+    torchaudio==${TORCHAUDIO_VERSION}${TORCHAUDIO_VERSION_SUFFIX} \
+    -f ${PYTORCH_DOWNLOAD_URL}; \
+    rm -r /root/.cache/pip
 
 # Timezone
 RUN apt-get update && \
@@ -26,48 +58,55 @@ WORKDIR /app
 
 # Create a non-root user and switch to it
 RUN adduser --disabled-password --gecos '' --shell /bin/bash user \
- && chown -R user:user /app
+    && chown -R user:user /app
 RUN echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-user
 USER user
 
 # All users can use /home/user as their home directory
 ENV HOME=/home/user
 RUN mkdir $HOME/.cache $HOME/.config \
- && chmod -R 777 $HOME
+    && chmod -R 777 $HOME
 
 # Set up the Conda environment
-ENV CONDA_AUTO_UPDATE_CONDA=false \
-    PATH=$HOME/miniconda/bin:$PATH
-COPY environment.yml /app/environment.yml
-RUN curl -sLo ~/miniconda.sh https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh \
- && chmod +x ~/miniconda.sh \
- && ~/miniconda.sh -b -p ~/miniconda \
- && rm ~/miniconda.sh \
- && conda env update -n base -f /app/environment.yml \
- && rm /app/environment.yml \
- && conda clean -ya
+# ENV CONDA_AUTO_UPDATE_CONDA=false \
+#     PATH=$HOME/miniconda/bin:$PATH
+# COPY environment.yml /app/environment.yml
+# RUN curl -sLo ~/miniconda.sh https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh \
+#     && chmod +x ~/miniconda.sh \
+#     && ~/miniconda.sh -b -p ~/miniconda \
+#     && rm ~/miniconda.sh \
+#     && conda env update -n base -f /app/environment.yml \
+#     && rm /app/environment.yml \
+#     && conda clean -ya
 
 # Install system libraries required by OpenCV.
 RUN sudo apt-get update \
-    && sudo apt-get install -y libgl1-mesa-glx libgtk2.0-0 libsm6 libxext6 \
+    && apt-get install ffmpeg libsm6 libxext6  -y \
+    && sudo apt-get install -y libgl1-mesa-glx libgtk2.0-0 \
     && sudo rm -rf /var/lib/apt/lists/*
 
 # Install OpenMMLab.
-RUN pip install openmim
-RUN mim install mmcv-full==1.5.0 \
-    && mim install mmdet \
-    && mim install mmpose \
-    && mim install mmaction2
+# RUN pip install openmim
+# RUN mim install mmcv-full==1.5.0 \
+#     && mim install mmdet \
+#     && mim install mmpose \
+#     && mim install mmaction2
 
 # Install requirements from PyPI.
 # RUN pip install -r requirements.txt
 RUN pip install pytorch_lightning \
+    einops \
     fvcore \
     timm \
     scikit-learn \
     scipy \
     pandas \
-    matplotlib
+    matplotlib \
+    decord \
+    opencv-python \
+    opencv-python-headless \
+    opencv-contrib-python \
+    opencv-contrib-python-headless
 
 # Set the default command to python3
 CMD ["python3"]

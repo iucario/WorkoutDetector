@@ -1,5 +1,6 @@
 import os
 
+os.environ["PL_TORCH_DISTRIBUTED_BACKEND"] = "gloo"
 os.environ["NCCL_DEBUG"] = "INFO"
 os.environ["CUDA_LAUNCH_BLOCKING"] = '1'
 os.environ['NCCL_P2P_LEVEL'] = "LOC"

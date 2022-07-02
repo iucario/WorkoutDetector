@@ -1,6 +1,6 @@
 import os
 import time
-from workoutdetector.settings import PROJ_ROOT
+PROJ_ROOT = '/app'
 
 model = dict(
     type='Recognizer2D',
@@ -21,20 +21,20 @@ model = dict(
     train_cfg=None,
     test_cfg=dict(average_clips='prob'))
 
-gpu_ids = range(1)
+gpu_ids = range(8)
 
 # optimizer
 optimizer = dict(type='SGD',
                  constructor='TSMOptimizerConstructor',
                  paramwise_cfg=dict(fc_lr5=True),
-                 lr=0.0015 / 8,
+                 lr=0.0015,
                  momentum=0.9,
                  weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=20, norm_type=2))
 
 # learning policy
 lr_config = dict(policy='step', step=[10, 20])
-total_epochs = 5
+total_epochs = 20
 
 # dataset settings
 dataset_type = 'RawframeDataset'
@@ -83,8 +83,8 @@ test_pipeline = [
     dict(type='Collect', keys=['imgs'], meta_keys=[]),
     dict(type='ToTensor', keys=['imgs'])
 ]
-data = dict(videos_per_gpu=2,
-            workers_per_gpu=1,
+data = dict(videos_per_gpu=6,
+            workers_per_gpu=2,
             test_dataloader=dict(videos_per_gpu=1),
             train=dict(type=dataset_type,
                        ann_file=ann_file_train,
@@ -106,7 +106,7 @@ evaluation = dict(interval=1,
                   topk=(1,))
 checkpoint_config = dict(interval=5)
 
-dist_params = dict(backend='nccl')
+dist_params = dict(backend='gloo')
 log_level = 'INFO'
 load_from = 'https://download.openmmlab.com/mmaction/recognition/tsm/'\
     'tsm_r50_1x1x8_50e_sthv2_rgb/tsm_r50_256h_1x1x8_50e_sthv2_rgb_20210816-032aa4da.pth'

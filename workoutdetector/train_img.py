@@ -6,7 +6,6 @@ from os.path import join as osj
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pytorch_lightning as pl
-from pytorch_lightning.strategies import DDPStrategy
 import timm
 import torch
 import torchvision.transforms as T
@@ -17,9 +16,9 @@ from pytorch_lightning import LightningDataModule, LightningModule, Trainer
 from pytorch_lightning.callbacks import (LearningRateMonitor, ModelCheckpoint,
                                          early_stopping)
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
+from pytorch_lightning.strategies import DDPStrategy
 from torch import Tensor, nn, optim
 from torch.utils.data import DataLoader
-from torchvision.models.detection import fasterrcnn_resnet50_fpn
 
 from workoutdetector.datasets import build_dataset
 from workoutdetector.settings import PROJ_ROOT
@@ -58,14 +57,13 @@ class LitModel(LightningModule):
         acc = (y_hat.argmax(dim=1) == y).float().mean()
         self.log("val/acc", acc, prog_bar=True, on_step=False, on_epoch=True)
         self.log('val/loss', loss)
-        return y_hat.argmax(dim=1) == y
+        return (y_hat.argmax(dim=1) == y).flatten()
 
-    def validation_epoch_end(self, batch_parts_outputs):
-        outputs = self.all_gather(batch_parts_outputs)
-        y_hat = torch.cat([output['y_hat'] for output in outputs], dim=0)
-        y = torch.cat([output['y'] for output in outputs], dim=0)
-        acc = (y_hat.argmax(dim=1) == y).float().mean()
-        self.best_val_acc = max(self.best_val_acc, acc.item())
+    def validation_epoch_end(self, outputs):
+        total = sum(len(o) for o in outputs)
+        correct = sum(o.sum().item() for o in outputs)
+        acc = correct / total
+        self.best_val_acc = max(self.best_val_acc, acc)
         if self.trainer.is_global_zero:
             self.log('val/best_acc', acc, rank_zero_only=True)
 
@@ -123,7 +121,7 @@ class DataModule(LightningDataModule):
         super().__init__()
         self.cfg = cfg
         self.num_class = num_class
-        self._check_data()
+        # self._check_data()
 
     def _check_data(self):
         """Check data exists and annotation files are correct."""
@@ -189,6 +187,10 @@ def train(cfg: CfgNode) -> None:
         DIRPATH = cfg.callbacks.modelcheckpoint.dirpath
     else:
         DIRPATH = osj(cfg.trainer.default_root_dir, 'checkpoints')
+    if not os.path.isdir(DIRPATH):
+        print(f'Create checkpoint directory: {DIRPATH}')
+        os.makedirs(DIRPATH)
+
     checkpoint_callback = ModelCheckpoint(
         save_top_k=cfg.callbacks.modelcheckpoint.save_top_k,
         save_weights_only=cfg.callbacks.modelcheckpoint.save_weights_only,
@@ -247,7 +249,8 @@ def train(cfg: CfgNode) -> None:
         auto_lr_find=cfg.trainer.auto_lr_find,
         log_every_n_steps=cfg.log.log_every_n_steps,
         fast_dev_run=cfg.trainer.fast_dev_run,
-        strategy=DDPStrategy(find_unused_parameters=False),
+        strategy=DDPStrategy(find_unused_parameters=False,
+                            process_group_backend='gloo'),
     )
 
     trainer.fit(model, data_module)
