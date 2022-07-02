@@ -72,6 +72,8 @@ Check `WorkoutDetector/tutorial.py` in [Google Colab](https://colab.research.goo
 
 Be sure to modify config `WorkoutDetector/settings/global_settings.py` to your project root.
 E.g. `PROJ_ROOT = '/home/your_name/WorkoutDetector/'`
+Or set environment variable `PROJ_ROOT` to your project root.
+E.g. `export PROJ_ROOT=$PWD`
 
 ### Build dataset
 
