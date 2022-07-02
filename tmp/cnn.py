@@ -42,7 +42,7 @@ def val_epoch(model, batch, loss_fn, device):
 
 
 def main():
-    device = 'cuda'
+    device = 'cuda:0'
 
     dataset = CIFAR10('./data',
                       'train',

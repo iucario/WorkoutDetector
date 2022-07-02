@@ -110,6 +110,7 @@ def main():
     print(y.shape)
 
     mp.spawn(example, args=(world_size,), nprocs=world_size, join=True)
+    print('Success!')
 
 
 if __name__ == "__main__":

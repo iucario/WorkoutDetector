@@ -2,6 +2,7 @@ import argparse
 import math
 import os
 import os.path as osp
+from typing import List, Optional
 
 import decord
 import mmcv
@@ -12,34 +13,31 @@ from mmdet.apis import inference_detector, init_detector
 import mmpose
 from mmpose.apis import inference_top_down_pose_model, init_pose_model
 import warnings
+
 warnings.filterwarnings("ignore")
 
+default_mmdet_root = '/workspace/mmdetection'
+default_mmpose_root = '/workspace/mmpose'
+default_tmpdir = '/workspace/tmp'
 
-default_mmdet_root = '/home/umi/projects/mmdetection'
-default_mmpose_root = '/home/umi/projects/mmpose'
-default_tmpdir = '/home/umi/projects/WorkoutDetector/tmp'
-
-default_det_config = (
-    f'{default_mmdet_root}/configs/faster_rcnn/'
-    'faster_rcnn_r50_caffe_fpn_mstrain_1x_coco-person.py')
-default_det_ckpt = (
-    'https://download.openmmlab.com/mmdetection/v2.0/faster_rcnn/'
-    'faster_rcnn_r50_fpn_1x_coco-person/'
-    'faster_rcnn_r50_fpn_1x_coco-person_20201216_175929-d022e227.pth')
+default_det_config = (f'{default_mmdet_root}/configs/faster_rcnn/'
+                      'faster_rcnn_r50_caffe_fpn_mstrain_1x_coco-person.py')
+default_det_ckpt = ('https://download.openmmlab.com/mmdetection/v2.0/faster_rcnn/'
+                    'faster_rcnn_r50_fpn_1x_coco-person/'
+                    'faster_rcnn_r50_fpn_1x_coco-person_20201216_175929-d022e227.pth')
 default_pose_config = (
     f'{default_mmpose_root}/configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/'
     'coco/hrnet_w32_coco_256x192.py')
-default_pose_ckpt = (
-    'https://download.openmmlab.com/mmpose/top_down/hrnet/'
-    'hrnet_w32_coco_256x192-c78dce93_20200708.pth')
+default_pose_ckpt = ('https://download.openmmlab.com/mmpose/top_down/hrnet/'
+                     'hrnet_w32_coco_256x192-c78dce93_20200708.pth')
 
 
-def extract_frame(video_path):
+def extract_frame(video_path: str) -> List[np.ndarray]:
     vid = decord.VideoReader(video_path)
     return [x.asnumpy() for x in vid]
 
 
-def detection_inference(model, frames):
+def detection_inference(model, frames) -> list:
     results = []
     for frame in frames:
         result = inference_detector(model, frame)
@@ -62,24 +60,23 @@ def pose_inference(model, frames, det_results):
     return kp
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i', '--input',  type=str, default='',
-                        help='input video file')
-    parser.add_argument('-l', '--video-list', type=str,
-                        help='the list of source videos')
-    parser.add_argument(
-        '-b', '--base-dir', type=str,
-        help='the base directory of the video list.'
-        'file_path = base_dir/video_name')
+    parser.add_argument('-i', '--input', type=str, help='input video file')
+    parser.add_argument('-l', '--video-list', type=str, help='the list of source videos')
+    parser.add_argument('-b',
+                        '--base-dir',
+                        type=str,
+                        help='the base directory of the video list.'
+                        'file_path = base_dir/video_name')
     # * out should ends with '.pkl'
     parser.add_argument('-o', '--out', type=str, help='output pickle name')
-    parser.add_argument('-t', '--tmpdir',  type=str, default=default_tmpdir)
+    parser.add_argument('-t', '--tmpdir', type=str, default=default_tmpdir)
     args = parser.parse_args()
     return args
 
 
-def process_detection(det_results, threshold=0.5):
+def process_detection(det_results, threshold: float = 0.5):
     # * Get detection results for human
     det_results = [x[0] for x in det_results]
     for i, res in enumerate(det_results):
@@ -93,7 +90,7 @@ def process_detection(det_results, threshold=0.5):
     return det_results
 
 
-def inference_one_video(filepath, det_model, pose_model):
+def inference_one_video(filepath: str, det_model, pose_model) -> Optional[dict]:
     if not os.path.exists(filepath):
         print(f'{filepath} does not exist. Skip.')
         return None
@@ -114,7 +111,7 @@ def inference_one_video(filepath, det_model, pose_model):
         keypoint=pose_results[..., :2].astype(np.float16),
         keypoint_score=pose_results[..., 2].astype(np.float16),
     )
-    
+
     return anno
 
 
@@ -130,8 +127,7 @@ def main():
         det_model = init_detector(det_config, det_ckpt, 'cuda')
         assert det_model.CLASSES[0] == 'person', 'A detector trained on COCO is required'
         pose_model = init_pose_model(pose_config, pose_ckpt, 'cuda')
-        anno = inference_one_video(
-            args.input, det_model, pose_model, args.tmpdir)
+        anno = inference_one_video(args.input, det_model, pose_model, args.tmpdir)
         print(anno)
 
     else:
@@ -148,7 +144,6 @@ def main():
             video_list = [osp.join(args.base_dir, x) for x in video_list]
         elif len(video_list[0]) == 2:
             labels = [x[1] for x in video_list]
-        
 
         det_model = init_detector(det_config, det_ckpt, 'cuda')
         assert det_model.CLASSES[0] == 'person', 'A detector trained on COCO is required'
@@ -159,9 +154,8 @@ def main():
             filepath = osp.join(args.base_dir, line[0])
             anno = inference_one_video(filepath, det_model, pose_model)
             if args.tmpdir:
-                out_path = osp.join(args.tmpdir, osp.basename(filepath)+'.pkl')
+                out_path = osp.join(args.tmpdir, osp.basename(filepath) + '.pkl')
                 mmcv.dump(anno, out_path)
-            
 
 
 if __name__ == '__main__':

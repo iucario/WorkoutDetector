@@ -20,7 +20,7 @@ from torch import Tensor, nn, optim
 from torch.utils.data import DataLoader
 
 from workoutdetector.datasets import build_dataset
-from workoutdetector.models.tsm import TSM, create_model
+from workoutdetector.models import tsm
 from workoutdetector.settings import PROJ_ROOT
 
 
@@ -31,7 +31,7 @@ class LitModel(LightningModule):
         super().__init__()
         self.example_input_array = torch.randn(1 * cfg.model.num_segments, 3, 224, 224)
         self.save_hyperparameters()
-        self.model = create_model(cfg.model.num_class,
+        self.model = tsm.create_model(cfg.model.num_class,
                                   cfg.model.num_segments,
                                   pretrained=True,
                                   ckpt=cfg.checkpoint)
@@ -198,12 +198,16 @@ def test(cfg: CfgNode) -> None:
 def train(cfg: CfgNode) -> None:
     data_module = DataModule(cfg.data, num_class=cfg.model.num_class)
     model = LitModel(cfg)
-
+    # FIXME: different time on distributed training. Checkpoint save path need this.
     timenow = time.strftime('%Y%m%d-%H%M%S', time.localtime())
-    # callbacks
+
+    # ------------------------------------------------------------------- #
+    # Callbacks
+    # ------------------------------------------------------------------- #
     CALLBACKS: List[Any] = []
 
-    lr_monitor = LearningRateMonitor(logging_interval='step')
+    # Learning rate monitor
+    lr_monitor = LearningRateMonitor(logging_interval='step', log_momentum=True)
     CALLBACKS.append(lr_monitor)
 
     # ModelCheckpoint callback
@@ -232,7 +236,9 @@ def train(cfg: CfgNode) -> None:
                                                   patience=cfg.trainer.patience)
         CALLBACKS.append(early_stop)
 
-    # loggers
+    # ------------------------------------------------------------------- #
+    # Loggers
+    # ------------------------------------------------------------------- #
     cfg_dict = cfg_to_dict(cfg)
     LOGGER: List[Any] = []
     if cfg.log.wandb.enable:
@@ -264,6 +270,9 @@ def train(cfg: CfgNode) -> None:
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+    # ------------------------------------------------------------------- #
+    # Trainer
+    # ------------------------------------------------------------------- #
     trainer = Trainer(
         default_root_dir=cfg.trainer.default_root_dir,
         max_epochs=cfg.trainer.max_epochs,
@@ -279,11 +288,14 @@ def train(cfg: CfgNode) -> None:
 
     trainer.fit(model, data_module)
 
+    # ------------------------------------------------------------------- #
+    # Test using best val acc model
+    # ------------------------------------------------------------------- #
     if not cfg.trainer.fast_dev_run:
         model.load_from_checkpoint(checkpoint_callback.best_model_path)
         print(f"===>Best model saved at:\n{checkpoint_callback.best_model_path}")
 
-    trainer = Trainer(logger=LOGGER, callbacks=CALLBACKS)
+    trainer = Trainer(logger=LOGGER, callbacks=CALLBACKS, devices=1)
     trainer.test(model, data_module)
 
 

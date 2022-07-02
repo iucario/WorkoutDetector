@@ -1,5 +1,5 @@
 from typing import Optional
-from workoutdetector.trainer import LitImageModel
+from workoutdetector.trainer import LitModel
 import torch
 import onnx
 import onnxruntime as ort
