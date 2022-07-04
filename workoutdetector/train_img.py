@@ -127,13 +127,13 @@ class DataModule(LightningDataModule):
     def _check_data(self):
         """Check data exists and annotation files are correct."""
         for split in ['train', 'val', 'test']:
-            ds = build_dataset(self.cfg.dataset_type, self.cfg, split)
+            ds = build_dataset(self.cfg, split)
             for i, (x, y) in enumerate(ds):
                 assert type(x) == torch.Tensor, f"{type(x) is not Tensor}"
                 assert 0 <= y < self.num_class, f"{y} is not in [0, {self.num_class})"
 
     def train_dataloader(self):
-        train_set = build_dataset(self.cfg.dataset_type, self.cfg, 'train')
+        train_set = build_dataset(self.cfg, 'train')
         loader = DataLoader(train_set,
                             num_workers=self.cfg.num_workers,
                             batch_size=self.cfg.batch_size,
@@ -141,7 +141,7 @@ class DataModule(LightningDataModule):
         return loader
 
     def val_dataloader(self):
-        val_set = build_dataset(self.cfg.dataset_type, self.cfg, 'val')
+        val_set = build_dataset(self.cfg, 'val')
         loader = DataLoader(val_set,
                             num_workers=self.cfg.num_workers,
                             batch_size=self.cfg.batch_size,

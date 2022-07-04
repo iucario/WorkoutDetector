@@ -12,7 +12,6 @@ import numpy as np
 import base64
 from torchvision.datasets.utils import download_and_extract_archive, verify_str_arg
 from torchvision.io import read_image
-from .build import DATASET_REGISTRY
 
 
 def build_label_list(data_root: str, anno_file: str, actions: List[str],
@@ -196,14 +195,18 @@ class RepcountHelper:
                      action: List[str] = ['situp']) -> Dict[str, RepcountItem]:
         """
         Args:
-            split: list of the split names
-            action: list of the action names
+            split (List[str]): list of the split names
+            action (List[str]): list of the action names. If ['all'], all actions are used.
 
         Returns:
             dict, name: RepcountItem
         """
         assert len(split) > 0, 'split must be specified, e.g. ["train", "val"]'
         assert len(action) > 0, 'action must be specified, e.g. ["pull_up", "squat"]'
+        split = [x.lower() for x in split]
+        action = [x.lower() for x in action]
+        if 'all' in action:
+            action = self.classes
         df = pd.read_csv(self.anno_file, index_col=0)
         df = df[df['split'].isin(split)]
         df = df[df['class_'].isin(action)]
@@ -547,7 +550,6 @@ class RepcountVideoDataset(RepcountDataset):
         return len(self.video_list)
 
 
-@DATASET_REGISTRY.register()
 class RepcountRecognitionDataset(torch.utils.data.Dataset):
     """RepCount action recognition(video classification) dataset
     
