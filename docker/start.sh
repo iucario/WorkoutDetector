@@ -5,4 +5,4 @@ docker run -it \
     -w /work \
     --entrypoint zsh \
     --name devbox \
-    dev:11.3.1-cudnn8-devel-ubuntu20.04
+    my/dev

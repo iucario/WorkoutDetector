@@ -28,20 +28,28 @@ RUN apt-get update && apt-get install -y \
     openssl \
     && rm -rf /var/lib/apt/lists/*
 
+# Timezone
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends &&\
+    DEBIAN_FRONTEND=noninteractive apt-get install -yq tzdata && \
+    rm /etc/localtime && \
+    ln -fs /usr/share/zoneinfo/Asia/Tokyo /etc/localtime    
+
 # Python
 RUN cd /tmp && \
     apt update -y && sudo apt upgrade -y && \
     apt-get install -y build-essential checkinstall  libreadline-gplv2-dev  \
     libncursesw5-dev  libssl-dev  libsqlite3-dev tk-dev libgdbm-dev \
     libc6-dev libbz2-dev libffi-dev zlib1g-dev && \
-    wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz && \
-    tar -xvf Python-${PYTHON_VERSION}.tgz && \
-    cd Python-${PYTHON_VERSION} && \
-    ./configure --enable-optimizations && \
-    make && make install && \
-    cd .. && rm -r Python-${PYTHON_VERSION} && \
-    ln -s /usr/local/bin/python3 /usr/local/bin/python && \
-    ln -s /usr/local/bin/pip3 /usr/local/bin/pip
+    sudo apt install -y python3-pip && \
+    sudo apt install python-is-python3
+
+# wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz && \
+# tar -xvf Python-${PYTHON_VERSION}.tgz && \
+# cd Python-${PYTHON_VERSION} && \
+# ./configure --enable-optimizations && \
+# make && make install && \
+# cd .. && rm -r Python-${PYTHON_VERSION} && \
+
 
 # Pytorch
 RUN pip install \
@@ -51,11 +59,11 @@ RUN pip install \
     -f ${PYTORCH_DOWNLOAD_URL}; \
     rm -r /root/.cache/pip
 
-# Timezone
-RUN apt-get update && \
-    apt-get install -yq tzdata && \
-    rm /etc/localtime && \
-    ln -fs /usr/share/zoneinfo/Asia/Tokyo /etc/localtime    
+# Install system libraries required by OpenCV.
+RUN apt-get update \
+    && apt-get install ffmpeg libsm6 libxext6  -y \
+    && apt-get install -y libgl1-mesa-glx libgtk2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create a working directory
 RUN mkdir /work
@@ -63,7 +71,7 @@ WORKDIR /work
 
 # Create a non-root user and switch to it
 RUN adduser --disabled-password --gecos '' --shell /bin/bash user \
-    && chown -R user:user /app
+    && chown -R user:user /work
 RUN echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-user
 USER user
 
@@ -84,19 +92,6 @@ RUN mkdir $HOME/.cache $HOME/.config \
 #     && rm /app/environment.yml \
 #     && conda clean -ya
 
-# Install system libraries required by OpenCV.
-RUN sudo apt-get update \
-    && apt-get install ffmpeg libsm6 libxext6  -y \
-    && sudo apt-get install -y libgl1-mesa-glx libgtk2.0-0 \
-    && sudo rm -rf /var/lib/apt/lists/*
-
-# Install OpenMMLab.
-# RUN pip install openmim
-# RUN mim install mmcv-full==1.5.0 \
-#     && mim install mmdet \
-#     && mim install mmpose \
-#     && mim install mmaction2
-
 # Install requirements from PyPI.
 # RUN pip install -r requirements.txt
 RUN pip install pytorch_lightning \
@@ -116,11 +111,19 @@ RUN pip install pytorch_lightning \
     yt-dlp
 
 # Zsh and oh-my-zsh
-RUN apt-get update && \
-    apt-get install -y zsh && \
-    rm -rf /var/lib/apt/lists/* && \
-    apt install git-core curl fonts-powerline -y && \
+RUN sudo apt-get update && \
+    sudo apt-get install -y zsh && \
+    sudo apt install git-core curl fonts-powerline -y && \
     sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh)" 
+
+# Install OpenMMLab.
+RUN pip install openmim && \
+    PATH=$PATH:/home/user/.local/bin && \
+    mim install mmcv-full==1.5.0 && \
+    mim install mmdet && \
+    mim install mmtrack && \
+    mim install mmpose && \
+    pip install git+https://github.com/open-mmlab/mmaction2.git
 
 # Set the default command to zsh
 CMD ["zsh"]
