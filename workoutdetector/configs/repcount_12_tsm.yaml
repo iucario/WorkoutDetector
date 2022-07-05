@@ -1,12 +1,11 @@
 trainer:
   default_root_dir: exp/repcount-12-tsm
   max_epochs: 50
-  early_stopping: false
-  enable_checkpointing: null
+  enable_checkpointing: true
   num_nodes: 1
   devices: auto
   gpus: auto
-  log_gpu_memory: true
+  log_gpu_memory: null
   enable_progress_bar: true
   overfit_batches: 0.0
   check_val_every_n_epoch: 1
@@ -20,10 +19,9 @@ trainer:
   resume_from_checkpoint: null
   benchmark: false
   deterministic: true
-  auto_lr_find: true
+  auto_lr_find: false
   auto_scale_batch_size: null
   prepare_data_per_node: null
-  patience: 10
   fast_dev_run: false
 optimizer:
   method: SGD
@@ -94,6 +92,9 @@ callbacks:
     monitor: val/acc
     mode: max
     dirpath: null
+  early_stopping:
+    enable: false
+    patience: 10
 
 seed: 0
 train: true

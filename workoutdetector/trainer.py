@@ -86,14 +86,14 @@ class LitModel(LightningModule):
         """
         # FIXME: how to get the best val_acc per epoch?
         # print('==> outputs:', outputs)
-        gathered = self.all_gather(outputs)  # shape: (batch, world_size, ...)
+        gathered = self.all_gather(outputs)  # shape: (world_size, batch, ...)
+        # print('==> gathered:', gathered)
+        correct = sum([x['correct'].item() for x in gathered])
+        total = sum([x['total'].item() for x in gathered])
+        # print('==> correct:', correct)
+        # print('==> total:', total)
+        acc = correct / total
         if self.trainer.is_global_zero:
-            # print('==> gathered:', gathered)
-            correct = sum([x['correct'].sum().item() for x in gathered])
-            total = sum([x['total'].sum().item() for x in gathered])
-            # print('==> correct:', correct)
-            # print('==> total:', total)
-            acc = correct / total
             self.best_val_acc = max(self.best_val_acc, acc)
             self.log('val/best_acc', acc, rank_zero_only=True)
 
@@ -245,10 +245,11 @@ def train(cfg: CfgNode) -> None:
     CALLBACKS.append(checkpoint_callback)
 
     # EarlyStopping callback
-    if cfg.trainer.early_stopping:
-        early_stop = early_stopping.EarlyStopping(monitor='train/loss',
-                                                  mode='min',
-                                                  patience=cfg.trainer.patience)
+    if cfg.callbacks.early_stopping.enable:
+        early_stop = early_stopping.EarlyStopping(
+            monitor='train/loss',
+            mode='min',
+            patience=cfg.callbacks.early_stopping.patience)
         CALLBACKS.append(early_stop)
 
     # ------------------------------------------------------------------- #
@@ -302,15 +303,10 @@ def train(cfg: CfgNode) -> None:
     # Trainer
     # ------------------------------------------------------------------- #
     trainer = Trainer(
-        default_root_dir=cfg.trainer.default_root_dir,
-        max_epochs=cfg.trainer.max_epochs,
-        accelerator=cfg.trainer.accelerator,
-        devices=cfg.trainer.devices,
+        **cfg.trainer,
         logger=LOGGER,
         callbacks=CALLBACKS,
-        auto_lr_find=cfg.trainer.auto_lr_find,
         log_every_n_steps=cfg.log.log_every_n_steps,
-        fast_dev_run=cfg.trainer.fast_dev_run,
         strategy=DDPStrategy(find_unused_parameters=True, process_group_backend='gloo'),
     )
 
