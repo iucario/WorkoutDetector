@@ -22,6 +22,37 @@ mim install mmcv
 pip install -r requirements.txt
 ```
 
+## Docker
+
+Build image for dev environment example:
+```
+docker built -t workout/dev docker
+docker run -it \
+    --gpus=all \
+    --shm-size=16gb \
+    --volume="$PWD:/work" \
+    --volume="/home/$USER/data:/home/user/data:ro" \
+    -w /work \
+    --entrypoint zsh \
+    --name devbox \
+    workout/dev
+
+sudo apt install vim tree -y
+pip install wandb pytest
+sudo pip install -e .
+export $PROJ_ROOT=$PWD
+```
+Run docker example
+
+```
+docker run --rm -it \
+  --gpus=all \
+  --shm-size=16gb \
+  --volume="$PWD:/work" \
+  --volume="/home/$USER/data:/home/user/data:ro" \
+  workout/dev:latest python3 workoutdetector/trainer.py
+```
+
 ## React demo
 
 1. Download onnx model. [OneDrive](https://1drv.ms/u/s!AiohV3HRf-34i_VY0jVJGvLeayIdjQ)

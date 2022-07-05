@@ -7,8 +7,8 @@ from .transform import PersonCrop, MultiScaleCrop
 
 
 def build_dataset(cfg: CfgNode, split: str) -> torch.utils.data.Dataset:
-    """
-    Build a dataset, defined by `dataset_name`.
+    """Build a dataset.
+
     Args:
         cfg (CfgNode): configs. Details can be found in
             slowfast/config/defaults.py
