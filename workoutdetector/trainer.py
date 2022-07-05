@@ -1,6 +1,5 @@
 import argparse
 import os
-
 import os.path as osp
 import time
 from os.path import join as osj
@@ -8,13 +7,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pytorch_lightning as pl
 import torch
-import torchvision.transforms as T
 import yaml
 from fvcore.common.config import CfgNode
 from pytorch_lightning import LightningDataModule, LightningModule, Trainer
 from pytorch_lightning.callbacks import (LearningRateMonitor, ModelCheckpoint,
                                          early_stopping)
-from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
+from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger, CSVLogger
 from pytorch_lightning.strategies import DDPStrategy
 from torch import Tensor, nn, optim
 from torch.utils.data import DataLoader
@@ -68,11 +66,20 @@ class LitModel(LightningModule):
                  on_epoch=True,
                  sync_dist=True)
         self.log('val/loss', loss, sync_dist=True)
-        return (y_hat.argmax(dim=1) == y).flatten()
+        correct = (y_hat.argmax(dim=1) == y).sum().item()
+        total = len(y)
+        return {'correct': correct, 'total': total}
 
     def validation_epoch_end(self, outputs):
-        total = sum(len(o) for o in outputs)
-        correct = sum(o.sum().item() for o in outputs)
+        """Calculate and log best val_acc per epoch."""
+        # FIXME: how to get the best val_acc per epoch?
+        # print('==> outputs:', outputs)
+        gathered = self.all_gather(outputs) # shape: (world_size, batch, ...)
+        # print('==> gathered:', gathered)
+        correct = sum([x['correct'].item() for x in gathered])
+        total = sum([x['total'].item() for x in gathered])
+        # print('==> correct:', correct)
+        # print('==> total:', total)
         acc = correct / total
         self.best_val_acc = max(self.best_val_acc, acc)
         if self.trainer.is_global_zero:
@@ -250,7 +257,7 @@ def train(cfg: CfgNode) -> None:
 
     if cfg.log.tensorboard.enable:
         tensorboard_logger = TensorBoardLogger(save_dir=cfg.log.output_dir,
-                                               name=cfg.log.name,
+                                               name='tensorboard',
                                                default_hp_metric=False)
         tensorboard_logger.log_hyperparams(cfg_dict,
                                            metrics={
@@ -262,6 +269,19 @@ def train(cfg: CfgNode) -> None:
                                                'test/loss': -1
                                            })
         LOGGER.append(tensorboard_logger)
+
+    if cfg.log.csv.enable:
+        csv_logger = CSVLogger(save_dir=cfg.log.output_dir, name='csv')
+        csv_logger.log_hyperparams(cfg_dict)
+        csv_logger.log_graph(model)
+        csv_logger.log_metrics(metrics={
+            'train/acc': 0,
+            'val/acc': 0,
+            'test/acc': 0,
+            'train/loss': -1,
+            'base_lr': -1
+        })
+        LOGGER.append(csv_logger)
 
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
@@ -287,11 +307,11 @@ def train(cfg: CfgNode) -> None:
     # ------------------------------------------------------------------- #
     # Test using best val acc model
     # ------------------------------------------------------------------- #
-    if not cfg.trainer.fast_dev_run:
+    if not cfg.trainer.fast_dev_run and LightningModule.global_rank == 0:
         model.load_from_checkpoint(checkpoint_callback.best_model_path)
         print(f"===>Best model saved at:\n{checkpoint_callback.best_model_path}")
 
-    trainer = Trainer(logger=LOGGER, callbacks=CALLBACKS, devices=1)
+    trainer = Trainer(logger=LOGGER, callbacks=CALLBACKS, devices=1, gpus=1)
     trainer.test(model, data_module)
 
 

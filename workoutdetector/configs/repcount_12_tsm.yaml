@@ -20,7 +20,7 @@ trainer:
   resume_from_checkpoint: null
   benchmark: false
   deterministic: true
-  auto_lr_find: false
+  auto_lr_find: true
   auto_scale_batch_size: null
   prepare_data_per_node: null
   patience: 10
@@ -78,10 +78,12 @@ log:
   output_dir: exp/repcount-12-tsm
   name: repcount-12-tsm
   log_every_n_steps: 20
+  csv:
+    enable: true
   tensorboard:
     enable: true
   wandb:
-    enable: true
+    enable: false
     offline: false
     project: repcount-12-tsm
 
