@@ -22,6 +22,7 @@ class FrameDataset(torch.utils.data.Dataset):
 
     Note:
         `start_index` should be 1-based.
+        `anno_path` should be absolute path.
 
     Args:
         data_root (str): root directory of the dataset

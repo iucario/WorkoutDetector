@@ -34,3 +34,4 @@ pyrightconfig.json
 *.onnx
 *.pth
 *.pt
+uniformer

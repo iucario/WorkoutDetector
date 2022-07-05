@@ -489,17 +489,18 @@ class TSM(nn.Module):
 
 
 def create_model(num_class: int = 2,
-                 num_seg: int = 8,
+                 num_segments: int = 8,
                  base_model: str = 'resnet50',
-                 pretrained: bool = False,
-                 ckpt: str = None,
+                 checkpoint: str = None,
                  device: str = None,
                  fc_lr5: bool = True,
+                 is_shift: bool = True,
                  temporal_pool: bool = False,
                  shift_div: int = 8,
                  shift_place: str = 'blockres',
                  consensus_type: str = 'avg',
-                 img_feature_dim: int = 256) -> nn.Module:
+                 img_feature_dim: int = 256,
+                 non_local: bool = False) -> nn.Module:
     if device is None:
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -507,19 +508,19 @@ def create_model(num_class: int = 2,
     assert shift_place in ['blockres', 'block']
 
     model = TSM(num_class=num_class,
-                num_segments=num_seg,
+                num_segments=num_segments,
                 base_model=base_model,
                 consensus_type=consensus_type,
                 img_feature_dim=img_feature_dim,
-                is_shift=True,
+                is_shift=is_shift,
                 shift_div=shift_div,
                 shift_place=shift_place,
                 fc_lr5=fc_lr5,
                 temporal_pool=temporal_pool,
-                non_local=False)
-    if pretrained:
-        checkpoint = torch.load(ckpt, map_location=device)
-        state_dict = checkpoint['state_dict']
+                non_local=non_local)
+    if checkpoint is not None:
+        ckpt = torch.load(checkpoint, map_location=device)
+        state_dict = ckpt['state_dict']
         dim_feature = state_dict['module.new_fc.weight'].shape
         if dim_feature[0] != num_class:
             state_dict['module.new_fc.weight'] = torch.zeros(num_class,
