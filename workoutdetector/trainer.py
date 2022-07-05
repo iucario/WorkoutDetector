@@ -31,11 +31,7 @@ class LitModel(LightningModule):
         super().__init__()
         self.example_input_array = torch.randn(1 * cfg.model.num_segments, 3, 224, 224)
         self.save_hyperparameters()
-        self.model = tsm.create_model(cfg.model.num_class,
-                                  cfg.model.num_segments,
-                                  pretrained=True,
-                                  ckpt=cfg.checkpoint)
-        # self.model = TSM(**cfg.model)
+        self.model = tsm.create_model(**cfg.model)
         self.loss_module = nn.CrossEntropyLoss()
         self.cfg = cfg
         self.best_val_acc = 0.0
