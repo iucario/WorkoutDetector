@@ -71,18 +71,30 @@ class LitModel(LightningModule):
         return {'correct': correct, 'total': total}
 
     def validation_epoch_end(self, outputs):
-        """Calculate and log best val_acc per epoch."""
+        """Calculate and log best val_acc per epoch.
+
+        Example::
+            
+            world_size = 8, batch_size = 2
+            >>> return {'correct': correct, 'total': total}
+
+            ===> gathered: 
+                [{'correct': tensor([0, 0, 0, 0, 0, 0, 1, 0], device='cuda:2', dtype=torch.int32),
+                'total': tensor([4, 4, 4, 4, 4, 4, 4, 4], device='cuda:2', dtype=torch.int32)},
+                {'correct': tensor([1, 0, 1, 0, 1, 0, 0, 0], device='cuda:2', dtype=torch.int32),
+                'total': tensor([4, 4, 4, 4, 4, 4, 4, 4], device='cuda:2', dtype=torch.int32)}]
+        """
         # FIXME: how to get the best val_acc per epoch?
         # print('==> outputs:', outputs)
-        gathered = self.all_gather(outputs) # shape: (world_size, batch, ...)
-        # print('==> gathered:', gathered)
-        correct = sum([x['correct'].item() for x in gathered])
-        total = sum([x['total'].item() for x in gathered])
-        # print('==> correct:', correct)
-        # print('==> total:', total)
-        acc = correct / total
-        self.best_val_acc = max(self.best_val_acc, acc)
+        gathered = self.all_gather(outputs)  # shape: (batch, world_size, ...)
         if self.trainer.is_global_zero:
+            # print('==> gathered:', gathered)
+            correct = sum([x['correct'].sum().item() for x in gathered])
+            total = sum([x['total'].sum().item() for x in gathered])
+            # print('==> correct:', correct)
+            # print('==> total:', total)
+            acc = correct / total
+            self.best_val_acc = max(self.best_val_acc, acc)
             self.log('val/best_acc', acc, rank_zero_only=True)
 
     def test_step(self, batch, batch_idx):
@@ -311,8 +323,9 @@ def train(cfg: CfgNode) -> None:
         model.load_from_checkpoint(checkpoint_callback.best_model_path)
         print(f"===>Best model saved at:\n{checkpoint_callback.best_model_path}")
 
-    trainer = Trainer(logger=LOGGER, callbacks=CALLBACKS, devices=1, gpus=1)
-    trainer.test(model, data_module)
+    if LightningModule.global_rank == 0:
+        trainer = Trainer(logger=LOGGER, callbacks=CALLBACKS, devices=1, gpus=1)
+        trainer.test(model, data_module)
 
 
 def export_model(ckpt: str, onnx_path: Optional[str] = None) -> None:
@@ -335,7 +348,7 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--cfg",
         dest="cfg_file",
         help="Path to the config file",
-        default=osj(PROJ_ROOT, "workoutdetector/configs/workouts.yaml"),
+        default=osj(PROJ_ROOT, "workoutdetector/configs/repcount_12_tsm.yaml"),
         type=str,
     )
     parser.add_argument(

@@ -1,5 +1,7 @@
 FROM nvidia/cuda:11.3.1-cudnn8-devel-ubuntu20.04
 
+ARG UID=2200
+ARG GID=2200
 ARG PYTHON_VERSION=3.9.12
 ARG PYTORCH_VERSION=1.10.2
 ARG PYTORCH_VERSION_SUFFIX=+cu113
@@ -71,7 +73,7 @@ WORKDIR /work
 
 # Create a non-root user and switch to it
 RUN adduser --disabled-password --gecos '' --shell /bin/bash user \
-    && chown -R user:user /work
+    && chown -R ${UID}:${GID} /work
 RUN echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-user
 USER user
 
