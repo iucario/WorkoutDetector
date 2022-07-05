@@ -41,9 +41,7 @@ def test_DataModule():
         cfg.trainer.defaut_root_dir = tmpdir
         cfg.log.output_dir = osp.join(tmpdir, 'logs')
         datamodule = DataModule(cfg.data, is_train=True, num_class=num_class)
-        train_loader = datamodule.train_dataloader()
         val_loader = datamodule.val_dataloader()
-        _check_data(train_loader)
         _check_data(val_loader)
 
 
