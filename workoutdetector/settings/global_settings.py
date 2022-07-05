@@ -1,6 +1,7 @@
 import os
 
-PROJ_ROOT = os.path.abspath('/app')
+PROJ_ROOT = '/work'
+DATA_ROOT = os.path.expanduser('~/data')
 
 if os.environ.get('PROJ_ROOT') is not None:
     PROJ_ROOT = os.environ['PROJ_ROOT']

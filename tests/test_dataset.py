@@ -1,4 +1,4 @@
-from workoutdetector.datasets import ImageDataset
+from workoutdetector.datasets import ImageDataset, build_dataset
 import torch
 import os
 import os.path as osp

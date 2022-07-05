@@ -49,21 +49,28 @@ model:
   non_local: false
 data:
   dataset_type: FrameDataset
-  data_root: data/RepCount/rawframes/
+  data_root: /home/user/data
   num_segments: 8
   filename_tmpl: 'img_{:05}.jpg'
   anno_col: 4
   batch_size: 4
   train:
-    anno: data/Binary/all-train.txt
+    anno: /home/user/data/Binary/all-train.txt
     data_prefix: null
+    transform:
+      person_crop: false
   val:
-    anno: data/Binary/all-val.txt
+    anno: /home/user/data/Binary/all-val.txt
     data_prefix: null
+    transform:
+      person_crop: false
   test:
-    anno: data/Binary/all-test.txt
+    anno: /home/user/data/Binary/all-test.txt
     data_prefix: null
+    transform:
+      person_crop: false
   num_workers: 8
+
 log:
   output_dir: exp/repcount-12-tsm
   name: repcount-12-tsm

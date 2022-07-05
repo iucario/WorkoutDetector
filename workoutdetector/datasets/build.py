@@ -1,41 +1,15 @@
+from typing import Optional, Tuple
 import torch
-from fvcore.common.registry import Registry
 import torchvision.transforms as T
-
-DATASET_REGISTRY = Registry("DATASET")
-DATASET_REGISTRY.__doc__ = """
-Registry for dataset.
-
-The registered object will be called with `obj(cfg, split)`.
-The call should return a `torch.utils.data.Dataset` object.
-"""
-
-data_transforms = {
-    'train':
-        T.Compose([
-            T.ToPILImage(),
-            T.Resize(256),
-            T.RandomCrop(224),
-            T.RandomHorizontalFlip(),
-            T.ToTensor(),
-            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ]),
-    'test':
-        T.Compose([
-            T.ToPILImage(),
-            T.Resize(256),
-            T.CenterCrop(224),
-            T.ToTensor(),
-            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ]),
-}
+from fvcore.common.config import CfgNode
+from .common import ImageDataset, FrameDataset
+from .transform import PersonCrop, MultiScaleCrop
 
 
-def build_dataset(dataset_name: str, cfg, split: str) -> torch.utils.data.Dataset:
+def build_dataset(cfg: CfgNode, split: str) -> torch.utils.data.Dataset:
     """
     Build a dataset, defined by `dataset_name`.
     Args:
-        dataset_name (str): the name of the dataset to be constructed.
         cfg (CfgNode): configs. Details can be found in
             slowfast/config/defaults.py
         split (str): the split of the data loader. Options include `train`,
@@ -43,47 +17,104 @@ def build_dataset(dataset_name: str, cfg, split: str) -> torch.utils.data.Datase
     Returns:
         Dataset: a constructed dataset specified by dataset_name.
     """
-    if dataset_name == 'FrameDataset':
-        if split == 'train':
-            anno_path = cfg.train.anno
-            prefix = cfg.train.data_prefix
-            transform = data_transforms['train']
-        elif split == 'val':
-            anno_path = cfg.val.anno
-            prefix = cfg.val.data_prefix
-            transform = data_transforms['test']
-        elif split == 'test':
-            anno_path = cfg.test.anno
-            prefix = cfg.test.data_prefix
-            transform = data_transforms['test']
+    if cfg.dataset_type == 'FrameDataset':
+        anno_path = cfg.get(split).anno
+        prefix = cfg.get(split).data_prefix
+        transform = cfg.get(split).transform
 
-        dataset = DATASET_REGISTRY.get('FrameDataset')(
+        return FrameDataset(
             data_root=cfg.data_root,
             anno_path=anno_path,
             data_prefix=prefix,
             num_segments=cfg.num_segments,
             filename_tmpl=cfg.filename_tmpl,
-            transform=transform,
+            transform=build_transform(split, person_crop=transform.person_crop),
             anno_col=cfg.anno_col,
         )
-        return dataset
-    elif dataset_name == 'ImageDataset':
-        if split == 'train':
-            anno_path = cfg.train.anno
-            prefix = cfg.train.data_prefix
-            transform = data_transforms['train']
-        elif split == 'val':
-            anno_path = cfg.val.anno
-            prefix = cfg.val.data_prefix
-            transform = data_transforms['test']
-        elif split == 'test':
-            anno_path = cfg.test.anno
-            prefix = cfg.test.data_prefix
-            transform = data_transforms['test']
+    elif cfg.dataset_type == 'ImageDataset':
+        anno_path = cfg.get(split).anno
+        prefix = cfg.get(split).data_prefix
+        transform = cfg.get(split).transform
 
-        dataset = DATASET_REGISTRY.get('ImageDataset')(data_root=cfg.data_root,
-                                                       data_prefix=prefix,
-                                                       anno_path=anno_path,
-                                                       transform=transform)
-        return dataset
-    return DATASET_REGISTRY.get(dataset_name)(cfg)
+        return ImageDataset(
+            data_root=cfg.data_root,
+            data_prefix=prefix,
+            anno_path=anno_path,
+            transform=build_transform(split, person_crop=transform.person_crop),
+        )
+
+    else:
+        raise KeyError(f"Dataset '{cfg.dataset_type}' is not supported.")
+
+
+MEAN_STD = dict(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+MULTI_SCALES = (1.0, 0.875, 0.75, 0.66)
+INPUT_SIZE = (224, 224)
+
+
+def build_transform(split: str, person_crop: bool = False) -> T.Compose:
+    """Build transform for videos and images
+    
+    Args:
+        dataset_type (str): 'FrameDataset' or 'ImageDataset'
+        split (str): split name. If train, 
+        use multi_scale_crop. If test, use person_crop.
+        person_crop (bool): whether to use PersonCrop. If False, use center crop.
+    Returns:
+        T.Compose, transform
+    """
+    if split == 'train':
+        return build_train_transform()
+    else:
+        return build_test_transform(person_crop=person_crop)
+
+
+def build_train_transform(
+        multi_scale_crop: Optional[Tuple[float, ...]] = MULTI_SCALES) -> T.Compose:
+    """Build train transform
+    
+    Args:
+        multi_scale_crop (None or List): list of scale sizes to crop
+    Returns:
+        T.Compose, train transform
+    """
+    if multi_scale_crop is None:
+        return T.Compose([
+            T.ConvertImageDtype(torch.float32),
+            T.Resize(256),
+            T.RandomCrop(INPUT_SIZE),
+            T.RandomHorizontalFlip(),
+            T.Normalize(**MEAN_STD),
+        ])
+    else:
+        return T.Compose([
+            T.ConvertImageDtype(torch.float32),
+            MultiScaleCrop(scales=multi_scale_crop),
+            T.Resize(INPUT_SIZE),
+            T.RandomHorizontalFlip(),
+            T.Normalize(**MEAN_STD),
+        ])
+
+
+def build_test_transform(person_crop: bool) -> T.Compose:
+    """Build test transform
+    
+    Args:
+        person_crop (bool): whether to use PersonCrop. If not use centor crop.
+    Returns:
+        T.Compose, test transform
+    """
+    if person_crop:
+        return T.Compose([
+            PersonCrop(),
+            T.ConvertImageDtype(torch.float32),
+            T.Resize(256),
+            T.Normalize(**MEAN_STD),
+        ])
+    else:
+        return T.Compose([
+            T.ConvertImageDtype(torch.float32),
+            T.Resize(256),
+            T.CenterCrop(INPUT_SIZE),
+            T.Normalize(**MEAN_STD),
+        ])

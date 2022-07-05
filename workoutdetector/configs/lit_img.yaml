@@ -4,7 +4,7 @@ trainer:
   early_stopping: false
   enable_checkpointing: null
   num_nodes: 1
-  devices: 4
+  devices: auto
   gpus: auto
   strategy: ddp
   log_gpu_memory: true

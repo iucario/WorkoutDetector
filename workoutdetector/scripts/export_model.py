@@ -35,7 +35,7 @@ def _convert_batchnorm(module: torch.nn.Module) -> torch.nn.Module:
 def export_lit_model(ckpt: str, onnx_path: Optional[str] = None) -> None:
     """Export a LitImageModel to ONNX format."""
 
-    model = LitImageModel.load_from_checkpoint(ckpt)
+    model = LitModel.load_from_checkpoint(ckpt)
     model.eval()
     if onnx_path is None:
         onnx_path = ckpt.replace('.ckpt', '.onnx')
