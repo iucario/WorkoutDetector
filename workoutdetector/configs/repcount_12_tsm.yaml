@@ -20,7 +20,7 @@ trainer:
   resume_from_checkpoint: null
   benchmark: false
   deterministic: true
-  auto_lr_find: false
+  auto_lr_find: true
   auto_scale_batch_size: null
   prepare_data_per_node: null
   patience: 10
