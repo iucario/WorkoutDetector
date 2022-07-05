@@ -20,10 +20,6 @@ conda env create -f conda_env.yml
 pip install openmim
 mim install mmcv
 pip install -r requirements.txt
-
-cd mmaction2
-pip install -e .
-pip install -r requirements/optional.txt
 ```
 
 ## React demo
@@ -107,14 +103,31 @@ data/Workouts/
 └── val.txt
 ```
 
+### Train video with mmaction2
+
+`python workoutdetector/train.py`
+config: `configs/tsm_action_recogition_sthv2.py`
+
 ## Train an exercise state recognition model
 
 ### Train video with tsm
 
-Download weights pretrained on SSV2:
-https://hanlab.mit.edu/projects/tsm/models/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth
+1. Build label files
+   `scripts/build_label_files.py`
 
-`python workoutdetector/trainer.py --cfg workoutdetector/configs/tsm.yaml`
+   ```
+    anno_file = 'datasets/RepCount/annotation.csv'
+    data_root = os.path.join(PROJ_ROOT, 'data')
+    dst_dir = os.path.join(data_root, 'Binary')
+    build_with_start(data_root, anno_file, dst_dir)
+   ```
+
+2. Download weights pretrained on SSV2:
+   https://hanlab.mit.edu/projects/tsm/models/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth
+3. Modify config file
+   `configs/repcount_12_tsm.yaml`
+4. Train
+   `python workoutdetector/trainer.py --cfg workoutdetector/configs/tsm.yaml`
 
 - Configs
   Best weigths are saved in directory `{cfg.trainer.default_root_dir}/checkpoints`,
@@ -124,12 +137,6 @@ https://hanlab.mit.edu/projects/tsm/models/TSM_somethingv2_RGB_resnet50_shift8_b
   Tensorboard logs are in `{cfg.log.output_dir}/{cfg.log.name}/version_{num}`.
 
   Wandb logs are in `{cfg.log.output_dir}/wandb`.
-
-
-### Train video with mmaction2
-
-`python workoutdetector/train.py`
-config: `configs/tsm_action_recogition_sthv2.py`
 
 ### Train rep with mmaction2
 

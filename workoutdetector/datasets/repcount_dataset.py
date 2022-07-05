@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-import math
 import os
 import os.path as osp
 from os.path import join as osj
@@ -12,25 +11,36 @@ import numpy as np
 import base64
 from torchvision.datasets.utils import download_and_extract_archive, verify_str_arg
 from torchvision.io import read_image
+from workoutdetector.datasets.transform import sample_frames
+from workoutdetector.settings import PROJ_ROOT, DATA_ROOT
 
 
-def build_label_list(data_root: str, anno_file: str, actions: List[str],
-                     out_dir: str, overwrite: bool = False) -> None:
+def build_label_list(data_root: str,
+                     anno_file: str,
+                     actions: List[str],
+                     out_dir: str,
+                     overwrite: bool = False) -> None:
     """Build label list for common.ImageDataset
     
     Args:
         data_root (str): root directory of the RepCount dataset. Like `data/RepCount`.
         Will be used in RepcountHelper.
-        annO_file (str): path to annotation file. Used in RepcountHelper.
+        anno_file (str): path to annotation file. Used in RepcountHelper.
         actions: list of str, action names. 
         Choose from ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
         out_dir (str): train.txt, val.txt, test.txt will be save in `out_dir`
 
-    Example:
+    Example::
+
         >>> data_root = osj(PROJ_ROOT, 'data/RepCount')
         >>> actions = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
         >>> out_dir = osp.join(PROJ_ROOT, 'data/RepImage')
         >>> build_label_list(data_root, REPCOUNT_ANNO_PATH, actions, out_dir, True)
+
+        Creating directory: /work/data/RepImage
+        Skip stu9_67.mp4 because count=0
+        Done. First line in /work/data/RepImage/train.txt:
+        rawframes/train/train951/img_00007.jpg 10
     """
     ACTIONS = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
     for a in actions:
@@ -57,7 +67,7 @@ def build_label_list(data_root: str, anno_file: str, actions: List[str],
         start_img = filename_tmpl.format(start_idx + 1)
         mid_img = filename_tmpl.format(mid_idx + 1)
         cls_idx = actions.index(item.class_)
-        rel_path = osp.relpath( item.frames_path, data_root)
+        rel_path = osp.relpath(item.frames_path, data_root)
         if item['split'] == 'train':
             train.write(f"{rel_path}/{start_img} {cls_idx*2}\n")
             train.write(f"{rel_path}/{mid_img} {cls_idx*2+1}\n")
@@ -74,6 +84,7 @@ def build_label_list(data_root: str, anno_file: str, actions: List[str],
         line = f.readline()
     print(f'Done. First line in {train_txt}:\n{line}')
 
+
 def parse_onedrive(link: str) -> str:
     """Parse onedrive link to download link.
 
@@ -88,41 +99,6 @@ def parse_onedrive(link: str) -> str:
     s = b.decode('ascii')
     res = f'https://api.onedrive.com/v1.0/shares/u!{s}/root/content'
     return res
-
-
-def sample_frames(total: int, num: int, offset: int = 0) -> List[int]:
-    """Uniformly sample num frames from video
-    
-    Args:
-        total: int, total frames, 
-        num: int, number of frames to sample
-        offset: int, offset from start of video
-    Returns: 
-        list of frame indices starting from offset
-    """
-
-    if total < num:
-        # repeat frames if total < num
-        repeats = math.ceil(num / total)
-        data = [x for x in range(total) for _ in range(repeats)]
-        total = len(data)
-    else:
-        data = list(range(total))
-    interval = total // num
-    indices = np.arange(0, total, interval)[:num]
-    for i, x in enumerate(indices):
-        rand = np.random.randint(0, interval)
-        if i == num - 1:
-            upper = total
-            rand = np.random.randint(0, upper - x)
-        else:
-            upper = min(interval * (i + 1), total)
-        indices[i] = (x + rand) % upper
-    assert len(indices) == num, f'len(indices)={len(indices)}'
-    for i in range(1, len(indices)):
-        assert indices[i] > indices[i - 1], f'indices[{i}]={indices[i]}'
-    assert num == len(indices), f'num={num}'
-    return [data[i] + offset for i in indices]
 
 
 def eval_count(preds: List[int], targets: List[int]) -> Tuple[float, float]:
@@ -311,6 +287,9 @@ class RepcountDataset(torch.utils.data.Dataset):  # type: ignore
             count: repetition count
             reps: repetition indices, in format `[s1, e1, s2, e2, ...]`
 
+        The annotation csv file is expected to be in:
+        `{PROJ_ROOT}/datasets/RepCount/annotations.csv`
+
     """
     _URL_VIDEO = 'https://1drv.ms/u/s!AiohV3HRf-34ipk0i1y2P1txpKYXFw'
     _URL_ANNO = 'https://1drv.ms/f/s!AiohV3HRf-34i_V9MWtdu66tCT2pGQ'
@@ -331,8 +310,7 @@ class RepcountDataset(torch.utils.data.Dataset):  # type: ignore
             )
         verify_str_arg(split, "split", ("train", "val", "test"))
         self.split = split
-        anno_path = os.path.join(self._data_path,
-                                 '../../datasets/RepCount/annotation.csv')
+        anno_path = os.path.join(PROJ_ROOT, 'datasets/RepCount/annotation.csv')
         if not os.path.exists(anno_path):
             raise OSError(f'{anno_path} not found.')
         self._anno_df = pd.read_csv(anno_path, index_col=0)
@@ -346,8 +324,7 @@ class RepcountDataset(torch.utils.data.Dataset):  # type: ignore
         """
 
         row = self.df.iloc[index]
-        video_frame_path = os.path.join(self._data_path, 'rawframes', row['split'],
-                                        row['name'])
+        video_frame_path = os.path.join('RepCount/rawframes', row['split'], row['name'])
         label = self.classes.index(row['class'])
         count = row['count']
         reps = list(map(int, row.reps.split())) if count else []
@@ -368,7 +345,7 @@ class RepcountDataset(torch.utils.data.Dataset):  # type: ignore
         Returns:
             list of dict: videos, 
                 {
-                    video_path: path_to_raw_frames_dir, 
+                    video_path: path to raw frames dir, relative to `root`
                     start: start_frame_index, start from 1,
                     end: end_frame_index
                     length: end_frame_index - start_frame_index + 1
@@ -390,32 +367,20 @@ class RepcountDataset(torch.utils.data.Dataset):  # type: ignore
                     end += 1  # but annotated frame index starts from 0
                     mid = (start + end) // 2
                     videos.append({
-                        'video_path':
-                            os.path.join(self._data_path, 'rawframes', split, name),
-                        'start':
-                            start,
-                        'end':
-                            mid,
-                        'length':
-                            mid - start + 1,
-                        'class':
-                            row.class_,
-                        'label':
-                            0
+                        'video_path': os.path.join('RepCount/rawframes', split, name),
+                        'start': start,
+                        'end': mid,
+                        'length': mid - start + 1,
+                        'class': row.class_,
+                        'label': 0
                     })
                     videos.append({
-                        'video_path':
-                            os.path.join(self._data_path, 'rawframes', split, name),
-                        'start':
-                            mid + 1,
-                        'end':
-                            end,
-                        'length':
-                            end - mid,
-                        'class':
-                            row.class_,
-                        'label':
-                            1
+                        'video_path': os.path.join('RepCount/rawframes', split, name),
+                        'start': mid + 1,
+                        'end': end,
+                        'length': end - mid,
+                        'class': row.class_,
+                        'label': 1
                     })
         return videos
 
@@ -541,7 +506,7 @@ class RepcountVideoDataset(RepcountDataset):
         if self.transform is not None:
             frame_list = [self.transform(frame) for frame in frame_list]
         frame_tensor = torch.stack(frame_list, 0)
-        assert frame_tensor.shape[1] == self.num_segments, \
+        assert frame_tensor.shape[0] == self.num_segments, \
             f'frame_list.shape[0] = {frame_tensor.shape[0]}, ' \
             f'but self.num_segments = {self.num_segments}'
         return frame_tensor, self.video_list[index]['label']
@@ -613,13 +578,13 @@ if __name__ == '__main__':
     data_root = os.path.join(PROJ_ROOT, 'data')
     dataset = RepcountVideoDataset(data_root,
                                    split='test',
-                                   action='push_up',
-                                   num_segments=16)
-    print(dataset.classes)
+                                   action='jump_jack',
+                                   num_segments=8)
+    # print(dataset.classes)
     random_index = np.random.randint(0, len(dataset))
     img, label = dataset[random_index]
     plt.figure(figsize=(8, 4), dpi=200)
-    img = einops.rearrange(img, 'c (b1 b2) h w -> (b1 h) (b2 w) c', b2=4)
+    img = einops.rearrange(img, '(b1 b2) c h w -> (b1 h) (b2 w) c', b2=4)
     plt.title(f'label: {label}')
     print(img.shape)
     plt.imshow(img)

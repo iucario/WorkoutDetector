@@ -148,7 +148,7 @@ class DataModule(LightningDataModule):
     def _check_data(self):
         """Check data exists and annotation files are correct."""
 
-        print(f"Checking data at {self.cfg.data.path}")
+        print(f"Checking {self.cfg.dataset_type} at {self.cfg.data_root}")
         for split in ['train', 'val', 'test']:
             ds = build_dataset(self.cfg, split)
             for i, (x, y) in enumerate(ds):
@@ -174,7 +174,7 @@ class DataModule(LightningDataModule):
 
     def test_dataloader(self):
         if self.cfg.test.anno:
-            test_set = build_dataset(self.cfg.dataset_type, self.cfg, 'test')
+            test_set = build_dataset(self.cfg, 'test')
             loader = DataLoader(test_set,
                                 num_workers=self.cfg.num_workers,
                                 batch_size=self.cfg.batch_size,

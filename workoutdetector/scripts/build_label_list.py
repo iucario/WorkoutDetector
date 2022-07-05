@@ -38,23 +38,34 @@ def build_label() -> None:
                 f.write(f'{vid} {num_frames} {label}\n')
 
 
-def build_with_start(data_root: str, dst_dir: str) -> None:
+def build_with_start(data_root: str, anno_file: str, dst_dir: str) -> None:
     """Creates label files for repetition video classification.
     Example line: `/app/data/RepCount/rawframes/test/train3344 2 12 0`
 
     Args:
-        data_root: Directory to RepCount dataset. Same as in RepCountDataset.
-        dst_dir: Path to dir where txt files will be created.
+        data_root (str): Directory to RepCount dataset. Same as in RepCountDataset.
+        anno_file (str): Path to annotation file.
+        dst_dir (str): Path to dir where txt files will be created.
 
     Note:
         For each action and `all-{split}.txt` file is created.
         Lines in the label files are in the format:
             `{video_path} {start} {length} {label}`
     
-    Example:
-    >>> data_root = os.path.join(PROJ_ROOT, 'data')
-    >>> dst_dir = os.path.join(data_root, 'Binary')
-    >>> build_with_start(data_root, dst_dir)
+    Example::
+
+        >>> anno_file = 'datasets/RepCount/annotation.csv'
+        >>> data_root = os.path.expandeuser('data')
+        >>> dst_dir = os.path.join(data_root, 'Binary')
+        >>> build_with_start(data_root, anno_file, dst_dir)
+
+        project root: /work
+        ===> Done! Label files are created in
+        /home/user/data/Binary
+        ===> First line of all-train.txt:
+        RepCount/rawframes/train/train951 7 34 10
+        # Creates `{data_root}/Binary/all-train.txt` and `{data_root}/Binary/all-val.txt` and 
+        # `all-test.txt`, `situp-train.txt`, etc.
     """
 
     # pop bench_pressing because there are too many errors in the annotation
@@ -84,8 +95,10 @@ def build_with_start(data_root: str, dst_dir: str) -> None:
                 action_idx = CLASSES.index(action)
                 label = v['label'] + 2 * action_idx
                 f.write(f'{v["video_path"]} {v["start"]} {v["length"]} {label}\n')
-    
+
     print(f'===> Done! Label files are created in\n{dst_dir}')
+    first_line = open(osp.join(dst_dir, 'all-train.txt')).readline()
+    print(f'===> First line of all-train.txt:\n{first_line}')
 
 
 def relabeled_csv_to_rawframe_list(csv_path: str, dst_dir: str, video_dir: str) -> None:
@@ -153,9 +166,10 @@ def relabeled_csv_to_rawframe_list(csv_path: str, dst_dir: str, video_dir: str) 
 
 if __name__ == '__main__':
     print('project root:', PROJ_ROOT)
-    data_root = os.path.join(PROJ_ROOT, 'data')
+    anno_file = 'datasets/RepCount/annotation.csv'
+    data_root = osp.expanduser('~/data')
     dst_dir = os.path.join(data_root, 'Binary')
-    build_with_start(data_root, dst_dir)
+    build_with_start(data_root, anno_file, dst_dir)
 
     # relabeled_csv_to_rawframe_list(
     #     '/home/umi/data/pull-up-relabeled/pull-up-relabeled.csv',

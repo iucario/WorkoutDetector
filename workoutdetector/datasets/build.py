@@ -20,6 +20,7 @@ def build_dataset(cfg: CfgNode, split: str) -> torch.utils.data.Dataset:
     if cfg.dataset_type == 'FrameDataset':
         anno_path = cfg.get(split).anno
         prefix = cfg.get(split).data_prefix
+        transform = cfg.get(split).transform
 
         return FrameDataset(
             data_root=cfg.data_root,
@@ -27,18 +28,19 @@ def build_dataset(cfg: CfgNode, split: str) -> torch.utils.data.Dataset:
             data_prefix=prefix,
             num_segments=cfg.num_segments,
             filename_tmpl=cfg.filename_tmpl,
-            transform=build_transform(split, person_crop=cfg.person_crop),
+            transform=build_transform(split, person_crop=transform.person_crop),
             anno_col=cfg.anno_col,
         )
     elif cfg.dataset_type == 'ImageDataset':
         anno_path = cfg.get(split).anno
         prefix = cfg.get(split).data_prefix
+        transform = cfg.get(split).transform
 
         return ImageDataset(
             data_root=cfg.data_root,
             data_prefix=prefix,
             anno_path=anno_path,
-            transform=build_transform(split, person_crop=cfg.person_crop),
+            transform=build_transform(split, person_crop=transform.person_crop),
         )
 
     else:

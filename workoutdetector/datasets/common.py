@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch import Tensor
 from torchvision.io import read_image, read_video
-from .transform import sample_frames
+from workoutdetector.datasets.transform import sample_frames
 from workoutdetector.settings import PROJ_ROOT
 
 
@@ -169,8 +169,8 @@ class ImageDataset(torch.utils.data.Dataset):
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    data_root = os.path.join(PROJ_ROOT, 'data/RepCount/rawframes')
-    anno_path = os.path.join(PROJ_ROOT, 'data/relabeled/pull_up/train.txt')
+    data_root = osp.expanduser('~/data/RepCount/rawframes')
+    anno_path = osp.expanduser('data/relabeled/pull_up/train.txt')
     dataset = FrameDataset(data_root,
                            anno_path=anno_path,
                            data_prefix=None,
