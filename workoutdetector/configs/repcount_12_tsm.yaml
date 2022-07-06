@@ -1,5 +1,5 @@
 trainer:
-  default_root_dir: exp/repcount-12-tsm
+  default_root_dir: exp/repcount-12-tsm # where to save logs and checkpoints
   max_epochs: 50
   early_stopping: false
   enable_checkpointing: null
@@ -20,21 +20,21 @@ trainer:
   resume_from_checkpoint: null
   benchmark: false
   deterministic: true
-  auto_lr_find: true
+  auto_lr_find: false
   auto_scale_batch_size: null
   prepare_data_per_node: null
   patience: 10
   fast_dev_run: false
 optimizer:
   method: SGD
-  lr: 0.0015
+  lr: 0.005
   momentum: 0.9
   weight_decay: 5.0e-4
   eps: 1.0e-8
 lr_scheduler:
   policy: StepLR
   gamma: 0.1
-  step: 7
+  step: 8
 
 model:
   num_class: 12
@@ -52,40 +52,40 @@ model:
 
 data:
   dataset_type: FrameDataset
-  data_root: /home/user/data
+  data_root: /home/root/data
   num_segments: 8
   filename_tmpl: 'img_{:05}.jpg'
   anno_col: 4
   batch_size: 4
   train:
-    anno: /home/user/data/Binary/all-train.txt
+    anno: /home/root/data/Binary/all-train.txt
     data_prefix: null
     transform:
       person_crop: false
   val:
-    anno: /home/user/data/Binary/all-val.txt
+    anno: /home/root/data/Binary/all-val.txt
     data_prefix: null
     transform:
       person_crop: false
   test:
-    anno: /home/user/data/Binary/all-test.txt
+    anno: /home/root/data/Binary/all-test.txt
     data_prefix: null
     transform:
       person_crop: false
   num_workers: 8
 
 log:
-  output_dir: exp/repcount-12-tsm
-  name: repcount-12-tsm
+  output_dir: null # os.path.join(trainer.default_root_dir, timestamp)
   log_every_n_steps: 20
   csv:
     enable: true
   tensorboard:
     enable: true
   wandb:
-    enable: false
+    enable: true
     offline: false
     project: repcount-12-tsm
+    name: repcount-12-tsm
 
 callbacks:
   modelcheckpoint:
@@ -93,7 +93,8 @@ callbacks:
     save_weights_only: false
     monitor: val/acc
     mode: max
-    dirpath: null
+    dirpath: null # if None, defaults to log.output_dir
 
 seed: 0
 train: true
+timestamp: null # Will be initialized in python file

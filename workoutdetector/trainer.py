@@ -213,8 +213,10 @@ def test(cfg: CfgNode) -> None:
 def train(cfg: CfgNode) -> None:
     data_module = DataModule(cfg.data, num_class=cfg.model.num_class)
     model = LitModel(cfg)
-    # FIXME: different time on distributed training. Checkpoint save path need this.
-    timenow = time.strftime('%Y%m%d-%H%M%S', time.localtime())
+
+    timestamp = time.strftime('%Y%m%d-%H%M%S', time.localtime())
+    cfg.timestamp = timestamp
+    LOG_DIR = os.path.join(cfg.trainer.default_root_dir, timestamp)
 
     # ------------------------------------------------------------------- #
     # Callbacks
@@ -229,18 +231,14 @@ def train(cfg: CfgNode) -> None:
     if cfg.callbacks.modelcheckpoint.dirpath:
         DIRPATH = cfg.callbacks.modelcheckpoint.dirpath
     else:
-        DIRPATH = osj(cfg.trainer.default_root_dir, 'checkpoints')
+        DIRPATH = LOG_DIR
     if not os.path.isdir(DIRPATH):
         print(f'Create checkpoint directory: {DIRPATH}')
         os.makedirs(DIRPATH)
-
+    cfg.callbacks.modelcheckpoint.dirpath = DIRPATH
     checkpoint_callback = ModelCheckpoint(
-        save_top_k=cfg.callbacks.modelcheckpoint.save_top_k,
-        save_weights_only=cfg.callbacks.modelcheckpoint.save_weights_only,
-        monitor=cfg.callbacks.modelcheckpoint.monitor,
-        mode=cfg.callbacks.modelcheckpoint.mode,
-        dirpath=DIRPATH,
-        filename="best-val-acc={val/acc:.2f}-epoch={epoch:02d}" + f"-{timenow}",
+        **cfg.callbacks.modelcheckpoint,
+        filename="best-val-acc={val/acc:.3f}-epoch={epoch:02d}" + f"-{timestamp}",
         auto_insert_metric_name=False)
     CALLBACKS.append(checkpoint_callback)
 
@@ -258,9 +256,9 @@ def train(cfg: CfgNode) -> None:
     LOGGER: List[Any] = []
     if cfg.log.wandb.enable:
         wandb_logger = WandbLogger(
-            save_dir=osj(cfg.log.output_dir),
+            save_dir=LOG_DIR,
             project=cfg.log.wandb.project,
-            name=cfg.log.name,
+            name=cfg.log.wandb.name,
             offline=cfg.log.wandb.offline,
         )
         wandb_logger.log_hyperparams(cfg_dict)
@@ -268,7 +266,7 @@ def train(cfg: CfgNode) -> None:
         LOGGER.append(wandb_logger)
 
     if cfg.log.tensorboard.enable:
-        tensorboard_logger = TensorBoardLogger(save_dir=cfg.log.output_dir,
+        tensorboard_logger = TensorBoardLogger(save_dir=LOG_DIR,
                                                name='tensorboard',
                                                default_hp_metric=False)
         tensorboard_logger.log_hyperparams(cfg_dict,
@@ -283,7 +281,7 @@ def train(cfg: CfgNode) -> None:
         LOGGER.append(tensorboard_logger)
 
     if cfg.log.csv.enable:
-        csv_logger = CSVLogger(save_dir=cfg.log.output_dir, name='csv')
+        csv_logger = CSVLogger(save_dir=LOG_DIR, name='csv')
         csv_logger.log_hyperparams(cfg_dict)
         csv_logger.log_graph(model)
         csv_logger.log_metrics(metrics={
