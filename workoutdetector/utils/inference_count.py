@@ -14,17 +14,19 @@ import onnx
 import onnxruntime
 import pandas as pd
 import torch
+from torch import Tensor
 import torchvision.transforms as T
 from torchvision.io import read_video
 from mmaction.apis import init_recognizer
 from mmaction.apis.inference import inference_recognizer
-from workoutdetector.datasets import RepcountHelper
+from workoutdetector.datasets import RepcountHelper, Pipeline
 from workoutdetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 
 onnxruntime.set_default_logger_severity(3)
 
 data_transform = T.Compose([
     T.ToPILImage(),
+    # T.ConvertImageDtype(dtype=torch.float32),
     T.Resize(256),
     T.CenterCrop(224),
     T.ToTensor(),
@@ -239,14 +241,14 @@ def count_by_image_model(model: Union[onnxruntime.InferenceSession, torch.nn.Mod
 
 
 def inference_video(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
-                    inputs: np.ndarray,
+                    inputs: Union[Tensor, np.ndarray],
                     threshold: float = 0.5) -> List[Tuple[int, float]]:
-    """Time shift module inference. 8 frames.
+    """Time shift module inference. 8 frames. # TODO: fix doc and inputs
 
     Args:
         model: ONNX Runtime session or PyTorch.
-        inputs: np.ndarray of shape [1, 8, 3, 224, 224]
-        threshold: threshold for bbox. # TODO: implement this.
+        inputs (Tensor or np.ndarray): video clip of shape [batch, 8, 3, 224, 224]
+        threshold (float): threshold for bbox. # TODO: implement this.
 
     Returns:
         List[Tuple[int, float]]: list of (class id, score).
@@ -257,13 +259,16 @@ def inference_video(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
         [(8: 0.15422), (2: 0.10173), (9: 0.095170), (5: 0.089147), (3: 0.087190)]
     """
     if type(model) is onnxruntime.InferenceSession:
-        inputs = np.stack([data_transform(x) for x in inputs])
+        if type(inputs) is np.ndarray:
+            inputs = np.stack([data_transform(x) for x in inputs])
+        elif type(inputs) is torch.Tensor:
+            inputs = Pipeline().transform_read_video(inputs).numpy()
         inputs = np.expand_dims(inputs, axis=0)
         input_name = model.get_inputs()[0].name
         ort_inputs = {input_name: inputs}
         ort_outs = model.run(None, ort_inputs)
-        score = ort_outs[0][0]
-        pred = score.argmax()  # TODO: return scores instead of class id.
+        score: np.ndarray = ort_outs[0][0]
+        pred = list(enumerate(score.tolist()))
     else:  # use mmlab inference
         input_clip = np.array(inputs)
         score = inference_recognizer(model, input_clip)
@@ -312,7 +317,7 @@ def count_by_video_model(model: Union[onnxruntime.InferenceSession, torch.nn.Mod
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         input_queue.append(frame)
         if len(input_queue) == 8:
-            input_clip = np.array(input_queue)
+            input_clip = np.array(input_queue)  # [8, 3, 224, 224]
             pred = inference_video(model, input_clip)
             pred_class = pred[0][0]
             states.append(pred_class)
@@ -332,7 +337,7 @@ def count_by_video_model(model: Union[onnxruntime.InferenceSession, torch.nn.Mod
 def inference_dataset(model: nn.Module, splits: List[str], out_dir: str,
                       checkpoint: str) -> None:
     """Inference the RepCount dataset. Save predictions to json for analysis later.
-    For video models, predict every 8 frames.
+    For video models, predict every 8 frames. Note that the 8 frames are sampled from 16 frames.
     For image models, predict every 1 frame.
     
     Results are saved in format of:
@@ -358,16 +363,28 @@ def inference_dataset(model: nn.Module, splits: List[str], out_dir: str,
         out_dir (str): output directory. Will create one if not exists.
         checkpoint (str): path to the checkpoint. Just for logging.
 
-    Example:
+    Example::
+
+        # MMaction example
         >>> cfg_path = 'workoutdetector/configs/tsm_MultiActionRepCount_sthv2.py'
         >>> ckpt = 'checkpoints/tsm_video_all.pth'
         >>> model = init_recognizer(cfg_path, ckpt, device='cuda')
         >>> inference_dataset(model, ['val', 'test'], out_dir='out', checkpoint=ckpt)
+
+        # ONNX example
+        >>> ckpt = 'checkpoints/rep_12_20220705_220720.onnx'
+        >>> model = onnxruntime.InferenceSession(ckpt, providers=['CUDAExecutionProvider'])
+        >>> inference_dataset(model, ['train', 'val', 'test'],
+        ...                   out_dir='out/tsm_lightning_sparse_sample',
+        ...                   checkpoint=ckpt)
+        train951.mp4 result saved to out/tsm_lightning_sparse_sample/train951.mp4.score.json
     """
+    
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
-    helper = RepcountHelper('data/RepCount', 'data/RepCount/annotation.csv')
+    data_root = osp.expanduser('~/data/RepCount/')
+    helper = RepcountHelper(data_root, 'data/RepCount/annotation.csv')
     data = helper.get_rep_data(splits, action=['all'])
     for item in data.values():
         vid = read_video(item.video_path)[0]
@@ -587,8 +604,9 @@ if __name__ == '__main__':
     # main(args)
 
     cfg_path = 'workoutdetector/configs/tsm_MultiActionRepCount_sthv2.py'
-    ckpt = 'checkpoints/tsm_video_all.pth'
-    model = init_recognizer(cfg_path, ckpt, device='cuda')
+    ckpt = 'checkpoints/rep_12_20220705_220720.onnx'
+    model = onnxruntime.InferenceSession(ckpt, providers=['CUDAExecutionProvider'])
+    # model = init_recognizer(cfg_path, ckpt, device='cuda')
     inference_dataset(model, ['train', 'val', 'test'],
-                      out_dir='out/tsm_rep_scores_sparse_sample',
+                      out_dir='out/tsm_lightning_sparse_sample',
                       checkpoint=ckpt)

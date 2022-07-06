@@ -37,10 +37,11 @@ def export_lit_model(ckpt: str, onnx_path: Optional[str] = None) -> None:
 
     model = LitModel.load_from_checkpoint(ckpt)
     model.eval()
+    model.cuda()
     if onnx_path is None:
         onnx_path = ckpt.replace('.ckpt', '.onnx')
     model.to_onnx(onnx_path,
-                  input_sample=torch.randn(1, 3, 224, 224),
+                  input_sample=torch.randn(1, 8, 3, 224, 224),
                   export_params=True,
                   opset_version=11)
     print(f'Model exported to {onnx_path}')
@@ -69,12 +70,16 @@ if __name__ == '__main__':
     parser.add_argument('--ckpt', type=str, required=True)
     parser.add_argument('-o', '--output', type=str, required=False)
     parser.add_argument('--cfg', type=str, required=False)
-    # export_lit_model(args.ckpt, args.output)
-    args_mmlab = [
-        f'--ckpt={PROJ_ROOT}/work_dirs/tsm_MultiActionRepCount_sthv2_20220625-224626/best_top1_acc_epoch_5.pth',
-        '-o=tsm-pull_up-20220625.onnx',
-        f'--cfg={PROJ_ROOT}/workoutdetector/configs/tsm_MultiActionRepCount_sthv2.py'
+
+    # args_mmlab = [
+    #     f'--ckpt={PROJ_ROOT}/work_dirs/tsm_MultiActionRepCount_sthv2_20220625-224626/best_top1_acc_epoch_5.pth',
+    #     '-o=tsm-pull_up-20220625.onnx',
+    #     f'--cfg={PROJ_ROOT}/workoutdetector/configs/tsm_MultiActionRepCount_sthv2.py'
+    # ]
+    args_lit = [
+        '--ckpt',
+        "exp/repcount-12-tsm/checkpoints/best-val-acc=0.86-epoch=07-20220705-220720.ckpt"
     ]
-    
-    args = parser.parse_args(args_mmlab)
-    export_mmlab_model(args.ckpt, args.output, args.cfg)
+    args = parser.parse_args(args_lit)
+    export_lit_model(args.ckpt, args.output)
+    # export_mmlab_model(args.ckpt, args.output, args.cfg)
