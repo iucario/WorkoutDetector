@@ -6,6 +6,6 @@ python -m torch.distributed.launch \
     --master_addr=localhost \
     --nproc_per_node=8 \
     --master_port=29500 \
-    workoutdetector/train_rep.py 
+    workoutdetector/train_rep.py \
+    --cfg workoutdetector/configs/tpn.py
 
-# Any arguments from are captured by ${@:1}
