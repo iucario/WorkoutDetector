@@ -1,6 +1,6 @@
-import time
-import os
-from workoutdetector.settings import PROJ_ROOT
+# import time
+# import os
+# from workoutdetector.settings import PROJ_ROOT
 
 # model settings
 model = dict(
@@ -25,13 +25,13 @@ model = dict(
 
 # dataset settings
 dataset_type = 'MultiActionRepCount'
-data_root = os.path.join(PROJ_ROOT, 'data/Binary/')
-data_root_train = None
-data_root_val = None
-data_root_test = None
-ann_file_train = os.path.join(data_root, 'all-train.txt')
-ann_file_val = os.path.join(data_root, 'all-val.txt')
-ann_file_test = os.path.join(data_root, 'all-test.txt')
+data_root = '/home/root/data'
+data_root_train = '/home/root/data'
+data_root_val = '/home/root/data'
+data_root_test = '/home/root/data'
+ann_file_train = '/home/root/data/Binary/all-train.txt'
+ann_file_val = '/home/root/data/Binary/all-train.txt'
+ann_file_test = '/home/root/data/Binary/all-train.txt'
 
 img_norm_cfg = dict(mean=[127.5, 127.5, 127.5], std=[127.5, 127.5, 127.5], to_bgr=False)
 
@@ -86,7 +86,7 @@ evaluation = dict(interval=1, metrics=['top_k_accuracy', 'mean_class_accuracy'])
 
 # optimizer
 optimizer = dict(type='SGD',
-                 lr=0.0005,
+                 lr=0.005,
                  momentum=0.9,
                  paramwise_cfg=dict(
                      custom_keys={
@@ -100,23 +100,23 @@ optimizer_config = dict(grad_clip=dict(max_norm=40, norm_type=2))
 
 # learning policy
 lr_config = dict(policy='step', step=[5, 10])
-total_epochs = 25
+total_epochs = 15
 
 # runtime settings
 checkpoint_config = dict(interval=5)
-DATE = time.strftime('%Y%m%d_%H%M%S', time.localtime(time.time()))
-work_dir = os.path.join(PROJ_ROOT, f'/log/work_dirs/timesformer_div_8x4x1_k400_{DATE}')
+# DATE = time.strftime('%Y%m%d_%H%M%S', time.localtime(time.time()))
+work_dir = '/app/log/work_dirs/timesformer_div_8x4x1_k400'
 
 log_config = dict(interval=20,
                   hooks=[dict(type='TextLoggerHook'),
                          dict(type='TensorboardLoggerHook')])
 # runtime settings
-dist_params = dict(backend='nccl')
+dist_params = dict(backend='gloo')
 log_level = 'INFO'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]
-gpu_ids = range(1)
+gpu_ids = range(8)
 omnisource = False
 
 # disable opencv multithreading to avoid system being overloaded

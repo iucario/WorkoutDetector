@@ -2,10 +2,6 @@
 # Weights pretrained on the SomethingSomethingV2 dataset.
 
 # model settings
-import os
-import time
-from workoutdetector.settings import PROJ_ROOT
-
 model = dict(
     type='Recognizer2D',
     backbone=dict(type='ResNetTSM',
@@ -25,7 +21,7 @@ model = dict(
     train_cfg=None,
     test_cfg=dict(average_clips='prob'))
 
-gpu_ids = range(1)
+gpu_ids = range(8)
 
 # optimizer
 optimizer = dict(type='SGD',
@@ -37,19 +33,19 @@ optimizer = dict(type='SGD',
 optimizer_config = dict(grad_clip=dict(max_norm=20, norm_type=2))
 
 # learning policy
-lr_config = dict(policy='step', step=[5, 10, 15, 25])
+lr_config = dict(policy='step', step=[10, 20])
 
 total_epochs = 30
 
 # dataset settings
 dataset_type = 'MultiActionRepCount'
-data_root = os.path.join(PROJ_ROOT, 'data/Binary/')
-data_root_train = None
-data_root_val = None
-data_root_test = None
-ann_file_train = os.path.join(data_root, 'all-train.txt')
-ann_file_val = os.path.join(data_root, 'all-val.txt')
-ann_file_test = os.path.join(data_root, 'all-test.txt')
+data_root = '/home/root/data'
+data_root_train = '/home/root/data'
+data_root_val = '/home/root/data'
+data_root_test = '/home/root/data'
+ann_file_train = '/home/root/data/Binary/all-train.txt'
+ann_file_val = '/home/root/data/Binary/all-val.txt'
+ann_file_test = '/home/root/data/Binary/all-test.txt'
 
 img_norm_cfg = dict(mean=[123.675, 116.28, 103.53],
                     std=[58.395, 57.12, 57.375],
@@ -89,8 +85,8 @@ test_pipeline = [
     dict(type='Collect', keys=['imgs'], meta_keys=[]),
     dict(type='ToTensor', keys=['imgs'])
 ]
-data = dict(videos_per_gpu=2,
-            workers_per_gpu=1,
+data = dict(videos_per_gpu=4,
+            workers_per_gpu=2,
             test_dataloader=dict(videos_per_gpu=1),
             train=dict(type=dataset_type,
                        ann_file=ann_file_train,
@@ -106,10 +102,13 @@ data = dict(videos_per_gpu=2,
                       pipeline=val_pipeline))
 
 # runtime settings
-evaluation = dict(interval=1, save_best='auto', metrics=['top_k_accuracy'], topk=(1,))
+evaluation = dict(interval=1,
+                  save_best='auto',
+                  metrics=['top_k_accuracy', 'mean_class_accuracy'],
+                  topk=(1,))
 checkpoint_config = dict(interval=5)
 
-dist_params = dict(backend='nccl')
+dist_params = dict(backend='gloo')
 log_level = 'INFO'
 load_from = 'https://download.openmmlab.com/mmaction/recognition/tsm/'\
     'tsm_r50_1x1x8_50e_sthv2_rgb/tsm_r50_256h_1x1x8_50e_sthv2_rgb_20210816-032aa4da.pth'
@@ -124,8 +123,7 @@ opencv_num_threads = 0
 mp_start_method = 'fork'
 omnisource = False
 
-DATE = time.strftime('%Y%m%d-%H%M%S')
-work_dir = os.path.join(PROJ_ROOT, f'work_dirs/tsm_MultiActionRepCount_sthv2_{DATE}')
+work_dir = 'log/work_dirs/tsm_MultiActionRepCount_sthv2'
 
 log_config = dict(interval=20,
                   hooks=[
