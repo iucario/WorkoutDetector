@@ -2,14 +2,16 @@
 # arXiv: 2012.10071
 # Limin Wang, Zhan Tong, Bin Ji, Gangshan Wu
 # tongzhan@smail.nju.edu.cn
+from typing import Callable
+
 import torch
 from torch import nn
+from torch.nn.init import constant_, normal_
 
-from torch.nn.init import normal_, constant_
-from .tdn import tdn_net
 
 class TSNHead(nn.Module):
     """Class head for TSN.
+    Modified from mmaction/models/heads/tsn_head.py
 
     Args:
         num_classes (int): Number of classes to be classified.
@@ -27,25 +29,16 @@ class TSNHead(nn.Module):
     def __init__(self,
                  num_classes,
                  in_channels,
-                 loss_cls=dict(type='CrossEntropyLoss'),
                  spatial_type='avg',
-                 consensus=dict(type='AvgConsensus', dim=1),
+                 consensus_type='avg',
                  dropout_ratio=0.4,
-                 init_std=0.01,
-                 **kwargs):
-        super().__init__(num_classes, in_channels, loss_cls=loss_cls, **kwargs)
+                 init_std=0.01):
 
         self.spatial_type = spatial_type
         self.dropout_ratio = dropout_ratio
         self.init_std = init_std
 
-        consensus_ = consensus.copy()
-
-        consensus_type = consensus_.pop('type')
-        if consensus_type == 'AvgConsensus':
-            self.consensus = AvgConsensus(**consensus_)
-        else:
-            self.consensus = None
+        self.consensus = ConsensusModule(consensus_type)
 
         if self.spatial_type == 'avg':
             # use `nn.AdaptiveAvgPool2d` to adaptively match the in_channels.
@@ -57,11 +50,18 @@ class TSNHead(nn.Module):
             self.dropout = nn.Dropout(p=self.dropout_ratio)
         else:
             self.dropout = None
-        self.fc_cls = nn.Linear(self.in_channels, self.num_classes)
+        self.fc_cls = nn.Linear(in_channels, num_classes)
 
     def init_weights(self):
         """Initiate the parameters from scratch."""
-        normal_init(self.fc_cls, std=self.init_std)
+        module = self.fc_cls
+        mean = 0
+        std = self.init_std
+        bias = 0
+        if hasattr(module, 'weight') and module.weight is not None:
+            nn.init.normal_(module.weight, mean, std)
+        if hasattr(module, 'bias') and module.bias is not None:
+            nn.init.constant_(module.bias, bias)
 
     def forward(self, x, num_segs):
         """Defines the computation performed at every call.
@@ -95,12 +95,15 @@ class TSNHead(nn.Module):
         # [N, num_classes]
         return cls_score
 
+
 class TSN(nn.Module):
+    """Only oor TDN"""
 
     def __init__(self,
-                 num_classes: int,
+                 num_class: int,
                  num_segments: int,
-                 base_model: str = 'resnet101',
+                 backbone_fn: Callable,
+                 base_model: str = 'resnet50',
                  consensus_type: str = 'avg',
                  dropout: float = 0.8,
                  init_std: float = 0.01,
@@ -108,7 +111,9 @@ class TSN(nn.Module):
                  fc_lr5=False):
         super(TSN, self).__init__()
         assert 'resnet' in base_model, ValueError(f'Unknown base model: {base_model}')
+        self.num_class = num_class
         self.num_segments = num_segments
+        self.backbone_fn = backbone_fn  # tdn_net()
         self.reshape = True
         self.dropout = dropout
         self.consensus_type = consensus_type
@@ -116,8 +121,11 @@ class TSN(nn.Module):
         self.fc_lr5 = fc_lr5  # fine_tuning for UCF/HMDB
         self.init_std = init_std
         self._prepare_base_model(base_model, num_segments)
+        self._prepare_tsn()
         self.consensus = ConsensusModule(consensus_type)
-
+        self.modality = 'RGB'
+        self.new_length = 1
+        self.before_softmax = True
         if not self.before_softmax:
             self.softmax = nn.Softmax()
 
@@ -125,18 +133,18 @@ class TSN(nn.Module):
         if partial_bn:
             self.partialBN(True)
 
-    def _prepare_tsn(self, num_class):
+    def _prepare_tsn(self):
 
         feature_dim = getattr(self.base_model,
                               self.base_model.last_layer_name).in_features
         if self.dropout == 0:
             setattr(self.base_model, self.base_model.last_layer_name,
-                    nn.Linear(feature_dim, num_class))
+                    nn.Linear(feature_dim, self.num_class))
             self.new_fc = None
         else:
             setattr(self.base_model, self.base_model.last_layer_name,
                     nn.Dropout(p=self.dropout))
-            self.new_fc = nn.Linear(feature_dim, num_class)
+            self.new_fc = nn.Linear(feature_dim, self.num_class)
 
         if self.new_fc is None:
             normal_(
@@ -151,14 +159,13 @@ class TSN(nn.Module):
         return feature_dim
 
     def _prepare_base_model(self, base_model, num_segments):
-        self.base_model = tdn_net(base_model, num_segments)
+        self.base_model = self.backbone_fn(base_model, num_segments)
         self.base_model.last_layer_name = 'fc'
         self.input_size = 224
         self.input_mean = [0.485, 0.456, 0.406]
         self.input_std = [0.229, 0.224, 0.225]
 
         self.base_model.avgpool = nn.AdaptiveAvgPool2d(1)
-        
 
     def train(self, mode=True):
         """
@@ -324,28 +331,25 @@ class TSN(nn.Module):
                 },
             ]
 
-    def head(self, base_out):
+    def forward(self, input, reshape=True):
+        if reshape:
+            sample_len = (3 if self.modality == "RGB" else 2) * self.new_length
+            base_out = self.base_model(input.view((-1, sample_len*5) + input.size()[-2:]))
+        else:
+            base_out = self.base_model(input)
+
         if self.dropout > 0:
             base_out = self.new_fc(base_out)
 
         if not self.before_softmax:
             base_out = self.softmax(base_out)
+
         if self.reshape:
-            if self.is_shift and self.temporal_pool:
-                base_out = base_out.view((-1, self.num_segments // 2) +
-                                         base_out.size()[1:])
-            else:
-                base_out = base_out.view((-1, self.num_segments) + base_out.size()[1:])
+            base_out = base_out.view((-1, self.num_segments) + base_out.size()[1:])
             output = self.consensus(base_out)
+
             return output.squeeze(1)
 
-    def forward(self, input_x):
-        base_out = self.forward_features(input_x)
-        return self.head(base_out)
-
-    def forward_features(self, input_x):
-        return self.base_model(input_x)
-        
 
 class ConsensusModule(nn.Module):
 

@@ -3,45 +3,51 @@
 # Limin Wang, Zhan Tong, Bin Ji, Gangshan Wu
 # tongzhan@smail.nju.edu.cn
 
-import torch.nn as nn
+from __future__ import absolute_import, division, print_function
+
+import math
+from typing import Tuple
+
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn.init import normal_, constant_
-import torch.nn.functional as F
-from .tsn import TSN
+import torch.utils.model_zoo as model_zoo
+from torch.nn.init import constant_, normal_
+
+from workoutdetector.models import TSN
 
 
-def create_model(num_class, num_segments, arch, consensus_type, dropout,
-                 img_feature_dim, partial_bn, pretrain, fc_lr5):
-    model = TSN(num_class,
-                num_segments,
-                base_model=arch,
+def create_model(num_class,
+                 num_segments,
+                 base_model,
+                 consensus_type='avg',
+                 dropout: float = 0.5,
+                 partial_bn: bool = False,
+                 fc_lr5: bool = False,
+                 checkpoint: str = None) -> nn.Module:
+    model = TSN(num_class=num_class,
+                num_segments=num_segments,
+                backbone_fn=tdn_net,
+                base_model=base_model,
                 consensus_type=consensus_type,
                 dropout=dropout,
-                img_feature_dim=img_feature_dim,
                 partial_bn=partial_bn,
-                pretrain=pretrain,
                 fc_lr5=fc_lr5)
-    policies = model.get_optim_policies()
-    optimizer = torch.optim.SGD(policies,
-                                args.lr,
-                                momentum=args.momentum,
-                                weight_decay=args.weight_decay)
 
-    scheduler = get_scheduler(optimizer, len(train_loader), args)
-    
-    logger.info(("=> fine-tuning from '{}'".format(args.tune_from)))
-    sd = torch.load(args.tune_from)
+    print(("=> fine-tuning from '{}'".format(checkpoint)))
+    sd = torch.load(checkpoint)
     sd = sd['state_dict']
+    fc_layer_weight = list(sd.keys())[-2]
+    fc_layer_bias = list(sd.keys())[-1]
     model_dict = model.state_dict()
     replace_dict = []
     for k, v in sd.items():
         if k not in model_dict and k.replace('.net', '') in model_dict:
-            logger.info('=> Load after remove .net: ', k)
+            print('=> Load after remove .net: ', k)
             replace_dict.append((k, k.replace('.net', '')))
     for k, v in model_dict.items():
         if k not in sd and k.replace('.net', '') in sd:
-            logger.info('=> Load after adding .net: ', k)
+            print('=> Load after adding .net: ', k)
             replace_dict.append((k.replace('.net', ''), k))
 
     for k, k_new in replace_dict:
@@ -49,12 +55,30 @@ def create_model(num_class, num_segments, arch, consensus_type, dropout,
     keys1 = set(list(sd.keys()))
     keys2 = set(list(model_dict.keys()))
     set_diff = (keys1 - keys2) | (keys2 - keys1)
-    logger.info('#### Notice: keys that failed to load: {}'.format(set_diff))
-    if args.dataset not in args.tune_from:  # new dataset
-        logger.info('=> New dataset, do not load fc weights')
+    print('#### Notice: keys that failed to load: {}'.format(set_diff))
+    # print(model_dict.keys())
+    if sd[fc_layer_weight].shape != model_dict['new_fc.weight'].shape:
+        print('=> New dataset, do not load fc weights')
         sd = {k: v for k, v in sd.items() if 'fc' not in k}
     model_dict.update(sd)
     model.load_state_dict(model_dict)
+    return model
+
+
+def get_optimizer(
+        model, epochs, lr, momentum, weight_decay, n_iter_per_epoch, warmup_epoch,
+        lr_scheduler, lr_decay_rate, lr_steps, warmup_multiplier
+) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR]:
+    policies = model.get_optim_policies()
+
+    optimizer = torch.optim.SGD(policies,
+                                lr,
+                                momentum=momentum,
+                                weight_decay=weight_decay)
+
+    scheduler = get_scheduler(optimizer, n_iter_per_epoch, lr_scheduler, lr_decay_rate,
+                              warmup_epoch, lr_steps, epochs, warmup_multiplier)
+    return optimizer, scheduler
 
 
 class TDN_Net(nn.Module):
@@ -101,11 +125,8 @@ class TDN_Net(nn.Module):
 
     def forward(self, x):
         x1, x2, x3, x4, x5 = [x[:, i:i + 3, ...] for i in range(0, 13, 3)]
-        _ = x[:, 0:3, :, :], x[:, 3:6, :, :], \
-            x[:,6:9, :, :], x[:, 9:12, :, :], x[:,12:15, :, :]
-        assert (x1, x2, x3, x4, x5) == _
-        t = self.avg_diff(torch.cat([x2 - x1, x3 - x2, x4 - x3, x5 - x4], 1))
-        x_c5 = self.conv1_5(t.view(-1, 12, x2.size()[2], x2.size()[3]))
+        t = torch.cat([x2 - x1, x3 - x2, x4 - x3, x5 - x4], 1)
+        x_c5 = self.conv1_5(self.avg_diff(t.view(-1, 12, x2.size()[2], x2.size()[3])))
         x_diff = self.maxpool_diff(1.0 / 1.0 * x_c5)
 
         temp_out_diff1 = x_diff
@@ -143,23 +164,12 @@ def tdn_net(base_model=None, num_segments=8, pretrained=True, **kwargs):
         resnet_model = fbresnet101(num_segments, pretrained)
         resnet_model1 = fbresnet101(num_segments, pretrained)
 
-    if (num_segments is 8):
+    if (num_segments == 8):
         model = TDN_Net(resnet_model, resnet_model1, alpha=0.5, beta=0.5)
     else:
         model = TDN_Net(resnet_model, resnet_model1, alpha=0.75, beta=0.25)
     return model
 
-
-# Code for "TDN: Temporal Difference Networks for Efficient Action Recognition"
-# arXiv: 2012.10071
-# Limin Wang, Zhan Tong, Bin Ji, Gangshan Wu
-# tongzhan@smail.nju.edu.cn
-
-from __future__ import print_function, division, absolute_import
-import torch.nn as nn
-import torch.nn.functional as F
-import math
-import torch.utils.model_zoo as model_zoo
 
 __all__ = ['FBResNet', 'fbresnet50', 'fbresnet101']
 
@@ -167,12 +177,13 @@ model_urls = {
     'fbresnet50': 'http://data.lip6.fr/cadene/pretrainedmodels/resnet50-19c8e357.pth',
     'fbresnet101': 'http://data.lip6.fr/cadene/pretrainedmodels/resnet101-5d3b4d8f.pth'
 }
+
 # Code for "TDN: Temporal Difference Networks for Efficient Action Recognition"
 # arXiv: 2012.10071
 # Limin Wang, Zhan Tong, Bin Ji, Gangshan Wu
 # tongzhan@smail.nju.edu.cn
 
-from torch.optim.lr_scheduler import _LRScheduler, MultiStepLR, CosineAnnealingLR
+from torch.optim.lr_scheduler import (CosineAnnealingLR, MultiStepLR, _LRScheduler)
 
 
 class GradualWarmupScheduler(_LRScheduler):
@@ -246,27 +257,25 @@ class GradualWarmupScheduler(_LRScheduler):
         self.after_scheduler.load_state_dict(after_scheduler_state)
 
 
-def get_scheduler(optimizer, n_iter_per_epoch, args):
-    if "cosine" in args.lr_scheduler:
+def get_scheduler(optimizer, n_iter_per_epoch, lr_scheduler, lr_decay_rate, warmup_epoch,
+                  lr_steps, epochs, warmup_multiplier):
+    if "cosine" in lr_scheduler:
         scheduler = CosineAnnealingLR(optimizer=optimizer,
                                       eta_min=0.00001,
-                                      T_max=(args.epochs - args.warmup_epoch) *
-                                      n_iter_per_epoch)
-    elif "step" in args.lr_scheduler:
+                                      T_max=(epochs - warmup_epoch) * n_iter_per_epoch)
+    elif "step" in lr_scheduler:
         scheduler = MultiStepLR(
             optimizer=optimizer,
-            gamma=args.lr_decay_rate,
-            milestones=[(m - args.warmup_epoch) * n_iter_per_epoch for m in args.lr_steps
-                       ])
+            gamma=lr_decay_rate,
+            milestones=[(m - warmup_epoch) * n_iter_per_epoch for m in lr_steps])
     else:
-        raise NotImplementedError(f"scheduler {args.lr_scheduler} not supported")
+        raise NotImplementedError(f"scheduler {lr_scheduler} not supported")
 
-    if args.warmup_epoch != 0:
+    if warmup_epoch != 0:
         scheduler = GradualWarmupScheduler(optimizer,
-                                           multiplier=args.warmup_multiplier,
+                                           multiplier=warmup_multiplier,
                                            after_scheduler=scheduler,
-                                           warmup_epoch=args.warmup_epoch *
-                                           n_iter_per_epoch)
+                                           warmup_epoch=warmup_epoch * n_iter_per_epoch)
 
     return scheduler
 
@@ -696,3 +705,22 @@ def fbresnet101(num_segments, pretrained=False, num_classes=1000):
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['fbresnet101']), strict=False)
     return model
+
+
+if __name__ == '__main__':
+    device = 'cpu'
+    ckpt_path = 'checkpoints/tdn_sthv2_r50_8x1x1.pth'
+    batch = 10
+    num_class = 10
+    num_diff = 5
+    num_seg = 8
+    x = torch.randn(batch * num_diff * num_seg, 3, 224, 224)
+    model = create_model(num_class=num_class,
+                         num_segments=num_seg,
+                         base_model='resnet50',
+                         checkpoint=ckpt_path)
+    model = model.to(device)
+    model.eval()
+    y = model(x.to(device))
+    print(y.shape)
+    assert y.shape == (batch, num_class)
