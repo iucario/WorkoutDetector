@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch.nn.init import constant_, normal_
 import torchvision
-from .build import MODEL_REGISTRY
+# from .build import MODEL_REGISTRY
 
 
 class TemporalShift(nn.Module):
@@ -191,7 +191,7 @@ class ConsensusModule(torch.nn.Module):
         return SegmentConsensus(self.consensus_type, self.dim)(input)
 
 
-@MODEL_REGISTRY.register()
+# @MODEL_REGISTRY.register()
 class TSM(nn.Module):
     """TSN with temporal shift module
     Input shape: (batch_size*num_segments, channel, height, width)
@@ -240,7 +240,6 @@ class TSM(nn.Module):
         self.num_segments = num_segments
         self.reshape = True
         self.before_softmax = before_softmax
-        self.dropout = dropout
         self.crop_num = crop_num
         self.consensus_type = consensus_type
         self.img_feature_dim = img_feature_dim
@@ -255,24 +254,17 @@ class TSM(nn.Module):
 
         if not before_softmax and consensus_type != 'avg':
             raise ValueError("Only avg consensus can be used after Softmax")
-
-        self.new_length = 1
-        if print_spec:
-            print(f"Initializing TSN with base model: {base_model}.",
-                  "TSN Configurations:",
-                  f"input_modality:     {self.modality}",
-                  f"num_segments:       {self.num_segments}",
-                  f"new_length:         {self.new_length}",
-                  f"consensus_module:   {consensus_type}",
-                  f"dropout_ratio:      {self.dropout}",
-                  f"img_feature_dim:    {self.img_feature_dim}",
-                  sep='\n')
-
+        std = 0.001
         self._prepare_base_model(base_model)
-
-        feature_dim = self._prepare_tsn(num_class)
-
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.dropout = nn.Dropout(p=dropout)
+        feature_dim = self.base_model.fc.in_features
+        self.fc = nn.Linear(feature_dim, num_class)
+        normal_(self.fc.weight, 0, std)
+        constant_(self.fc.bias, 0)
         self.consensus = ConsensusModule(consensus_type)
+        self.base_model = nn.Sequential(
+            OrderedDict(list(self.base_model.named_children())[:-2]))
 
         if not self.before_softmax:
             self.softmax = nn.Softmax()
@@ -280,29 +272,6 @@ class TSM(nn.Module):
         self._enable_pbn = partial_bn
         if partial_bn:
             self.partialBN(True)
-
-    def _prepare_tsn(self, num_class: int) -> int:
-        feature_dim = getattr(self.base_model,
-                              self.base_model.last_layer_name).in_features
-        if self.dropout == 0:
-            setattr(self.base_model, self.base_model.last_layer_name,
-                    nn.Linear(feature_dim, num_class))
-            self.new_fc = None
-        else:
-            setattr(self.base_model, self.base_model.last_layer_name,
-                    nn.Dropout(p=self.dropout))
-            self.new_fc = nn.Linear(feature_dim, num_class)
-
-        std = 0.001
-        if self.new_fc is None:
-            normal_(
-                getattr(self.base_model, self.base_model.last_layer_name).weight, 0, std)
-            constant_(getattr(self.base_model, self.base_model.last_layer_name).bias, 0)
-        else:
-            if hasattr(self.new_fc, 'weight'):
-                normal_(self.new_fc.weight, 0, std)
-                constant_(self.new_fc.bias, 0)
-        return feature_dim
 
     def _prepare_base_model(self, base_model: str):
         # print('=> base model: {}'.format(base_model))
@@ -321,8 +290,6 @@ class TSM(nn.Module):
             self.input_size = 224
             self.input_mean = [0.485, 0.456, 0.406]
             self.input_std = [0.229, 0.224, 0.225]
-
-            self.base_model.avgpool = nn.AdaptiveAvgPool2d(1)
 
         else:
             raise ValueError('Unknown base model: {}'.format(base_model))
@@ -451,41 +418,17 @@ class TSM(nn.Module):
             },
         ]
 
-    def head(self, base_out):
-        if self.dropout > 0:
-            base_out = self.new_fc(base_out)
-
-        if not self.before_softmax:
-            base_out = self.softmax(base_out)
-        if self.reshape:
-            if self.is_shift and self.temporal_pool:
-                base_out = base_out.view((-1, self.num_segments // 2) +
-                                         base_out.size()[1:])
-            else:
-                base_out = base_out.view((-1, self.num_segments) + base_out.size()[1:])
-            output = self.consensus(base_out)
-            return output.squeeze(1)
-
-    def forward(self, input_x, no_reshape=False):
-        base_out = self.forward_features(input_x, no_reshape)
-        return self.head(base_out)
-
-    def forward_features(self, input_x, reshape=False):
-        if reshape:
-            sample_len = (3 if self.modality == 'RGB' else 2) * self.new_length
-            base_out = self.base_model(
-                input_x.view((-1, sample_len) + input_x.size()[-2:]))
+    def forward(self, x):
+        o = self.base_model(x)
+        o = self.avgpool(o)
+        o = self.dropout(o)
+        o = self.fc(o.view(o.size(0), -1))
+        if self.is_shift and self.temporal_pool:
+            o = o.view((-1, self.num_segments // 2) + o.size()[1:])
         else:
-            base_out = self.base_model(input_x)
-        return base_out
-
-    @property
-    def crop_size(self):
-        return self.input_size
-
-    @property
-    def scale_size(self):
-        return self.input_size * 256 // 224
+            o = o.view((-1, self.num_segments) + o.size()[1:])
+        output = self.consensus(o)
+        return output.squeeze(1)
 
 
 def create_model(num_class: int = 2,
@@ -521,11 +464,15 @@ def create_model(num_class: int = 2,
     if checkpoint is not None:
         ckpt = torch.load(checkpoint, map_location=device)
         state_dict = ckpt['state_dict']
-        dim_feature = state_dict['module.new_fc.weight'].shape
-        if dim_feature[0] != num_class:
-            state_dict['module.new_fc.weight'] = torch.zeros(num_class,
-                                                             dim_feature[1]).cuda()
-            state_dict['module.new_fc.bias'] = torch.zeros(num_class).cuda()
+        fc_layer_weight = list(state_dict.keys())[-2]
+        fc_layer_bias = list(state_dict.keys())[-1]
+        dim_feature = state_dict[fc_layer_weight].shape
+        if dim_feature[0] == num_class:
+            state_dict['module.fc.weight'] = state_dict[fc_layer_weight]
+            state_dict['module.fc.bias'] = state_dict[fc_layer_bias]
+
+        del state_dict[fc_layer_weight]
+        del state_dict[fc_layer_bias]
         base_dict = OrderedDict(
             ('.'.join(k.split('.')[1:]), v) for k, v in state_dict.items())
         # replace_dict = {
@@ -536,7 +483,7 @@ def create_model(num_class: int = 2,
         #     if k in base_dict:
         #         base_dict[v] = base_dict.pop(k)
 
-        model.load_state_dict(base_dict)
+        model.load_state_dict(base_dict, strict=False)
 
     model.to(device)
     return model
@@ -558,22 +505,18 @@ if __name__ == '__main__':
     y = model(x.cuda())
     print(y)
 
-    from workoutdetector.datasets import DebugDataset
-    dataset = DebugDataset(2, 8, size=100)
-    loader = torch.utils.data.DataLoader(dataset, batch_size=8, shuffle=True)
-    loss_fn = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    model.train()
-    model.cuda()
+    # checkpoint
+    ckpt_path = 'checkpoints/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth'
+    pretrained = create_model(2, 8, 'resnet50', checkpoint=ckpt_path)
+    print(pretrained)
 
-    for _ in range(20):
-        for x, y in loader:
-            x = x.permute(0, 2, 1, 3, 4)
-            x = x.reshape(-1, 3, 224, 224)
-            y_pred = model(x.cuda())
-            loss = loss_fn(y_pred.cpu(), y)
+    state_dict = torch.load(ckpt_path).get('state_dict')
+    base_dict = OrderedDict(
+        ('.'.join(k.split('.')[1:]), v) for k, v in state_dict.items())
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            print(loss.item())
+    # check weights
+    for k, v in pretrained.state_dict().items():
+        if k in base_dict:
+            assert torch.allclose(v, base_dict[k]), f"{k} not equal"
+        else:
+            print(k, v.shape, f"{k} is not in base_dict")
