@@ -13,20 +13,22 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.model_zoo as model_zoo
 from torch.nn.init import constant_, normal_
+from workoutdetector.models import TSN, get_scheduler
+from einops import rearrange
 
-from workoutdetector.models import TSN
 
-
-def create_model(num_class,
-                 num_segments,
-                 base_model,
+def create_model(num_class: int,
+                 num_segments: int = 8,
+                 base_model: str = 'resnet50',
+                 checkpoint: str = None,
                  consensus_type='avg',
                  dropout: float = 0.5,
                  partial_bn: bool = False,
-                 fc_lr5: bool = False,
-                 checkpoint: str = None) -> nn.Module:
+                 fc_lr5: bool = False) -> nn.Module:
+
     model = TSN(num_class=num_class,
                 num_segments=num_segments,
+                new_length=1,
                 backbone_fn=tdn_net,
                 base_model=base_model,
                 consensus_type=consensus_type,
@@ -34,6 +36,8 @@ def create_model(num_class,
                 partial_bn=partial_bn,
                 fc_lr5=fc_lr5)
 
+    if not checkpoint:
+        return model
     print(("=> fine-tuning from '{}'".format(checkpoint)))
     sd = torch.load(checkpoint)
     sd = sd['state_dict']
@@ -66,9 +70,9 @@ def create_model(num_class,
 
 
 def get_optimizer(
-        model, epochs, lr, momentum, weight_decay, n_iter_per_epoch, warmup_epoch,
-        lr_scheduler, lr_decay_rate, lr_steps, warmup_multiplier
-) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR]:
+    model, epochs, lr, momentum, weight_decay, n_iter_per_epoch, warmup_epoch,
+    lr_scheduler, lr_decay_rate, lr_steps, warmup_multiplier
+) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler._LRScheduler]:
     policies = model.get_optim_policies()
 
     optimizer = torch.optim.SGD(policies,
@@ -83,7 +87,11 @@ def get_optimizer(
 
 class TDN_Net(nn.Module):
 
-    def __init__(self, resnet_model, resnet_model1, alpha, beta):
+    def __init__(self,
+                 resnet_model,
+                 resnet_model1,
+                 alpha: float = 0.5,
+                 beta: float = 0.5):
         super(TDN_Net, self).__init__()
 
         self.conv1 = list(resnet_model.children())[0]
@@ -107,6 +115,7 @@ class TDN_Net(nn.Module):
                                          padding=1,
                                          dilation=1,
                                          ceil_mode=False)
+        # only need this one layer?
         self.resnext_layer1 = nn.Sequential(*list(resnet_model1.children())[4])
         self.maxpool = nn.MaxPool2d(kernel_size=3,
                                     stride=2,
@@ -124,15 +133,25 @@ class TDN_Net(nn.Module):
         self.beta = beta
 
     def forward(self, x):
+        """Only diff information is used in the model.
+        num_segments does not matter. I don't understand.
+        """
+
+        # original: [batch, num_seg, 5, 3, 224, 224]
+        # Reshaped to: x = original.view((-1, 3*5) + original.size()[-2:])
+        # It's the same as: x = rearrange(original, 'b s d c h w -> (b s) (d c) h w')
         x1, x2, x3, x4, x5 = [x[:, i:i + 3, ...] for i in range(0, 13, 3)]
-        t = torch.cat([x2 - x1, x3 - x2, x4 - x3, x5 - x4], 1)
+        t = torch.cat([x2 - x1, x3 - x2, x4 - x3, x5 - x4],
+                      1)  # [batch*num_seg, 12, 224, 224]
+        # After avg_diff: [batch*num_seg, 12, 112, 112]
         x_c5 = self.conv1_5(self.avg_diff(t.view(-1, 12, x2.size()[2], x2.size()[3])))
-        x_diff = self.maxpool_diff(1.0 / 1.0 * x_c5)
+        # x_c5 [batch*num_seg, 64, 56, 56]
+        x_diff = self.maxpool_diff(1.0 / 1.0 * x_c5)  # [batch*num_seg, 64, 28, 28]
 
         temp_out_diff1 = x_diff
         x_diff = self.resnext_layer1(x_diff)
 
-        x = self.conv1(x3)
+        x = self.conv1(x3)  # x3 is the center frame
         x = self.bn1(x)
         x = self.relu(x)
         #fusion layer1
@@ -148,7 +167,7 @@ class TDN_Net(nn.Module):
         x = self.layer3_bak(x)
         x = self.layer4_bak(x)
 
-        x = self.avgpool(x)
+        x = self.avgpool(x)  # [batch*num_seg, 2048, 1, 1]
         x = x.view(x.size(0), -1)
 
         x = self.fc(x)
@@ -156,7 +175,7 @@ class TDN_Net(nn.Module):
         return x
 
 
-def tdn_net(base_model=None, num_segments=8, pretrained=True, **kwargs):
+def tdn_net(base_model=None, num_segments=8, pretrained=True):
     if ("50" in base_model):
         resnet_model = fbresnet50(num_segments, pretrained)
         resnet_model1 = fbresnet50(num_segments, pretrained)
@@ -169,115 +188,6 @@ def tdn_net(base_model=None, num_segments=8, pretrained=True, **kwargs):
     else:
         model = TDN_Net(resnet_model, resnet_model1, alpha=0.75, beta=0.25)
     return model
-
-
-__all__ = ['FBResNet', 'fbresnet50', 'fbresnet101']
-
-model_urls = {
-    'fbresnet50': 'http://data.lip6.fr/cadene/pretrainedmodels/resnet50-19c8e357.pth',
-    'fbresnet101': 'http://data.lip6.fr/cadene/pretrainedmodels/resnet101-5d3b4d8f.pth'
-}
-
-# Code for "TDN: Temporal Difference Networks for Efficient Action Recognition"
-# arXiv: 2012.10071
-# Limin Wang, Zhan Tong, Bin Ji, Gangshan Wu
-# tongzhan@smail.nju.edu.cn
-
-from torch.optim.lr_scheduler import (CosineAnnealingLR, MultiStepLR, _LRScheduler)
-
-
-class GradualWarmupScheduler(_LRScheduler):
-    """ Gradually warm-up(increasing) learning rate in optimizer.
-      Proposed in 'Accurate, Large Minibatch SGD: Training ImageNet in 1 Hour'.
-      Args:
-          optimizer (Optimizer): Wrapped optimizer.
-          multiplier: init learning rate = base lr / multiplier
-          warmup_epoch: target learning rate is reached at warmup_epoch, gradually
-          after_scheduler: after target_epoch, use this scheduler(eg. ReduceLROnPlateau)
-      """
-
-    def __init__(self,
-                 optimizer,
-                 multiplier,
-                 warmup_epoch,
-                 after_scheduler,
-                 last_epoch=-1):
-        self.multiplier = multiplier
-        if self.multiplier <= 1.:
-            raise ValueError('multiplier should be greater than 1.')
-        self.warmup_epoch = warmup_epoch
-        self.after_scheduler = after_scheduler
-        self.finished = False
-        super().__init__(optimizer, last_epoch=last_epoch)
-
-    def get_lr(self):
-        if self.last_epoch > self.warmup_epoch:
-            return self.after_scheduler.get_lr()
-        else:
-            return [
-                base_lr / self.multiplier *
-                ((self.multiplier - 1.) * self.last_epoch / self.warmup_epoch + 1.)
-                for base_lr in self.base_lrs
-            ]
-
-    def step(self, epoch=None):
-        if epoch is None:
-            epoch = self.last_epoch + 1
-        self.last_epoch = epoch
-        if epoch > self.warmup_epoch:
-            self.after_scheduler.step(epoch - self.warmup_epoch)
-        else:
-            super(GradualWarmupScheduler, self).step(epoch)
-
-    def state_dict(self):
-        """Returns the state of the scheduler as a :class:`dict`.
-
-        It contains an entry for every variable in self.__dict__ which
-        is not the optimizer.
-        """
-
-        state = {
-            key: value
-            for key, value in self.__dict__.items()
-            if key != 'optimizer' and key != 'after_scheduler'
-        }
-        state['after_scheduler'] = self.after_scheduler.state_dict()
-        return state
-
-    def load_state_dict(self, state_dict):
-        """Loads the schedulers state.
-
-        Arguments:
-            state_dict (dict): scheduler state. Should be an object returned
-                from a call to :meth:`state_dict`.
-        """
-
-        after_scheduler_state = state_dict.pop('after_scheduler')
-        self.__dict__.update(state_dict)
-        self.after_scheduler.load_state_dict(after_scheduler_state)
-
-
-def get_scheduler(optimizer, n_iter_per_epoch, lr_scheduler, lr_decay_rate, warmup_epoch,
-                  lr_steps, epochs, warmup_multiplier):
-    if "cosine" in lr_scheduler:
-        scheduler = CosineAnnealingLR(optimizer=optimizer,
-                                      eta_min=0.00001,
-                                      T_max=(epochs - warmup_epoch) * n_iter_per_epoch)
-    elif "step" in lr_scheduler:
-        scheduler = MultiStepLR(
-            optimizer=optimizer,
-            gamma=lr_decay_rate,
-            milestones=[(m - warmup_epoch) * n_iter_per_epoch for m in lr_steps])
-    else:
-        raise NotImplementedError(f"scheduler {lr_scheduler} not supported")
-
-    if warmup_epoch != 0:
-        scheduler = GradualWarmupScheduler(optimizer,
-                                           multiplier=warmup_multiplier,
-                                           after_scheduler=scheduler,
-                                           warmup_epoch=warmup_epoch * n_iter_per_epoch)
-
-    return scheduler
 
 
 class mSEModule(nn.Module):
@@ -476,7 +386,7 @@ def conv3x3(in_planes, out_planes, stride=1):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, num_segments, inplanes, planes, stride=1, downsample=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -508,7 +418,12 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, num_segments, inplanes, planes, stride=1, downsample=None):
+    def __init__(self,
+                 num_segments: int,
+                 inplanes: int,
+                 planes: int,
+                 stride=1,
+                 downsample=None):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=True)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -559,11 +474,8 @@ class BottleneckShift(nn.Module):
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=True)
         self.bn1 = nn.BatchNorm2d(planes)
         self.num_segments = num_segments
-        self.mse = mSEModule(planes, n_segment=self.num_segments, index=1)
-        self.shift = ShiftModule(planes,
-                                 n_segment=self.num_segments,
-                                 n_div=8,
-                                 mode='shift')
+        self.mse = mSEModule(planes, n_segment=num_segments, index=1)
+        self.shift = ShiftModule(planes, n_segment=num_segments, n_div=8, mode='shift')
 
         self.conv2 = nn.Conv2d(planes,
                                planes,
@@ -681,12 +593,16 @@ class FBResNet(nn.Module):
         return x
 
 
-def fbresnet50(num_segments=8, pretrained=False, num_classes=1000):
-    """Constructs a ResNet-50 model.
+model_urls = {
+    'fbresnet18': 'https://data.lip6.fr/cadene/pretrainedmodels/resnet18-5c106cde.pth',
+    'fbresnet50': 'https://data.lip6.fr/cadene/pretrainedmodels/resnet50-19c8e357.pth',
+    'fbresnet101': 'https://data.lip6.fr/cadene/pretrainedmodels/resnet101-5d3b4d8f.pth'
+}
 
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
+
+def fbresnet50(num_segments=8, pretrained=False, num_classes=1000):
+    ckpt = 'checkpoints/resnet50-19c8e357.pth'
+    url = 'https://data.lip6.fr/cadene/pretrainedmodels/resnet50-19c8e357.pth'
     model = FBResNet(num_segments, BottleneckShift, [3, 4, 6, 3], num_classes=num_classes)
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['fbresnet50']), strict=False)
@@ -694,33 +610,30 @@ def fbresnet50(num_segments=8, pretrained=False, num_classes=1000):
 
 
 def fbresnet101(num_segments, pretrained=False, num_classes=1000):
-    """Constructs a ResNet-101 model.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
+    url = 'https://data.lip6.fr/cadene/pretrainedmodels/resnet101-5d3b4d8f.pth'
+    ckpt = "checkpoints/resnet101-5d3b4d8f.pth"
     model = FBResNet(num_segments,
                      BottleneckShift, [3, 4, 23, 3],
                      num_classes=num_classes)
     if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['fbresnet101']), strict=False)
+        model.load_state_dict(ckpt, strict=False)
     return model
 
 
 if __name__ == '__main__':
     device = 'cpu'
     ckpt_path = 'checkpoints/tdn_sthv2_r50_8x1x1.pth'
-    batch = 10
+    batch = 4
     num_class = 10
     num_diff = 5
     num_seg = 8
-    x = torch.randn(batch * num_diff * num_seg, 3, 224, 224)
+    dummy_x = torch.randn(batch, num_seg, num_diff, 3, 224, 224)
     model = create_model(num_class=num_class,
                          num_segments=num_seg,
                          base_model='resnet50',
                          checkpoint=ckpt_path)
     model = model.to(device)
     model.eval()
-    y = model(x.to(device))
+    y = model(dummy_x.to(device))
     print(y.shape)
     assert y.shape == (batch, num_class)

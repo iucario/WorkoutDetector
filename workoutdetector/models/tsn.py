@@ -97,12 +97,13 @@ class TSNHead(nn.Module):
 
 
 class TSN(nn.Module):
-    """Only oor TDN"""
+    """Only for TDN"""
 
     def __init__(self,
                  num_class: int,
                  num_segments: int,
                  backbone_fn: Callable,
+                 new_length: int = 5,
                  base_model: str = 'resnet50',
                  consensus_type: str = 'avg',
                  dropout: float = 0.8,
@@ -124,7 +125,7 @@ class TSN(nn.Module):
         self._prepare_tsn()
         self.consensus = ConsensusModule(consensus_type)
         self.modality = 'RGB'
-        self.new_length = 1
+        self.new_length = new_length
         self.before_softmax = True
         if not self.before_softmax:
             self.softmax = nn.Softmax()
@@ -334,7 +335,8 @@ class TSN(nn.Module):
     def forward(self, input, reshape=True):
         if reshape:
             sample_len = (3 if self.modality == "RGB" else 2) * self.new_length
-            base_out = self.base_model(input.view((-1, sample_len*5) + input.size()[-2:]))
+            base_out = self.base_model(
+                input.view((-1, sample_len * 5) + input.size()[-2:]))
         else:
             base_out = self.base_model(input)
 

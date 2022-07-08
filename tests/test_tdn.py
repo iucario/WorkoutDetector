@@ -4,7 +4,7 @@ import sys
 import torch
 from torch.utils.data import DataLoader
 from workoutdetector.models.tdn import create_model
-from workoutdetector.datasets import DebugDataset, Pipeline
+from workoutdetector.datasets import DebugDataset, Pipeline, TDNDataset
 import torch.nn as nn
 from torch.nn import CrossEntropyLoss
 from torch import optim
@@ -16,26 +16,32 @@ from torchvision.io import read_video
 
 class Test_TDN:
 
-    model = create_model(4, 8, 'resnet18', checkpoint=None)
+    model = create_model(num_class=4,
+                         num_segments=8,
+                         base_model='resnet50',
+                         checkpoint=None)
     model.eval()
     sthv2_path = 'checkpoints/tdn_sthv2_r50_8x1x1.pth'
-    k400_path = 'checkpoints/TSM_kinetics_RGB_resnet50_shift8_blockres_avg_segment8_e50.pth'
+    k400_path = 'checkpoints/tdn_k400_r50_8x1x1.pth'
 
     def test_train(self):
         num_diff = 5
         model = self.model
+        batch = 4
+        num_class = 4
+        epochs = 10
         i = torch.randn(4 * num_diff * 8, 3, 224, 224)
         y = model(i.cuda())
         assert y.shape == (4, 4), y.shape
 
-        dataset = DebugDataset(num_class=4, num_segments=8, size=100)
-        loader = DataLoader(dataset, batch_size=2, shuffle=True)
-        EPOCHS = 10
+        dataset = DebugDataset(num_class=num_class, num_segments=8, size=100)
+        loader = DataLoader(dataset, batch_size=batch, shuffle=True)
+        
         loss_fn = CrossEntropyLoss()
         optimizer = optim.SGD(model.parameters(), lr=0.001)
         model.cuda()
         model.train()
-        for _ in range(EPOCHS):
+        for _ in range(epochs):
             for x, y in loader:
                 x = rearrange(x, 'b t c h w -> (b t) c h w')
                 assert x.shape == (2 * 8, 3, 224, 224)
@@ -79,7 +85,7 @@ class Test_TDN:
             if k in base_dict:
                 assert torch.allclose(v, base_dict[k]), f"{k} not equal"
             else:
-                sys.stderr.write(k, v.shape, f"{k} is not in base_dict\n")
+                sys.stderr.write(f"{k}, {v.shape}, {k} is not in base_dict\n")
 
     @torch.no_grad()
     def test_k400(self):
