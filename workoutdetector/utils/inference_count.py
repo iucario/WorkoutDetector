@@ -138,6 +138,11 @@ def pred_to_count(preds: List[int], step: int) -> Tuple[int, List[int]]:
         It means the model has to capture the presice time of state transition.
         Because the model takes 8 continous frames as input.
         Or I doubt it will work well. So multiple time scale should be added.
+    
+    Example:
+        >>> preds = [-1, -1, 6, 6, 6, 7, 6, 6, 6, 7, 6, 6, 7, 7, 6, 6, 7, 7, 6, 6, 7, 7, 6, 6, 7, 7, -1]
+        >>> pred_to_count(preds, step=8)
+        (6, [16, 40, 48, 72, 80, 96, 112, 128, 144, 160, 176, 192])
     """
 
     count = 0
@@ -587,8 +592,9 @@ if __name__ == '__main__':
     # main(args)
 
     cfg_path = 'workoutdetector/configs/tsm_MultiActionRepCount_sthv2.py'
-    ckpt = 'checkpoints/tsm_video_all.pth'
-    model = init_recognizer(cfg_path, ckpt, device='cuda')
+    ckpt = 'checkpoints/repcount-12/rep_12_20220705_220720.onnx'
+    model = onnxruntime.InferenceSession(ckpt, providers=['CUDAExecutionProvider'])
+    # model = init_recognizer(cfg_path, ckpt, device='cuda')
     inference_dataset(model, ['train', 'val', 'test'],
                       out_dir='out/tsm_rep_scores_sparse_sample',
                       checkpoint=ckpt)

@@ -1,5 +1,6 @@
 # copied from https://github.com/kennymckormick/pyskl/blob/main/pyskl/utils/visualize.py
 import io
+from typing import Any, Dict, List
 
 import cv2
 import decord
@@ -10,12 +11,51 @@ from mmcv import load
 from tqdm import tqdm
 
 
+def plot_pred(result: List[int],
+              gt: List[int],
+              total: int,
+              info: Dict[str, Any],
+              step: int = 8) -> None:
+    """Plot segmentation result and ground truth.
+    
+    Args:
+        result (List[int]): segmentation result. [start_1, end_1, start_2, ...]
+        gt (List[int]): ground truth. [start_1, end_1, start_2, ...]
+        total (int): total number of frames.
+        info (Dict[str, Any]): info dict. Inferenced json.
+        step (int): step of prediction.
+    """
+
+    plt.figure(figsize=(8, 2))
+    plt.xlabel('Frame index')
+    plt.yticks([])
+    plt.ylim(0, 1)
+    plt.xticks(range(0, total, 8))
+    for i in range(0, len(gt), 2):
+        rect = plt.Rectangle((gt[i], 0.5), (gt[i + 1] - gt[i]),
+                             0.5,
+                             color=['C5', 'C4'][i % 4 // 2])
+        plt.gca().add_patch(rect)
+    for j in range(0, len(result), 2):
+        rect = plt.Rectangle((result[j], 0.0), (result[j + 1] - result[j]),
+                             0.49,
+                             color=['C0', 'C2'][j % 4 // 2])
+        plt.gca().add_patch(rect)
+    # plt.vlines(result, color='C1', ymin=0.0, ymax=1.0)
+    plt.title(f'{info["video_name"]}, {info["action"]}, count={len(gt)//2},'\
+        ' Up: ground truth, Down: prediction')
+    plt.show()
+
+
 class Vis3DPose:
 
-    def __init__(
-            self, item, layout='nturgb+d', fps=12, angle=(30, 45),
-            fig_size=(8, 8),
-            dpi=80):
+    def __init__(self,
+                 item,
+                 layout='nturgb+d',
+                 fps=12,
+                 angle=(30, 45),
+                 fig_size=(8, 8),
+                 dpi=80):
         kp = item['keypoint']
         self.kp = kp
         assert self.kp.shape[-1] == 3
@@ -29,36 +69,15 @@ class Vis3DPose:
         assert layout == 'nturgb+d'
         if self.layout == 'nturgb+d':
             self.num_joint = 25
-            self.links = np.array(
-                [(1, 2),
-                 (2, 21),
-                 (3, 21),
-                 (4, 3),
-                 (5, 21),
-                 (6, 5),
-                 (7, 6),
-                 (8, 7),
-                 (9, 21),
-                 (10, 9),
-                 (11, 10),
-                 (12, 11),
-                 (13, 1),
-                 (14, 13),
-                 (15, 14),
-                 (16, 15),
-                 (17, 1),
-                 (18, 17),
-                 (19, 18),
-                 (20, 19),
-                 (22, 8),
-                 (23, 8),
-                 (24, 12),
-                 (25, 12)],
-                dtype=np.int) - 1
+            self.links = np.array([(1, 2), (2, 21), (3, 21), (4, 3), (5, 21), (6, 5),
+                                   (7, 6), (8, 7), (9, 21), (10, 9), (11, 10), (12, 11),
+                                   (13, 1), (14, 13),
+                                   (15, 14), (16, 15), (17, 1), (18, 17), (19, 18),
+                                   (20, 19), (22, 8), (23, 8), (24, 12), (25, 12)],
+                                  dtype=np.int) - 1
             self.left = np.array([5, 6, 7, 8, 13, 14, 15, 16, 22, 23], dtype=np.int) - 1
-            self.right = np.array(
-                [9, 10, 11, 12, 17, 18, 19, 20, 24, 25],
-                dtype=np.int) - 1
+            self.right = np.array([9, 10, 11, 12, 17, 18, 19, 20, 24, 25],
+                                  dtype=np.int) - 1
             self.num_link = len(self.links)
         self.limb_tag = [1] * self.num_link
 
@@ -75,8 +94,8 @@ class Vis3DPose:
         min_y, max_y = min(y[y != 0]), max(y[y != 0])
         min_z, max_z = min(z[z != 0]), max(z[z != 0])
         max_axis = max(max_x - min_x, max_y - min_y, max_z - min_z)
-        mid_x, mid_y, mid_z = (
-            min_x + max_x) / 2, (min_y + max_y) / 2, (min_z + max_z) / 2
+        mid_x, mid_y, mid_z = (min_x + max_x) / 2, (min_y + max_y) / 2, (min_z +
+                                                                         max_z) / 2
         self.min_x, self.max_x = mid_x - max_axis / 2, mid_x + max_axis / 2
         self.min_y, self.max_y = mid_y - max_axis / 2, mid_y + max_axis / 2
         self.min_z, self.max_z = mid_z - max_axis / 2, mid_z + max_axis / 2
@@ -106,11 +125,11 @@ class Vis3DPose:
                     link = self.links[i]
                     color = self.colors[self.limb_tag[i]]
                     j1, j2 = self.kp[m, t, link[0]], self.kp[m, t, link[1]]
-                    if not(
-                        (np.allclose(j1, 0) or np.allclose(j2, 0)) and link[0] != 1
-                            and link[1] != 1):
-                        ax.plot([j1[0], j2[0]], [j1[1], j2[1]],
-                                [j1[2], j2[2]], lw=1, c=color)
+                    if not ((np.allclose(j1, 0) or np.allclose(j2, 0)) and
+                            link[0] != 1 and link[1] != 1):
+                        ax.plot([j1[0], j2[0]], [j1[1], j2[1]], [j1[2], j2[2]],
+                                lw=1,
+                                c=color)
             self.images.append(self.get_img(dpi=self.dpi))
             ax.cla()
         return mpy.ImageSequenceClip(self.images, fps=self.fps)
@@ -136,41 +155,32 @@ def Vis2DPose(item, thre=0.2, out_shape=(540, 960), layout='coco', fps=24, video
     assert total_frames == kp.shape[1]
 
     if video is None:
-        frames = [np.ones([out_shape[0], out_shape[1], 3], dtype=np.uint8)
-                  * 255 for i in range(total_frames)]
+        frames = [
+            np.ones([out_shape[0], out_shape[1], 3], dtype=np.uint8) * 255
+            for i in range(total_frames)
+        ]
     else:
         vid = decord.VideoReader(video)
         frames = [x.asnumpy() for x in vid]
         frames = [cv2.resize(x, (out_shape[1], out_shape[0])) for x in frames]
         if len(frames) != total_frames:
-            frames = [frames[int(i / total_frames * len(frames))]
-                      for i in range(total_frames)]
+            frames = [
+                frames[int(i / total_frames * len(frames))] for i in range(total_frames)
+            ]
 
     if layout == 'coco':
-        edges = [
-            (0, 1, 'f'),
-            (0, 2, 'f'),
-            (1, 3, 'f'),
-            (2, 4, 'f'),
-            (0, 5, 't'),
-            (0, 6, 't'),
-            (5, 7, 'ru'),
-            (6, 8, 'lu'),
-            (7, 9, 'ru'),
-            (8, 10, 'lu'),
-            (5, 11, 't'),
-            (6, 12, 't'),
-            (11, 13, 'ld'),
-            (12, 14, 'rd'),
-            (13, 15, 'ld'),
-            (14, 16, 'rd')]
+        edges = [(0, 1, 'f'), (0, 2, 'f'), (1, 3, 'f'), (2, 4, 'f'), (0, 5, 't'),
+                 (0, 6, 't'), (5, 7, 'ru'), (6, 8, 'lu'), (7, 9, 'ru'), (8, 10, 'lu'),
+                 (5, 11, 't'), (6, 12, 't'), (11, 13, 'ld'), (12, 14, 'rd'),
+                 (13, 15, 'ld'), (14, 16, 'rd')]
     color_map = {
         'ru': ((0, 0x96, 0xc7), (0x3, 0x4, 0x5e)),
         'rd': ((0xca, 0xf0, 0xf8), (0x48, 0xca, 0xe4)),
         'lu': ((0x9d, 0x2, 0x8), (0x3, 0x7, 0x1e)),
         'ld': ((0xff, 0xba, 0x8), (0xe8, 0x5d, 0x4)),
         't': ((0xee, 0x8b, 0x98), (0xd9, 0x4, 0x29)),
-        'f': ((0x8d, 0x99, 0xae), (0x2b, 0x2d, 0x42))}
+        'f': ((0x8d, 0x99, 0xae), (0x2b, 0x2d, 0x42))
+    }
 
     for i in tqdm(range(total_frames)):
         for m in range(kp.shape[0]):
@@ -182,12 +192,12 @@ def Vis2DPose(item, thre=0.2, out_shape=(540, 960), layout='coco', fps=24, video
                 j1x, j1y, j2x, j2y = int(j1[0]), int(j1[1]), int(j2[0]), int(j2[1])
                 conf = min(j1[2], j2[2])
                 if conf > thre:
-                    color = [x + (y - x) * (conf - thre) / 0.8 for x,
-                             y in zip(co_tup[0], co_tup[1])]
+                    color = [
+                        x + (y - x) * (conf - thre) / 0.8
+                        for x, y in zip(co_tup[0], co_tup[1])
+                    ]
                     color = tuple([int(x) for x in color])
-                    frames[i] = cv2.line(
-                        frames[i],
-                        (j1x, j1y),
-                        (j2x, j2y),
-                        color, thickness=2)
+                    frames[i] = cv2.line(frames[i], (j1x, j1y), (j2x, j2y),
+                                         color,
+                                         thickness=2)
     return mpy.ImageSequenceClip(frames, fps=fps)
