@@ -150,14 +150,16 @@ def pred_to_count(preds: List[int], step: int) -> Tuple[int, List[int]]:
     states: List[int] = []
     prev_state_start_idx = 0
     for idx, pred in enumerate(preds):
+        if pred == -1:
+            continue
         # if state changed and current and previous state are the same action
-        if pred > -1 and states and states[-1] != pred:
+        if states and states[-1] != pred:
             if pred % 2 == 1 and states[-1] == pred - 1:
                 count += 1
                 reps.append(prev_state_start_idx * step)
                 reps.append(idx * step)
         states.append(pred)
-        prev_state = states[prev_state_start_idx]
+        prev_state = preds[prev_state_start_idx]
         if pred != prev_state:  # new state, new start index
             prev_state_start_idx = idx
 

@@ -1,19 +1,22 @@
 # copied from https://github.com/kennymckormick/pyskl/blob/main/pyskl/utils/visualize.py
 import io
-from typing import Any, Dict, List
+from typing import Any, Dict, List, OrderedDict, NewType
 
 import cv2
 import decord
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
 import moviepy.editor as mpy
 import numpy as np
 from mmcv import load
 from tqdm import tqdm
 
+CLASSES = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
+
 
 def plot_pred(result: List[int],
               gt: List[int],
-              total: int,
+              total_frames: int,
               info: Dict[str, Any],
               step: int = 8) -> None:
     """Plot segmentation result and ground truth.
@@ -21,16 +24,18 @@ def plot_pred(result: List[int],
     Args:
         result (List[int]): segmentation result. [start_1, end_1, start_2, ...]
         gt (List[int]): ground truth. [start_1, end_1, start_2, ...]
-        total (int): total number of frames.
+        total_frames (int): total number of frames.
         info (Dict[str, Any]): info dict. Inferenced json.
         step (int): step of prediction.
     """
 
+    max_num_ticks = 10
     plt.figure(figsize=(8, 2))
     plt.xlabel('Frame index')
     plt.yticks([])
     plt.ylim(0, 1)
-    plt.xticks(range(0, total, 8))
+    plt.xlim(0, total_frames)
+    plt.xticks([i for i in range(0, total_frames, total_frames // max_num_ticks)])
     for i in range(0, len(gt), 2):
         rect = plt.Rectangle((gt[i], 0.5), (gt[i + 1] - gt[i]),
                              0.5,
@@ -45,6 +50,80 @@ def plot_pred(result: List[int],
     plt.title(f'{info["video_name"]}, {info["action"]}, count={len(gt)//2},'\
         ' Up: ground truth, Down: prediction')
     plt.show()
+
+
+def plot_all(gt_reps: np.ndarray, info: Dict[str, Any]):
+    total_frames = info['total_frames']
+    ys = []
+    for item in list(info['scores'].values()):
+        ys.append([item[str(j)] if str(j) in item else 0 for j in range(12)])
+    yarr = np.asarray(ys)
+    counts = len(gt_reps) // 2
+    GT_CLASS_INDEX = CLASSES.index(info['action'])
+    COLORS = list(plt.get_cmap('Set3').colors)
+    plt.plot(yarr, marker='.', linestyle='None')
+    plt.xticks(range(0, total_frames // 8, total_frames // 80))
+    plt.xlabel('Frame index')
+    plt.ylabel('Softmax score')
+    plt.title(f"{info['video_name']} {info['action']} count={counts}")
+    plt.ylim(0, 1.1)
+    plt.vlines(x=gt_reps[0::2] // 8,
+               color=COLORS[GT_CLASS_INDEX * 2],
+               ymin=0.51,
+               ymax=1.0)
+    plt.vlines(x=gt_reps[1::2] // 8,
+               color=COLORS[GT_CLASS_INDEX * 2 + 1],
+               ymin=0.0,
+               ymax=0.49)
+    plt.legend(np.array(CLASSES).repeat(2))
+
+    # Indicator
+    segs = []
+    HEIGHT = 1.01
+    for i in range(len(gt_reps[::2])):
+        start = gt_reps[i * 2]
+        end = gt_reps[i * 2 + 1]
+        mid = (start + end) // 2
+        segs.append([(start // 8, HEIGHT), (mid // 8, HEIGHT)])
+        segs.append([(mid // 8, HEIGHT), (end // 8, HEIGHT)])
+    lc = LineCollection(
+        segs,
+        colors=[COLORS[GT_CLASS_INDEX * 2], COLORS[GT_CLASS_INDEX * 2 + 1]],
+        linewidths=1)
+    plt.gca().add_collection(lc)
+    plt.show()
+
+
+def plot_per_action(info: dict):
+    total_frames = info['total_frames']
+    ys = []
+    for item in list(info['scores'].values()):
+        ys.append([item[str(j)] if str(j) in item else 0 for j in range(12)])
+    yarr = np.asarray(ys)
+    fig, ax = plt.subplots(len(CLASSES), 1, figsize=(8, 8))
+    for idx in range(len(CLASSES)):
+        ax[idx].set_ylim(0, 1.1)
+        ax[idx].plot(yarr[:, idx * 2:idx * 2 + 2])
+        ax[idx].set_title(f'{CLASSES[idx]}', y=0.95)
+        ax[idx].set_xticks(range(0, total_frames // 8, total_frames // 80))
+    plt.xlabel('Frame index')
+    plt.ylabel('Softmax score')
+    plt.show()
+
+
+def plt_params() -> dict:
+    COLORS = list(plt.get_cmap('Set3').colors)
+    plt.style.use('seaborn-dark')
+    params = {
+        'figure.dpi': 300,
+        'figure.figsize': (8, 5),
+        'figure.autolayout': True,
+        'lines.linewidth': 0.8,
+        'axes.prop_cycle': plt.cycler('color', COLORS),
+        'font.size': 8,
+        'font.family': 'serif'
+    }
+    return params
 
 
 class Vis3DPose:

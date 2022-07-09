@@ -1,14 +1,13 @@
-from workoutdetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
-import torch
-from torchvision.io import read_image
-import torchvision.transforms.functional as TF
 import os
 import os.path as osp
 from os.path import join as osj
-from fvcore.common.config import CfgNode
-from workoutdetector.trainer import DataModule
 from tempfile import TemporaryDirectory
-from workoutdetector.trainer import train, DataModule
+
+import torch
+import torchvision.transforms.functional as TF
+from fvcore.common.config import CfgNode
+from torchvision.io import read_image
+from workoutdetector.trainer import DataModule, train
 
 
 def _check_data(loader: torch.utils.data.DataLoader, num_class: int = 12):

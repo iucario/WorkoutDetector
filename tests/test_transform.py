@@ -1,12 +1,13 @@
+import os
+from os.path import join as osj
+
+import pytest
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.io import read_image
-import os
-from os.path import join as osj
 from workoutdetector.datasets.transform import Detector, PersonCrop
 from workoutdetector.settings import PROJ_ROOT
-import pytest
 
 
 def test_Detector():
