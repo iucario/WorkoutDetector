@@ -1,22 +1,36 @@
 checkpoints
-work_dirs
+work_dirs/
+wandb/
 .jupyter_checkpoints
 .DS_Store
 *.mp4
 !images/*
 !example_videos/*
-tmp/
+_tmp.py
 poses/
-exp/
-out/
+exp
+out
 detectron2_out/
-
+lightning_logs/
+log
+tmp
 *.ipynb_checkpoints
 
 # data
 data/*
-
+tests/data/
 datasets/kinetics700_2020/*
 
 *.pyc
+
+# editor
 *.code-workspace
+pyrightconfig.json
+
+*.egg-info
+.*
+
+# weights
+*.onnx
+*.pth
+*.pt
