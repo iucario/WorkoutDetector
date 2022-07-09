@@ -1,14 +1,15 @@
 # copied from https://github.com/kennymckormick/pyskl/blob/main/pyskl/utils/visualize.py
 import io
-from typing import Any, Dict, List, OrderedDict, NewType
+from typing import Any, Dict, List, NewType, OrderedDict, Union
 
 import cv2
 import decord
 import matplotlib.pyplot as plt
-from matplotlib.collections import LineCollection
 import moviepy.editor as mpy
 import numpy as np
-from mmcv import load
+import torch
+import torch.nn.functional as F
+from matplotlib.collections import LineCollection
 from tqdm import tqdm
 
 CLASSES = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
@@ -52,17 +53,32 @@ def plot_pred(result: List[int],
     plt.show()
 
 
-def plot_all(gt_reps: np.ndarray, info: Dict[str, Any]):
+def plot_all(gt_reps: np.ndarray, info: Dict[str, Any], softmax: bool = False) -> None:
+    """
+    Args:
+        gt_reps (np.ndarray): ground truth reps.
+        info (Dict[str, Any]): info dict. Inferenced json for each video.
+        softmax (boo): Apply softmax or not.
+    """
+
     total_frames = info['total_frames']
     ys = []
-    for item in list(info['scores'].values()):
+    if softmax:
+        score_list: List[Dict[str, float]] = list(info['scores'].values())
+        od_list: List[Dict[str, float]] = []
+        for d in score_list:
+            od_list.append(to_softmax(d))
+    else:
+        od_list = list(info['scores'].values())
+    for item in od_list:
         ys.append([item[str(j)] if str(j) in item else 0 for j in range(12)])
     yarr = np.asarray(ys)
     counts = len(gt_reps) // 2
     GT_CLASS_INDEX = CLASSES.index(info['action'])
     COLORS = list(plt.get_cmap('Set3').colors)
+    max_num_ticks = 10
     plt.plot(yarr, marker='.', linestyle='None')
-    plt.xticks(range(0, total_frames // 8, total_frames // 80))
+    plt.xticks([i for i in range(0, total_frames, total_frames // max_num_ticks)])
     plt.xlabel('Frame index')
     plt.ylabel('Softmax score')
     plt.title(f"{info['video_name']} {info['action']} count={counts}")
@@ -94,21 +110,44 @@ def plot_all(gt_reps: np.ndarray, info: Dict[str, Any]):
     plt.show()
 
 
-def plot_per_action(info: dict):
+def plot_per_action(info: dict, softmax: bool = False) -> None:
     total_frames = info['total_frames']
     ys = []
-    for item in list(info['scores'].values()):
+    if softmax:
+        score_list: List[Dict[str, float]] = list(info['scores'].values())
+        od_list: List[Dict[str, float]] = []
+        for d in score_list:
+            od_list.append(to_softmax(d))
+    else:
+        od_list = list(info['scores'].values())
+    for item in od_list:
         ys.append([item[str(j)] if str(j) in item else 0 for j in range(12)])
     yarr = np.asarray(ys)
     fig, ax = plt.subplots(len(CLASSES), 1, figsize=(8, 8))
+    max_num_ticks = 10
     for idx in range(len(CLASSES)):
         ax[idx].set_ylim(0, 1.1)
         ax[idx].plot(yarr[:, idx * 2:idx * 2 + 2])
+        ax[idx].set_xlim(0, total_frames)
+        ax[idx].set_xticks(
+            [i for i in range(0, total_frames, total_frames // max_num_ticks)])
         ax[idx].set_title(f'{CLASSES[idx]}', y=0.95)
-        ax[idx].set_xticks(range(0, total_frames // 8, total_frames // 80))
     plt.xlabel('Frame index')
     plt.ylabel('Softmax score')
     plt.show()
+
+
+def to_softmax(d: Union[Dict[str, float], OrderedDict[str, float]]) -> Dict[str, float]:
+    """Raw score to softmax score.
+    
+    Args:
+        d (Dict[str, float]): raw score dict of one frame.
+    Returns:
+        Dict[str, float]: softmax score dict of one frame.
+    """
+
+    softmax_d = F.softmax(torch.Tensor(list(d.values())), dim=0)
+    return dict(zip(d.keys(), softmax_d.numpy()))
 
 
 def plt_params() -> dict:
@@ -214,10 +253,12 @@ class Vis3DPose:
         return mpy.ImageSequenceClip(self.images, fps=self.fps)
 
 
-def Vis2DPose(item, thre=0.2, out_shape=(540, 960), layout='coco', fps=24, video=None):
-    if isinstance(item, str):
-        item = load(item)
-
+def Vis2DPose(item: dict,
+              thre=0.2,
+              out_shape=(540, 960),
+              layout='coco',
+              fps=24,
+              video=None):
     assert layout == 'coco'
 
     kp = item['keypoint']
@@ -271,11 +312,11 @@ def Vis2DPose(item, thre=0.2, out_shape=(540, 960), layout='coco', fps=24, video
                 j1x, j1y, j2x, j2y = int(j1[0]), int(j1[1]), int(j2[0]), int(j2[1])
                 conf = min(j1[2], j2[2])
                 if conf > thre:
-                    color = [
+                    colors = [
                         x + (y - x) * (conf - thre) / 0.8
                         for x, y in zip(co_tup[0], co_tup[1])
                     ]
-                    color = tuple([int(x) for x in color])
+                    color = tuple([int(x) for x in colors])
                     frames[i] = cv2.line(frames[i], (j1x, j1y), (j2x, j2y),
                                          color,
                                          thickness=2)
