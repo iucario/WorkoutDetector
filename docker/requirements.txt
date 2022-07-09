@@ -1,0 +1,16 @@
+matplotlib
+numpy
+pandas
+scikit-learn
+scipy
+einops
+pytorch-lightning
+tqdm
+fvcore
+timm
+decord
+opencv-python
+opencv-python-headless
+opencv-contrib-python
+opencv-contrib-python-headless
+pytorchvideo

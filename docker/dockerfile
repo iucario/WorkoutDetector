@@ -1,0 +1,132 @@
+FROM nvidia/cuda:11.3.1-cudnn8-devel-ubuntu20.04
+
+ARG UID=2200
+ARG GID=2200
+ARG PYTHON_VERSION=3.9.12
+ARG PYTORCH_VERSION=1.10.2
+ARG PYTORCH_VERSION_SUFFIX=+cu113
+ARG TORCHVISION_VERSION=0.11.3
+ARG TORCHVISION_VERSION_SUFFIX=+cu113
+ARG TORCHAUDIO_VERSION=0.10.2
+ARG TORCHAUDIO_VERSION_SUFFIX=+cu113
+ARG PYTORCH_DOWNLOAD_URL=https://download.pytorch.org/whl/cu113/torch_stable.html
+
+ARG IMAGE_TAG=1.10.2-py3.9.12-cuda11.3.1-devel-ubuntu20.04
+ENV NVIDIA_DRIVER_CAPABILITIES ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
+
+# Fix Nvidia key
+RUN rm /etc/apt/sources.list.d/cuda.list
+
+# Install some basic utilities
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    sudo \
+    git \
+    bzip2 \
+    libx11-6 \
+    wget \
+    libssl-dev \
+    openssl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Timezone
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends &&\
+    DEBIAN_FRONTEND=noninteractive apt-get install -yq tzdata && \
+    rm /etc/localtime && \
+    ln -fs /usr/share/zoneinfo/Asia/Tokyo /etc/localtime    
+
+# Python
+RUN cd /tmp && \
+    apt update -y && sudo apt upgrade -y && \
+    apt-get install -y build-essential checkinstall  libreadline-gplv2-dev  \
+    libncursesw5-dev  libssl-dev  libsqlite3-dev tk-dev libgdbm-dev \
+    libc6-dev libbz2-dev libffi-dev zlib1g-dev && \
+    sudo apt install -y python3-pip && \
+    sudo apt install python-is-python3
+
+# wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz && \
+# tar -xvf Python-${PYTHON_VERSION}.tgz && \
+# cd Python-${PYTHON_VERSION} && \
+# ./configure --enable-optimizations && \
+# make && make install && \
+# cd .. && rm -r Python-${PYTHON_VERSION} && \
+
+
+# Pytorch
+RUN pip install \
+    torch==${PYTORCH_VERSION}${PYTORCH_VERSION_SUFFIX} \
+    torchvision==${TORCHVISION_VERSION}${TORCHVISION_VERSION_SUFFIX} \
+    torchaudio==${TORCHAUDIO_VERSION}${TORCHAUDIO_VERSION_SUFFIX} \
+    -f ${PYTORCH_DOWNLOAD_URL}; \
+    rm -r /root/.cache/pip
+
+# Install system libraries required by OpenCV.
+RUN apt-get update \
+    && apt-get install ffmpeg libsm6 libxext6  -y \
+    && apt-get install -y libgl1-mesa-glx libgtk2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create a working directory
+RUN mkdir /work
+WORKDIR /work
+
+# Create a non-root user and switch to it
+RUN adduser --disabled-password --gecos '' --shell /bin/bash user \
+    && chown -R ${UID}:${GID} /work
+RUN echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-user
+USER user
+RUN export $PATH=$PATH:/home/user/.local/bin
+
+# All users can use /home/user as their home directory
+ENV HOME=/home/user
+RUN mkdir $HOME/.cache $HOME/.config \
+    && chmod -R 777 $HOME
+
+# Set up the Conda environment
+# ENV CONDA_AUTO_UPDATE_CONDA=false \
+#     PATH=$HOME/miniconda/bin:$PATH
+# COPY environment.yml /app/environment.yml
+# RUN curl -sLo ~/miniconda.sh https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh \
+#     && chmod +x ~/miniconda.sh \
+#     && ~/miniconda.sh -b -p ~/miniconda \
+#     && rm ~/miniconda.sh \
+#     && conda env update -n base -f /app/environment.yml \
+#     && rm /app/environment.yml \
+#     && conda clean -ya
+
+# Install requirements from PyPI.
+# RUN pip install -r requirements.txt
+RUN pip install pytorch_lightning \
+    einops \
+    fvcore \
+    timm \
+    scikit-learn \
+    scipy \
+    pandas \
+    matplotlib \
+    decord \
+    opencv-python \
+    opencv-python-headless \
+    opencv-contrib-python \
+    opencv-contrib-python-headless \
+    pytorchvideo \
+    yt-dlp
+
+# Zsh and oh-my-zsh
+RUN sudo apt-get update && \
+    sudo apt-get install -y zsh && \
+    sudo apt install git-core curl fonts-powerline -y && \
+    sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh)" 
+
+# Install OpenMMLab.
+RUN pip install openmim && \
+    PATH=$PATH:/home/user/.local/bin && \
+    mim install mmcv-full==1.5.0 && \
+    mim install mmdet && \
+    mim install mmtrack && \
+    mim install mmpose && \
+    pip install git+https://github.com/open-mmlab/mmaction2.git
+
+# Set the default command to zsh
+CMD ["zsh"]
