@@ -16,7 +16,11 @@ from workoutdetector.models.build import MODEL_REGISTRY
 
 class TemporalShift(nn.Module):
 
-    def __init__(self, net, n_segment=3, n_div=8, inplace=False):
+    def __init__(self,
+                 net: nn.Module,
+                 n_segment: int = 3,
+                 n_div: int = 8,
+                 inplace: bool = False):
         super(TemporalShift, self).__init__()
         self.net = net
         self.n_segment = n_segment
@@ -97,49 +101,40 @@ class TemporalPool(nn.Module):
         return x
 
 
-def make_temporal_shift(net, n_segment, n_div=8, place='blockres', temporal_pool=False):
+def make_temporal_shift(net: nn.Module,
+                        n_segment: int,
+                        n_div=8,
+                        place='blockres',
+                        temporal_pool=False):
     if temporal_pool:
         n_segment_list = [n_segment, n_segment // 2, n_segment // 2, n_segment // 2]
     else:
         n_segment_list = [n_segment] * 4
     assert n_segment_list[-1] > 0
-    # print('=> n_segment per stage: {}'.format(n_segment_list))
 
     if isinstance(net, torchvision.models.ResNet):
         if place == 'block':
-
-            def make_block_temporal(stage, this_segment):
-                blocks = list(stage.children())
+            for j, seg in enumerate(n_segment_list, 1):
+                blocks = list(getattr(net, f'layer{j}').children())
                 # print('=> Processing stage with {} blocks'.format(len(blocks)))
                 for i, b in enumerate(blocks):
-                    blocks[i] = TemporalShift(b, n_segment=this_segment, n_div=n_div)
-                return nn.Sequential(*(blocks))
+                    blocks[i] = TemporalShift(b, n_segment=seg, n_div=n_div)
 
-            net.layer1 = make_block_temporal(net.layer1, n_segment_list[0])
-            net.layer2 = make_block_temporal(net.layer2, n_segment_list[1])
-            net.layer3 = make_block_temporal(net.layer3, n_segment_list[2])
-            net.layer4 = make_block_temporal(net.layer4, n_segment_list[3])
+                setattr(net, f'layer{j}', nn.Sequential(*(blocks)))
 
         elif 'blockres' in place:
             n_round = 1
             if len(list(net.layer3.children())) >= 23:
                 n_round = 2
-                # print('=> Using n_round {} to insert temporal shift'.format(n_round))
-
-            def make_block_temporal(stage, this_segment):
-                blocks = list(stage.children())
+            for j, seg in enumerate(n_segment_list, 1):
+                blocks = list(getattr(net, f'layer{j}').children())
                 # print('=> Processing stage with {} blocks residual'.format(len(blocks)))
                 for i, b in enumerate(blocks):
                     if i % n_round == 0:
                         blocks[i].conv1 = TemporalShift(b.conv1,
-                                                        n_segment=this_segment,
+                                                        n_segment=seg,
                                                         n_div=n_div)
-                return nn.Sequential(*blocks)
-
-            net.layer1 = make_block_temporal(net.layer1, n_segment_list[0])
-            net.layer2 = make_block_temporal(net.layer2, n_segment_list[1])
-            net.layer3 = make_block_temporal(net.layer3, n_segment_list[2])
-            net.layer4 = make_block_temporal(net.layer4, n_segment_list[3])
+                setattr(net, f'layer{j}', nn.Sequential(*(blocks)))
     else:
         raise NotImplementedError(place)
 
@@ -499,7 +494,7 @@ if __name__ == '__main__':
     # checkpoint
     ckpt_path = 'checkpoints/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth'
     pretrained = create_model(2, 8, 'resnet50', checkpoint=ckpt_path)
-    print(pretrained)
+    # print(pretrained)
 
     state_dict = torch.load(ckpt_path).get('state_dict')
     base_dict = OrderedDict(

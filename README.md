@@ -1,35 +1,35 @@
 # Workout Detector
 
-This project uses the [MMAction2](https://github.com/open-mmlab/mmaction2)
-
 - [x] Clean and process datasets
 - [x] Action recognition
 - [ ] Train on more datasets
 - [x] Action detection
 - [ ] Use pose estimation
 - [x] Repetition counting
-- [ ] Action accessment
+- [ ] Action assessment
 
 ## Installation
 
 ```
-git clone --recursive https://github.com/iucario/workoutdetector.git
+git clone https://github.com/iucario/workoutdetector.git
 cd WorkoutDetector
 
 conda env create -f conda_env.yml
 pip install openmim
 mim install mmcv
 pip install -r requirements.txt
+pip install -e .
 ```
 
 ## Docker
 
 Build image for dev environment example:
+
 ```
 docker built -t workout/dev docker
 docker run -it \
     --gpus=all \
-    --shm-size=16gb \
+    --shm-size=32gb \
     --volume="$PWD:/work" \
     --volume="/home/$USER/data:/home/user/data:ro" \
     -w /work \
@@ -42,12 +42,13 @@ pip install wandb pytest
 sudo pip install -e .
 export $PROJ_ROOT=$PWD
 ```
+
 Run docker example
 
 ```
 docker run --rm -it \
   --gpus=all \
-  --shm-size=16gb \
+  --shm-size=32gb \
   --volume="$PWD:/work" \
   --volume="/home/$USER/data:/home/user/data:ro" \
   workout/dev:latest python3 workoutdetector/trainer.py
@@ -61,10 +62,6 @@ docker run --rm -it \
 
 <img src="images/demo.gif" alt="React demo" width="800"/>
 
-Kown issue: After stopping streaming, WebSocket will disconnect. You need to refresh to restart streaming.
-
-Going to fix the frontend React code.
-
 ## Run Gradio demo
 
 1. Download onnx model. Same as the React demo. [OneDrive](https://1drv.ms/u/s!AiohV3HRf-34i_VY0jVJGvLeayIdjQ?e=XqAvLa)
@@ -72,28 +69,37 @@ Going to fix the frontend React code.
 3. `python WorkoutDetector/demo.py`
 4. open http://localhost:7860/
 
-## Inference
-
-### Repetition counting
+## Repetition counting
 
 Two model types, image and video, can be used.
 
-Method is naive. The transition of states is counted as one repetition. It's online counting.
+Method is naive. The transition of states is counted as one repetition. It's online counting. Only previous frames are used.
 
-1. Prepare `onnx` model trained using `run.py`
-2. Run script
+### Evaluation
+
+1. Inference videos and save results to a directory. Results of each video will be saved in a JSON file.
+   `workoutdetector/utils/inference_count.py`
+   ```python
+   ckpt = 'checkpoints/model.onnx'
+   model = onnxruntime.InferenceSession(ckpt, providers=['CUDAExecutionProvider'])
+   inference_dataset(model, ['train', 'val', 'test'], out_dir='out/tsm_rep_scores', checkpoint=ckpt)
    ```
-   python utils/inference_count.py \
-        --onnx ../checkpoints/tsm_video_binary_jump_jack.onnx \
-        --video path/to/input/video.mp4 \
-        -o path/to/output/video.mp4
+   Scores of each video are saved in `out/tsm_rep_scores/video.mp4.score.json`.
+2. Evaluating mean absolute error and off-by-one accuracy
+   `workoutdetector/utils/eval_count.py`
+   ```python
+   json_dir = 'out/tsm_rep_scores'
+   anno_path = 'data/RepCount/annotation.csv'
+   out_csv = 'out/tsm_rep_scores.csv'
+   main(json_dir, anno_path, out_csv, softmax=True)
+   analyze_count(out_csv, out_csv.replace('.csv', '_meta.csv'))
    ```
+   Results of every video are saved in `out/tsm_rep_scores.csv`.
+   Metrics are saved in `out/tsm_rep_scores_meta.csv`.
+3. Visualization
+   `notebooks/rep_analysis.ipynb`
 
 ## Train an action recognition model
-
-### Colab
-
-Check `WorkoutDetector/tutorial.py` in [Google Colab](https://colab.research.google.com/github/iucario/WorkoutDetector/blob/main/WorkoutDetector/tutorial.ipynb)
 
 ### Local
 
@@ -115,12 +121,12 @@ See `WorkoutDetector/scripts/build_datasets.py` for details.
 data/Workouts/
 ├── rawframes
 │   ├── Countix
-│   │   ├── train -> countix/rawframes/train
-│   │   └── val -> countix/rawframes/val
+│   │   ├── train
+│   │   └── val
 │   ├── RepCount
-│   │   ├── test -> RepCount/rawframes/test
-│   │   ├── train -> RepCount/rawframes/train
-│   │   └── val -> RepCount/rawframes/val
+│   │   ├── test
+│   │   ├── train
+│   │   └── val
 │   ├── test.txt
 │   ├── test_repcount.txt
 │   ├── train.txt
@@ -196,11 +202,7 @@ Configs are in `workoutdetector/configs`.
 
 Uses PyTorch Lightning to train a model.
 
-## Count repetitions
-
 ### workoutdetector/utils/inference_count.py
-
-It does not work.
 
 - Inference every frames in a video using image model. Will write count to the `--output` file.
   And save predicted scores to a JSON file in `--output` directory.
@@ -218,7 +220,7 @@ It does not work.
 `workoutdetector/scripts/`
 
 - `mpvscreenshot_process.py`
-  Before I create or find a video segment tool, I'll use this script to annotate videos.
+  Until I create or find a nice video segment tool, I'll use this script to annotate videos.
   How to use:
 
   1.  The mpv screenshot filename template config is `screenshot-template=~/Desktop/%f_%P`
@@ -231,3 +233,10 @@ It does not work.
   - `relabeled_csv_to_rawframe_list`
     Use this with `mpvscreenshot_process.py` together.
     Generates label files for mmaction rawframe datasets.
+
+## Acknowledgements
+
+This project uses pretrained models from:
+
+- [MMAction2](https://github.com/open-mmlab/mmaction2)
+- [TSM](https://hanlab.mit.edu/projects/tsm/)

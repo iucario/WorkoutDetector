@@ -140,6 +140,11 @@ def pred_to_count(preds: List[int], step: int) -> Tuple[int, List[int]]:
         It means the model has to capture the presice time of state transition.
         Because the model takes 8 continous frames as input.
         Or I doubt it will work well. So multiple time scale should be added.
+    
+    Example:
+        >>> preds = [-1, -1, 6, 6, 6, 7, 6, 6, 6, 7, 6, 6, 7, 7, 6, 6, 7, 7, 6, 6, 7, 7, 6, 6, 7, 7, -1]
+        >>> pred_to_count(preds, step=8)
+        (6, [16, 40, 48, 72, 80, 96, 112, 128, 144, 160, 176, 192])
     """
 
     count = 0
@@ -147,14 +152,16 @@ def pred_to_count(preds: List[int], step: int) -> Tuple[int, List[int]]:
     states: List[int] = []
     prev_state_start_idx = 0
     for idx, pred in enumerate(preds):
+        if pred == -1:
+            continue
         # if state changed and current and previous state are the same action
-        if pred > -1 and states and states[-1] != pred:
+        if states and states[-1] != pred:
             if pred % 2 == 1 and states[-1] == pred - 1:
                 count += 1
                 reps.append(prev_state_start_idx * step)
                 reps.append(idx * step)
         states.append(pred)
-        prev_state = states[prev_state_start_idx]
+        prev_state = preds[prev_state_start_idx]
         if pred != prev_state:  # new state, new start index
             prev_state_start_idx = idx
 
@@ -604,7 +611,7 @@ if __name__ == '__main__':
     # main(args)
 
     cfg_path = 'workoutdetector/configs/tsm_MultiActionRepCount_sthv2.py'
-    ckpt = 'checkpoints/rep_12_20220705_220720.onnx'
+    ckpt = 'checkpoints/repcount-12/rep_12_20220705_220720.onnx'
     model = onnxruntime.InferenceSession(ckpt, providers=['CUDAExecutionProvider'])
     # model = init_recognizer(cfg_path, ckpt, device='cuda')
     inference_dataset(model, ['train', 'val', 'test'],

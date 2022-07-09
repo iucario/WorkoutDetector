@@ -9,11 +9,11 @@ SPLITS = ['train', 'val', 'test']
 ACTIONS = [
     'situp', 'push_up', 'pull_up', 'bench_pressing', 'jump_jack', 'squat', 'front_raise'
 ]
-DATA_ROOT = os.path.join(PROJ_ROOT, 'data/RepCount')
 
 
 class TestRepcountHelper:
     """Test RepcountHelper"""
+    DATA_ROOT = os.path.join(PROJ_ROOT, 'data/RepCount')
     helper = RepcountHelper(DATA_ROOT, REPCOUNT_ANNO_PATH)
     all_ = helper.get_rep_data(split=SPLITS, action=ACTIONS)
 
@@ -86,6 +86,7 @@ class TestRepcountHelper:
 
 
 def test_RepcountRecognitionDataset():
+    DATA_ROOT = os.path.join(PROJ_ROOT, 'data/RepCount')
     actions = ['push_up', 'situp', 'squat', 'jump_jack', 'pull_up']
     for split in ['train', 'val', 'test']:
         dataset = RepcountRecognitionDataset(DATA_ROOT,
