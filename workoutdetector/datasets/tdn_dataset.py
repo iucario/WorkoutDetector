@@ -45,6 +45,9 @@ class TDNDataset(torch.utils.data.Dataset):
     >>> anno_path = '/data/relabeled/pull_up/train.txt'
     >>> dataset = TDNDataset(data_root, anno_path=anno_path,
     ...                      data_prefix=None, num_segments=8)
+    >>> data, label = dataset[0]
+    >>> data.shape
+    torch.Size([40, 3, 256, 256])
     """
 
     def __init__(self,

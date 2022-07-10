@@ -1,5 +1,5 @@
 trainer:
-  default_root_dir: exp/repcount-12-tsm # where to save logs and checkpoints
+  default_root_dir: exp/default # where to save logs and checkpoints
   max_epochs: 50
   enable_checkpointing: true
   num_nodes: 1
@@ -35,10 +35,16 @@ lr_scheduler:
   step: 8
 
 model:
+  model_type: TSM
   num_class: 12
   num_segments: 8
+
+  # Frames around the center to calculate difference. Used in Temportal Difference Network
+  num_frames: 1
   base_model: resnet50
   consensus_type: avg
+
+  # I don't think it is used
   img_feature_dim: 256
   is_shift: true
   shift_div: 8
@@ -46,13 +52,13 @@ model:
   fc_lr5: true
   temporal_pool: false
   non_local: false
-  checkpoint: checkpoints/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth
+  checkpoint: checkpoints/finetune/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth
 
 data:
   dataset_type: FrameDataset
   data_root: /home/root/data
   num_segments: 8
-  filename_tmpl: 'img_{:05}.jpg'
+  filename_tmpl: "img_{:05}.jpg"
   anno_col: 4
   batch_size: 4
   train:

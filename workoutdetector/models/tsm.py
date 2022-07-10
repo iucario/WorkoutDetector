@@ -430,7 +430,8 @@ def create_model(num_class: int = 2,
                  shift_place: str = 'blockres',
                  consensus_type: str = 'avg',
                  img_feature_dim: int = 256,
-                 non_local: bool = False) -> nn.Module:
+                 non_local: bool = False,
+                 **kwargs) -> nn.Module:
     if device is None:
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -492,7 +493,7 @@ if __name__ == '__main__':
     print(y)
 
     # checkpoint
-    ckpt_path = 'checkpoints/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth'
+    ckpt_path = 'checkpoints/finetune/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth'
     pretrained = create_model(2, 8, 'resnet50', checkpoint=ckpt_path)
     # print(pretrained)
 

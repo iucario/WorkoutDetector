@@ -18,8 +18,8 @@ class Test_TSM:
 
     model = create_model(4, 8, 'resnet18', checkpoint=None, device='cuda')
     model.eval()
-    ckpt_path = 'checkpoints/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth'
-    k400_path = 'checkpoints/TSM_kinetics_RGB_resnet50_shift8_blockres_avg_segment8_e50.pth'
+    ckpt_path = 'checkpoints/finetune/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth'
+    k400_path = 'checkpoints/finetune/TSM_kinetics_RGB_resnet50_shift8_blockres_avg_segment8_e50.pth'
 
     def test_train(self):
         model = self.model

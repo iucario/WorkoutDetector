@@ -20,15 +20,19 @@ from einops import rearrange
 def create_model(num_class: int,
                  num_segments: int = 8,
                  base_model: str = 'resnet50',
+                 num_frames: int = 5,
                  checkpoint: str = None,
                  consensus_type='avg',
                  dropout: float = 0.5,
                  partial_bn: bool = False,
-                 fc_lr5: bool = False) -> nn.Module:
-
+                 fc_lr5: bool = False,
+                 **kwargs) -> nn.Module:
+    """Create model temporal difference network.
+    `num_frames` should be set to 5.
+    """
     model = TSN(num_class=num_class,
                 num_segments=num_segments,
-                new_length=1,
+                num_frames=num_frames,
                 backbone_fn=tdn_net,
                 base_model=base_model,
                 consensus_type=consensus_type,
@@ -59,7 +63,7 @@ def create_model(num_class: int,
     keys1 = set(list(sd.keys()))
     keys2 = set(list(model_dict.keys()))
     set_diff = (keys1 - keys2) | (keys2 - keys1)
-    print('#### Notice: keys that failed to load: {}'.format(set_diff))
+    # print('#### Notice: keys that failed to load: {}'.format(set_diff))
     # print(model_dict.keys())
     if sd[fc_layer_weight].shape != model_dict['new_fc.weight'].shape:
         print('=> New dataset, do not load fc weights')
@@ -137,16 +141,15 @@ class TDN_Net(nn.Module):
         num_segments does not matter. I don't understand.
         """
 
-        # original: [batch, num_seg, 5, 3, 224, 224]
+        # original: [batch, T, 5, 3, 224, 224]
         # Reshaped to: x = original.view((-1, 3*5) + original.size()[-2:])
         # It's the same as: x = rearrange(original, 'b s d c h w -> (b s) (d c) h w')
         x1, x2, x3, x4, x5 = [x[:, i:i + 3, ...] for i in range(0, 13, 3)]
-        t = torch.cat([x2 - x1, x3 - x2, x4 - x3, x5 - x4],
-                      1)  # [batch*num_seg, 12, 224, 224]
-        # After avg_diff: [batch*num_seg, 12, 112, 112]
+        t = torch.cat([x2 - x1, x3 - x2, x4 - x3, x5 - x4], 1)  # [batch*T, 12, 224, 224]
+        # After avg_diff: [batch*T, 12, 112, 112]
         x_c5 = self.conv1_5(self.avg_diff(t.view(-1, 12, x2.size()[2], x2.size()[3])))
-        # x_c5 [batch*num_seg, 64, 56, 56]
-        x_diff = self.maxpool_diff(1.0 / 1.0 * x_c5)  # [batch*num_seg, 64, 28, 28]
+        # x_c5 [batch*T, 64, 56, 56]
+        x_diff = self.maxpool_diff(1.0 / 1.0 * x_c5)  # [batch*T, 64, 28, 28]
 
         temp_out_diff1 = x_diff
         x_diff = self.resnext_layer1(x_diff)
@@ -601,30 +604,30 @@ model_urls = {
 
 
 def fbresnet50(num_segments=8, pretrained=False, num_classes=1000):
-    ckpt = 'checkpoints/resnet50-19c8e357.pth'
+    ckpt = 'checkpoints/finetune/resnet50-19c8e357.pth'
     url = 'https://data.lip6.fr/cadene/pretrainedmodels/resnet50-19c8e357.pth'
     model = FBResNet(num_segments, BottleneckShift, [3, 4, 6, 3], num_classes=num_classes)
     if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['fbresnet50']), strict=False)
+        model.load_state_dict(torch.load(ckpt), strict=False)
     return model
 
 
 def fbresnet101(num_segments, pretrained=False, num_classes=1000):
     url = 'https://data.lip6.fr/cadene/pretrainedmodels/resnet101-5d3b4d8f.pth'
-    ckpt = "checkpoints/resnet101-5d3b4d8f.pth"
+    ckpt = "checkpoints/finetune/resnet101-5d3b4d8f.pth"
     model = FBResNet(num_segments,
                      BottleneckShift, [3, 4, 23, 3],
                      num_classes=num_classes)
     if pretrained:
-        model.load_state_dict(ckpt, strict=False)
+        model.load_state_dict(torch.load(ckpt), strict=False)
     return model
 
 
 if __name__ == '__main__':
     device = 'cpu'
-    ckpt_path = 'checkpoints/tdn_sthv2_r50_8x1x1.pth'
+    ckpt_path = 'checkpoints/finetune/tdn_sthv2_r50_8x1x1.pth'
     batch = 4
-    num_class = 10
+    num_class = 12
     num_diff = 5
     num_seg = 8
     dummy_x = torch.randn(batch, num_seg, num_diff, 3, 224, 224)
@@ -637,3 +640,19 @@ if __name__ == '__main__':
     y = model(dummy_x.to(device))
     print(y.shape)
     assert y.shape == (batch, num_class)
+
+    from workoutdetector.datasets import build_dataset
+    from workoutdetector.datasets.transform import Pipeline
+    from fvcore.common.config import CfgNode
+
+    root = 'data'
+    anno = '/home/user/data/Binary/all-train.txt'
+    cfg = CfgNode(new_allowed=True)
+    cfg.merge_from_file('workoutdetector/configs/tdn.yaml')
+    ds = build_dataset(cfg.data, split='train')
+    print(len(ds))
+    x, y = ds[0]
+    print(x.shape)
+    print(y)
+    y_hat = model(x.to(device))
+    print(y_hat.shape)

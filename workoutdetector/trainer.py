@@ -18,7 +18,7 @@ from torch import Tensor, nn, optim
 from torch.utils.data import DataLoader
 
 from workoutdetector.datasets import build_dataset
-from workoutdetector.models import tsm
+from workoutdetector.models import build_model
 from workoutdetector.settings import PROJ_ROOT
 
 
@@ -27,15 +27,16 @@ class LitModel(LightningModule):
 
     def __init__(self, cfg: CfgNode):
         super().__init__()
-        self.example_input_array = torch.randn(1 * cfg.model.num_segments, 3, 224, 224)
         self.save_hyperparameters()
-        self.model = tsm.create_model(**cfg.model)
+        self.model = build_model(cfg)
+        self.example_input_array = torch.randn(
+            1 * cfg.model.num_segments * cfg.model.num_frames, 3, 224, 224)
         self.loss_module = nn.CrossEntropyLoss()
         self.cfg = cfg
         self.best_val_acc = 0.0
 
     def forward(self, x):
-        x = x.view(-1, 3, 224, 224)
+        # x = x.view(-1, 3, 224, 224)
         return self.model(x)
 
     def training_step(self, batch, batch_idx):
@@ -111,8 +112,8 @@ class LitModel(LightningModule):
     def configure_optimizers(self):
         OPTIMIZER = self.cfg.optimizer.method.lower()
         SCHEDULER = self.cfg.lr_scheduler.policy.lower()
-        if self.model._get_name() == 'TSM':
-            print('==> Use TSM policies')
+        if self.model._get_name() in ('TSM', 'TSN'):
+            print('==> Use TSN policies')
             policies = self.model.get_optim_policies()
             optimizer = optim.SGD(policies,
                                   lr=self.cfg.optimizer.lr,
@@ -305,7 +306,7 @@ def train(cfg: CfgNode) -> None:
         logger=LOGGER,
         callbacks=CALLBACKS,
         log_every_n_steps=cfg.log.log_every_n_steps,
-        strategy=DDPStrategy(find_unused_parameters=True, process_group_backend='gloo'),
+        # strategy=DDPStrategy(find_unused_parameters=True, process_group_backend='gloo'),
     )
 
     trainer.fit(model, data_module)

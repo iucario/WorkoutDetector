@@ -78,7 +78,7 @@ log:
     project: workouts-11-tsm
 seed: 0
 train: true
-checkpoint: checkpoints/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth
+checkpoint: checkpoints/finetune/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth
 
 callbacks:
   modelcheckpoint:

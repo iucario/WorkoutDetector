@@ -21,8 +21,8 @@ class Test_TDN:
                          base_model='resnet50',
                          checkpoint=None)
     model.eval()
-    sthv2_path = 'checkpoints/tdn_sthv2_r50_8x1x1.pth'
-    k400_path = 'checkpoints/tdn_k400_r50_8x1x1.pth'
+    sthv2_path = 'checkpoints/finetune/tdn_sthv2_r50_8x1x1.pth'
+    k400_path = 'checkpoints/finetune/tdn_k400_r50_8x1x1.pth'
 
     def test_train(self):
         num_diff = 5
@@ -31,10 +31,10 @@ class Test_TDN:
         num_class = 4
         epochs = 10
         i = torch.randn(4 * num_diff * 8, 3, 224, 224)
-        y = model(i.cuda())
+        y = model(i)
         assert y.shape == (4, 4), y.shape
 
-        dataset = DebugDataset(num_class=num_class, num_segments=8, size=100)
+        dataset = DebugDataset(num_class=num_class, num_segments=40, size=100)
         loader = DataLoader(dataset, batch_size=batch, shuffle=True)
         
         loss_fn = CrossEntropyLoss()
@@ -44,7 +44,7 @@ class Test_TDN:
         for _ in range(epochs):
             for x, y in loader:
                 x = rearrange(x, 'b t c h w -> (b t) c h w')
-                assert x.shape == (2 * 8, 3, 224, 224)
+                assert x.shape == (batch * num_diff * 8, 3, 224, 224)
                 y_pred = model(x.cuda())
                 loss = loss_fn(y_pred.cpu(), y)
 
@@ -57,7 +57,7 @@ class Test_TDN:
         model.eval()
         correct = 0
         for x, y in loader:
-            x = rearrange(x, 'b t c h w -> (b t) c h w')
+            x = rearrange(x, 'b (t n) c h w -> (b t) n c h w', t=8, n=num_diff)
             y_pred = model(x.cuda())
             print(y_pred.argmax(dim=1), y)
             correct += (y_pred.cpu().argmax(dim=1) == y).sum().item()
@@ -94,8 +94,9 @@ class Test_TDN:
         num_samples = 50
         model = create_model(400, 8, 'resnet50', checkpoint=self.k400_path)
         model.eval()
+        model.to('cuda')
         label_df = pd.read_csv('datasets/kinetics400/kinetics_400_labels.csv')
-        data_root = 'data/Countix/videos/train'
+        data_root = '/home/user/data/Countix/videos/train'
         data_df = pd.read_csv('datasets/Countix/countix_train.csv')
         video_list = os.listdir(data_root)
         video_ids = random.sample(video_list, num_samples)
@@ -105,7 +106,9 @@ class Test_TDN:
             gt_label = data_df.loc[data_df['video_id'] == video_id.split('.')[0],
                                    'class'].values[0]
             video = read_video(os.path.join(data_root, video_id))[0]
-            inp = P.transform_read_video(video)
+            inp = P.transform_read_video(video, samples=40)
+            inp = rearrange(inp, '(b t n) c h w -> b t n c h w', b=1, t=8, n=5)
+            # inp.view((-1, 15) + inp.shape[2:])
             out = model(inp.cuda()).cpu()
             top5 = torch.topk(out, 5)[1].tolist()[0]
             labels = [label_df.iloc[i, 1] for i in top5]

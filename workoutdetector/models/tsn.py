@@ -103,7 +103,7 @@ class TSN(nn.Module):
                  num_class: int,
                  num_segments: int,
                  backbone_fn: Callable,
-                 new_length: int = 5,
+                 num_frames: int = 5,
                  base_model: str = 'resnet50',
                  consensus_type: str = 'avg',
                  dropout: float = 0.8,
@@ -125,7 +125,7 @@ class TSN(nn.Module):
         self._prepare_tsn()
         self.consensus = ConsensusModule(consensus_type)
         self.modality = 'RGB'
-        self.new_length = new_length
+        self.new_length = num_frames
         self.before_softmax = True
         if not self.before_softmax:
             self.softmax = nn.Softmax()
@@ -335,8 +335,7 @@ class TSN(nn.Module):
     def forward(self, input, reshape=True):
         if reshape:
             sample_len = (3 if self.modality == "RGB" else 2) * self.new_length
-            base_out = self.base_model(
-                input.view((-1, sample_len * 5) + input.size()[-2:]))
+            base_out = self.base_model(input.reshape((-1, sample_len) + input.size()[-2:]))
         else:
             base_out = self.base_model(input)
 
@@ -346,11 +345,10 @@ class TSN(nn.Module):
         if not self.before_softmax:
             base_out = self.softmax(base_out)
 
-        if self.reshape:
+        if reshape:
             base_out = base_out.view((-1, self.num_segments) + base_out.size()[1:])
-            output = self.consensus(base_out)
-
-            return output.squeeze(1)
+        output = self.consensus(base_out)
+        return output.squeeze(1)
 
 
 class ConsensusModule(nn.Module):
