@@ -1,7 +1,4 @@
-import os
-from WorkoutDetector.settings import PROJ_ROOT
-
-# model settings
+#model settings
 model = dict(
     type='FastRCNN',
     backbone=dict(type='ResNet',

@@ -32,22 +32,22 @@ class FrameDataset(torch.utils.data.Dataset):
         filename_tmpl (str): template of the frame filename, e.g. `img_{:05}.jpg`
         transform (callable, optional): transform to apply to the frames
         anno_col (int): columns in the annotation file, default is 4
-        3-column annotation file:
-            `frame_dir total_frames label`
-        4-column annotation file:
-            `frame_dir start_index total_frames label`
+            3-column annotation file:
+                `frame_dir total_frames label`
+            4-column annotation file:
+                `frame_dir start_index total_frames label`
 
     Returns:
         Tensor, shape (N, C, H, W)
         List[int], label
     
     Example:
-    >>> data_root = '/data/RepCount/rawframes'
-    >>> anno_path = '/data/relabeled/pull_up/train.txt'
-    >>> dataset = FrameDataset(data_root,
-                           anno_path=anno_path,
-                           data_prefix=None,
-                           num_segments=8)
+        >>> data_root = '/data/RepCount/rawframes'
+        >>> anno_path = '/data/relabeled/pull_up/train.txt'
+        >>> dataset = FrameDataset(data_root,
+        ...                    anno_path=anno_path,
+        ...                    data_prefix=None,
+        ...                    num_segments=8)
     """
 
     def __init__(self,

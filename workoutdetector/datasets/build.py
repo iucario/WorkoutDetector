@@ -106,9 +106,9 @@ def build_test_transform(person_crop: bool) -> T.Compose:
     """
     if person_crop:
         return T.Compose([
-            PersonCrop(),
             T.ConvertImageDtype(torch.float32),
-            T.Resize(256),
+            PersonCrop(),
+            T.Resize(INPUT_SIZE),
             T.Normalize(**MEAN_STD),
         ])
     else:

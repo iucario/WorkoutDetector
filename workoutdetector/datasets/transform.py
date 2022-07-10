@@ -135,7 +135,7 @@ class Detector:
     @torch.no_grad()
     def detect(self,
                images: Union[Tensor, List[Tensor]],
-               threshold: float = 0.7) -> Tensor:
+               threshold: float = 0.7) -> List[Tensor]:
         """Detect human. Returns a list of bboxs of input frames.
 
         Args:
@@ -153,7 +153,7 @@ class Detector:
         persons: List[Tensor] = []
         for r in results:
             persons.append(self._get_box_one_frame(r, threshold))
-        return torch.stack(persons)
+        return persons
 
     def _get_box_one_frame(self, result: dict, threshold: float = 0.7) -> Tensor:
         """Get bounding boxes of one frame.
@@ -210,6 +210,8 @@ class PersonCrop:
     """Crop one person from images. Can't asure the same person though.
     If no person detected, return original image.
     Person bboxes are enlarged by 10%.
+    For one group of images, x, y, w, h are fixed to the largest bbox that can 
+        cover all first detected bboxes.
 
     Returns:
         Tensor: shape (..., box_h, box_w)
@@ -222,10 +224,10 @@ class PersonCrop:
 
     def __init__(self):
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.worker = Detector('fasterrcnn_resnet50_fpn', device)
+        self.worker = Detector('fasterrcnn_resnet50_fpn', 'cpu')
 
     def __call__(self, images: Tensor) -> Tensor:
-        box_tensor = self.worker.detect(images)[:, 0]  # First box
+        box_tensor = torch.stack([b[0] for b in self.worker.detect(images)])  # First box
         x1, y1 = box_tensor[:, 0].min().item(), box_tensor[:, 1].min().item()
         x2, y2 = box_tensor[:, 2].max().item(), box_tensor[:, 3].max().item()
         cx, cy = (x1 + x2) / 2, (y1 + y2) / 2

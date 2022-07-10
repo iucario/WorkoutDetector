@@ -204,8 +204,7 @@ def test(cfg: CfgNode) -> None:
     model = LitModel.load_from_checkpoint(cfg.checkpoint)
     trainer = Trainer(
         default_root_dir=cfg.trainer.default_root_dir,
-        accelerator=cfg.trainer.accelerator,
-        devices=cfg.trainer.devices,
+        devices=1,
     )
     trainer.test(model, data_module)
 

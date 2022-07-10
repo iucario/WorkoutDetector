@@ -12,8 +12,8 @@ import torchvision.transforms as T
 import torchvision.transforms.functional as TF
 from torchvision.models.detection import fasterrcnn_resnet50_fpn
 from torchvision.utils import draw_bounding_boxes
-from WorkoutDetector.datasets import RepcountHelper
-from WorkoutDetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
+from workoutdetector.datasets import RepcountHelper
+from workoutdetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 
 data_transform = T.Compose([
     T.ToTensor(),
