@@ -2,17 +2,24 @@ import argparse
 import copy
 import os
 import os.path as osp
+import time
+import warnings
 from os.path import join as osj
 from typing import List
-import torch
+
 import mmcv
-from mmaction.apis import train_model
+import torch
+import torch.distributed as dist
+from mmaction.apis import init_random_seed, train_model
 from mmaction.datasets import build_dataset
 from mmaction.datasets.base import BaseDataset
 from mmaction.datasets.builder import DATASETS
 from mmaction.models import build_model
-from mmcv import Config
-from mmcv.runner import set_random_seed
+from mmaction.utils import (collect_env, get_root_logger, register_module_hooks,
+                            setup_multi_processes)
+from mmcv import Config, DictAction
+from mmcv.runner import get_dist_info, init_dist, set_random_seed
+from mmcv.utils import get_git_hash
 
 from workoutdetector.settings import PROJ_ROOT
 
@@ -72,59 +79,87 @@ class MultiActionRepCount(BaseDataset):
 
 
 def train(cfg: Config) -> None:
+    if len(cfg.gpu_ids) > 1:
+        distributed = True
+        init_dist('pytorch', **cfg.dist_params)
+        _, world_size = get_dist_info()
+        cfg.gpu_ids = range(world_size)
+    else:
+        distributed = False
+    print("==> Distributed:", distributed)
+    timestamp = time.strftime('%Y%m%d_%H%M%S', time.localtime())
+    cfg.work_dir = osp.join(cfg.work_dir, timestamp)
+    mmcv.mkdir_or_exist(cfg.work_dir)
+    log_file = osp.join(cfg.work_dir, f'{timestamp}.log')
+    logger = get_root_logger(log_file=log_file, log_level=cfg.log_level)
+    meta = dict()
+    # log env info
+    env_info_dict = collect_env()
+    env_info = '\n'.join([f'{k}: {v}' for k, v in env_info_dict.items()])
+    dash_line = '-' * 60 + '\n'
+    logger.info('Environment info:\n' + dash_line + env_info + '\n' + dash_line)
+    meta['env_info'] = env_info
+    # log some basic info
+    logger.info(f'Distributed training: {distributed}')
+    logger.info(f'Config: {cfg.pretty_text}')
+
+    # set random seeds
+    seed = init_random_seed(cfg.seed, distributed=distributed)
+    logger.info(f'Set random seed to {seed}, deterministic: True')
+    set_random_seed(seed, deterministic=True)
+    cfg.setdefault('module_hooks', [])
+    meta['seed'] = seed
+    meta['config_name'] = osp.basename(args.cfg)
+    meta['work_dir'] = osp.basename(cfg.work_dir.rstrip('/\\'))
+
     # Build the dataset
     datasets = [build_dataset(cfg.data.train)]
 
     # Build the recognizer
-    model = build_model(cfg.model, train_cfg=None, test_cfg=dict(average_clips='prob'))
-
-    # Create work_dir
-    mmcv.mkdir_or_exist(cfg.work_dir)
-    train_model(model, datasets, cfg, distributed=False, validate=True)
+    model = build_model(cfg.model,
+                        train_cfg=cfg.model.train_cfg,
+                        test_cfg=cfg.model.test_cfg)
+    print('==> train')
+    train_model(model,
+                datasets,
+                cfg,
+                distributed=distributed,
+                validate=True,
+                test=dict(test_last=False, test_best=True),
+                timestamp=timestamp,
+                meta=meta)
 
 
 def main(args):
-    config = os.path.join(PROJ_ROOT,
-                          'workoutdetector/configs/tsm_MultiActionRepCount_sthv2.py')
-    cfg = Config.fromfile(config)
+    cfg = Config.fromfile(args.cfg)
+    if 'LOCAL_RANK' not in os.environ:
+        os.environ['LOCAL_RANK'] = str(args.local_rank)
+    setup_multi_processes(cfg)
     cfg.seed = 0
-    set_random_seed(0, deterministic=True)
+    num_gpus = torch.cuda.device_count()
+    cfg.gpu_ids = range(num_gpus)
 
     if args.action == 'all':
-        cfg.model.cls_head.num_classes = (len(ACTIONS) - 1) * 2
+        cfg.model.cls_head.num_classes = 12
     else:
         cfg.model.cls_head.num_classes = 2
 
-    if args.ann_dir:
-        ann_dir = args.ann_dir
-    else:
-        ann_dir = os.path.join(PROJ_ROOT, 'data/Binary')
-    cfg.data.train.ann_file = os.path.join(ann_dir, f'train.txt')
-    cfg.data.val.ann_file = os.path.join(ann_dir, f'val.txt')
-    cfg.data.test.ann_file = os.path.join(ann_dir, f'test.txt')
     assert osp.exists(cfg.data.train.ann_file), f'{cfg.data.train.ann_file} not found'
     assert osp.exists(cfg.data.val.ann_file), f'{cfg.data.val.ann_file} not found'
     assert osp.exists(cfg.data.test.ann_file), f'{cfg.data.test.ann_file} not found'
 
-    if args.data_prefix:
-        cfg.data.train.data_prefix = args.data_prefix
-        cfg.data.val.data_prefix = args.data_prefix
-        cfg.data.test.data_prefix = args.data_prefix
-        assert osp.isdir(args.data_prefix), f'{args.data_prefix} not found'
-
     # cfg.resume_from = osp.join(cfg.work_dir, 'latest.pth')
 
-    cfg.log_config = dict(
-        interval=10,
-        hooks=[
-            dict(type='TextLoggerHook'),
-            dict(type='TensorboardLoggerHook'),
-            #   dict(type='WandbLoggerHook',
-            #        init_kwargs=dict(project='playground-tsm', config={**cfg}))
-        ])
-    print(cfg.pretty_text)
+    cfg.log_config = dict(interval=10,
+                          hooks=[
+                              dict(type='TextLoggerHook'),
+                              dict(type='TensorboardLoggerHook'),
+                              dict(type='WandbLoggerHook',
+                                   init_kwargs=dict(project='mmaction-rep-12',
+                                                    config={**cfg}))
+                          ])
 
-    if args.export:
+    if args.export:  # TODO: deal with sync batchnorm
         input_sample = torch.randn(1, 8, 3, 224, 224)
         input_sample = input_sample.cuda()
         output = 'mmaction_model.onnx'
@@ -133,8 +168,6 @@ def main(args):
         if hasattr(model, 'forward_dummy'):
             from functools import partial
             model.forward = partial(model.forward_dummy, softmax=False)
-        elif hasattr(model, '_forward') and args.is_localizer:
-            model.forward = model._forward
         else:
             raise NotImplementedError(
                 'Please implement the forward method for exporting.')
@@ -150,28 +183,23 @@ def main(args):
 
 if __name__ == '__main__':
     ACTIONS = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise', 'all']
+    CFG = 'workoutdetector/configs/tsm_MultiActionRepCount_sthv2.py'
     parser = argparse.ArgumentParser()
+    parser.add_argument('-c', '--cfg', default=CFG, type=str, help='config file path')
     parser.add_argument('--export', action='store_true', help='export model')
     parser.add_argument('--ckpt', type=str, help='checkpoint to load')
     parser.add_argument('-a', '--action', type=str, default='all', choices=ACTIONS)
-    parser.add_argument('--data-prefix',
-                        dest='data_prefix',
-                        type=str,
-                        default=None,
-                        help='data prefix added to path in annotation file')
-    parser.add_argument(
-        '--ann-dir',
-        dest='ann_dir',
-        type=str,
-        default=None,
-        help='annotation directory. Expects train.txt, val.txt, test.txt in it')
+    parser.add_argument("--local_rank", type=int, default=0)
 
-    args_pull_up = [
+    args_export_pull_up = [
         '--action=pull_up', '--data-prefix=data/RepCount/rawframes/',
         '--ann-dir=data/relabeled/pull_up', '--export',
         '--ckpt=work_dirs/tsm_MultiActionRepCount_sthv2_20220625-224626/best_top1_acc_epoch_5.pth'
     ]
-
-    args = parser.parse_args(args_pull_up)
+    args_timesformer = [
+        '--action=all',
+        '--cfg=workoutdetector/configs/timesformer_div_8x4x1_k400.py',
+    ]
+    args = parser.parse_args()
 
     main(args)

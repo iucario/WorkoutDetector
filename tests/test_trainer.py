@@ -37,7 +37,7 @@ def test_DataModule():
     num_class = cfg.model.num_class
 
     with TemporaryDirectory() as tmpdir:
-        cfg.trainer.defaut_root_dir = tmpdir
+        cfg.trainer.default_root_dir = tmpdir
         cfg.log.output_dir = osp.join(tmpdir, 'logs')
         datamodule = DataModule(cfg.data, is_train=True, num_class=num_class)
         val_loader = datamodule.val_dataloader()
@@ -45,13 +45,13 @@ def test_DataModule():
 
 
 def test_config():
-    config = 'workoutdetector/configs/repcount_12_tsm.yaml'
+    config = 'workoutdetector/configs/tdn.yaml'
     cfg = CfgNode(new_allowed=True)
     cfg.merge_from_file(config)
     cfg.trainer.fast_dev_run = True
     cfg.trainer.devices = 1
     cfg.log.wandb.offline = True
     with TemporaryDirectory() as tmpdir:
-        cfg.trainer.defaut_root_dir = tmpdir
+        cfg.trainer.default_root_dir = tmpdir
         cfg.log.output_dir = osp.join(tmpdir, 'logs')
         train(cfg)

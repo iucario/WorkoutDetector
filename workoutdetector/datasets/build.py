@@ -4,6 +4,7 @@ import torchvision.transforms as T
 from fvcore.common.config import CfgNode
 from .common import ImageDataset, FrameDataset
 from .transform import PersonCrop, MultiScaleCrop
+from .tdn_dataset import TDNDataset
 
 
 def build_dataset(cfg: CfgNode, split: str) -> torch.utils.data.Dataset:
@@ -42,7 +43,18 @@ def build_dataset(cfg: CfgNode, split: str) -> torch.utils.data.Dataset:
             anno_path=anno_path,
             transform=build_transform(split, person_crop=transform.person_crop),
         )
-
+    elif cfg.dataset_type == 'TDNDataset':
+        num_frames = cfg.num_frames
+        anno_path = cfg.get(split).anno
+        prefix = cfg.get(split).data_prefix
+        transform = cfg.get(split).transform
+        return TDNDataset(
+            data_root=cfg.data_root,
+            anno_path=anno_path,
+            data_prefix=prefix,
+            num_frames=num_frames,
+            transform=build_transform(split, person_crop=transform.person_crop),
+        )
     else:
         raise KeyError(f"Dataset '{cfg.dataset_type}' is not supported.")
 

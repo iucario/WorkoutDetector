@@ -172,4 +172,4 @@ def inference_video(video):
 
 if __name__ == '__main__':
 
-    inference_video('/home/umi/projects/WorkoutDetector/example_videos/4-YmQKoHYmw.mp4')
+    inference_video('example_videos/4-YmQKoHYmw.mp4')

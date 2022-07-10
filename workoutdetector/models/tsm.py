@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch.nn.init import constant_, normal_
 import torchvision
-# from .build import MODEL_REGISTRY
+from workoutdetector.models.build import MODEL_REGISTRY
 
 
 class TemporalShift(nn.Module):
@@ -112,7 +112,6 @@ def make_temporal_shift(net: nn.Module,
         n_segment_list = [n_segment] * 4
     assert n_segment_list[-1] > 0
 
-    import torchvision
     if isinstance(net, torchvision.models.ResNet):
         if place == 'block':
             for j, seg in enumerate(n_segment_list, 1):
@@ -194,13 +193,11 @@ class TSM(nn.Module):
     Args:
         num_class (int): number of classes
         num_segments (int): number of segments, default 8
-        modality (str): modality of input data, default 'RGB'
         base_model (str): base model name, default 'resnet50'
         consensus_type (str): 'avg' or 'identity', default 'avg'.
         before_softmax (bool): If True, output raw score, else softmax. Default True.
         dropout (float): dropout rate, default 0.5
         img_feature_dim (int): I don't think it's used.
-        crop_num (int): number of crops from one image, default 1
         partial_bn (bool): use partial bn or not, default True
         print_spec (bool): print out the spec of the model, default False
         is_shift (bool): use temporal shift module or not, default True
@@ -215,36 +212,28 @@ class TSM(nn.Module):
     def __init__(self,
                  num_class,
                  num_segments=8,
-                 modality='RGB',
                  base_model='resnet50',
                  consensus_type='avg',
                  before_softmax=True,
                  dropout=0.5,
                  img_feature_dim=256,
-                 crop_num=1,
                  partial_bn=True,
-                 print_spec=False,
                  is_shift=True,
                  shift_div=8,
                  shift_place='blockres',
                  fc_lr5=False,
-                 temporal_pool=False,
                  non_local=False):
         super(TSM, self).__init__()
-        self.modality = modality
         self.num_segments = num_segments
-        self.reshape = True
         self.before_softmax = before_softmax
-        self.crop_num = crop_num
         self.consensus_type = consensus_type
         self.img_feature_dim = img_feature_dim
-
+        self.temporal_pool = False
         self.is_shift = is_shift
         self.shift_div = shift_div
         self.shift_place = shift_place
-        self.base_model_name = base_model
+        self.base_model = base_model
         self.fc_lr5 = fc_lr5
-        self.temporal_pool = temporal_pool
         self.non_local = non_local
 
         if not before_softmax and consensus_type != 'avg':
@@ -267,6 +256,10 @@ class TSM(nn.Module):
         self._enable_pbn = partial_bn
         if partial_bn:
             self.partialBN(True)
+        self.fc = nn.Linear(feature_dim, num_class)
+        init_std = 0.001
+        normal_(self.fc.weight, 0, init_std)
+        constant_(self.fc.bias, 0)
 
     def _prepare_base_model(self, base_model: str):
         # print('=> base model: {}'.format(base_model))
@@ -433,12 +426,12 @@ def create_model(num_class: int = 2,
                  device: str = None,
                  fc_lr5: bool = True,
                  is_shift: bool = True,
-                 temporal_pool: bool = False,
                  shift_div: int = 8,
                  shift_place: str = 'blockres',
                  consensus_type: str = 'avg',
                  img_feature_dim: int = 256,
-                 non_local: bool = False) -> nn.Module:
+                 non_local: bool = False,
+                 **kwargs) -> nn.Module:
     if device is None:
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -454,7 +447,6 @@ def create_model(num_class: int = 2,
                 shift_div=shift_div,
                 shift_place=shift_place,
                 fc_lr5=fc_lr5,
-                temporal_pool=temporal_pool,
                 non_local=non_local)
     if checkpoint is not None:
         ckpt = torch.load(checkpoint, map_location=device)
@@ -501,7 +493,7 @@ if __name__ == '__main__':
     print(y)
 
     # checkpoint
-    ckpt_path = 'checkpoints/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth'
+    ckpt_path = 'checkpoints/finetune/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth'
     pretrained = create_model(2, 8, 'resnet50', checkpoint=ckpt_path)
     # print(pretrained)
 

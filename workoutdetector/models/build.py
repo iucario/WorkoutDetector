@@ -10,16 +10,22 @@ The call should return a `torch.nn.Module` object.
 """
 
 
-def build_model(model_name: str, cfg) -> torch.nn.Module:
+def build_model(cfg) -> torch.nn.Module:
     """Build a model, defined by `model_name`.
     
     Args:
-        model_name (str): the name of the model to be constructed.
-        cfg (CfgNode): configs. Details can be found in
-            slowfast/config/defaults.py
+        cfg (CfgNode): configs. Details can be found in configs/defaults.yaml
 
     Returns:
         torch.nn.Module: the model.
     """
 
-    return MODEL_REGISTRY.get(model_name)(cfg)
+    if cfg.model.model_type.lower() == 'tdn':
+        from .tdn import create_model as create_model_tdn
+        model = create_model_tdn(**cfg.model)
+    elif cfg.model.model_type.lower() == 'tsm':
+        from .tsm import create_model as create_model_tsm
+        model = create_model_tsm(**cfg.model)
+    else:
+        raise KeyError(f"Model '{cfg.model.model_type}' is not supported.")
+    return model
