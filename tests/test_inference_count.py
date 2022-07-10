@@ -1,7 +1,7 @@
 from typing import List
 
 from pytest import fixture
-from WorkoutDetector.utils.inference_count import infer_dataset, pred_to_count, parse_args, main
+from workoutdetector.utils.inference_count import eval_dataset, pred_to_count
 
 
 # TODO: load annotation.csv
@@ -28,20 +28,21 @@ def test_pred_to_count():
     y4_reps = [0, 3, 7, 9]
     assert pred_to_count(step=step, preds=x4) == (y4_count, [x * step for x in y4_reps])
 
+    x5 = [
+        -1, -1, 9, 9, 8, -1, -1, -1, -1, -1, -1, 6, 6, 7, 6, 6, 7, 6, 6, 7, -1, -1, -1,
+        -1, -1, -1, -1
+    ]
+    y5_count = 3
+    pred_count, pred_rep = pred_to_count(preds=x5, step=8)
+    assert pred_count == y5_count
 
-
-def test_infer_dataset():
-    args_video = [
-        '--onnx', 'checkpoints/tsm_video_all_20220616.onnx', '--threshold', '0.5',
-        '--video', 'data/RepCount/videos/test/stu1_27.mp4'
+    x6 = [
+        2, 3, 3, 2, 3, 3, 3, 2, 3, 3, 2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 3, 3, 2, 3, 3, 2, 2,
+        3, 3, 2, 2, 3, 3, 2, 2, 3, 3, -1
     ]
-    args_dataset = [
-        '--onnx', 'checkpoints/tsm_video_all_20220616.onnx', '--eval', '--output', 'exp/',
-        '--model-type', 'video', '--action', 'pull_up'
+    y5_count = 10
+    y5_rep = [
+        0, 8, 24, 32, 56, 64, 80, 96, 112, 128, 144, 160, 176, 184, 200, 216, 232, 248,
+        264, 280
     ]
-    args_mmlab = [
-        '--mmlab', '-ckpt', 'checkpoints/tsm_video_all.pth', '--eval', '--output', 'exp/',
-        '--model-type', 'video', '--action', 'pull_up'
-    ]
-    args = parse_args(args_mmlab)
-    main(args)
+    assert pred_to_count(preds=x6, step=8) == (y5_count, y5_rep)

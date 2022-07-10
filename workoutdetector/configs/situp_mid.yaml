@@ -1,0 +1,65 @@
+trainer:
+  default_root_dir: exp/situp-mid
+  max_epochs: 50
+  enable_checkpointing: null
+  num_nodes: 1
+  devices: 1
+  gpus: 1
+  log_gpu_memory: true
+  enable_progress_bar: true
+  overfit_batches: 0.0
+  check_val_every_n_epoch: 1
+  min_epochs: 1
+  accelerator: auto
+  sync_batchnorm: false
+  precision: 32
+  enable_model_summary: true
+  weights_summary: top
+  weights_save_path: null
+  num_sanity_val_steps: 2
+  resume_from_checkpoint: null
+  benchmark: false
+  deterministic: true
+  auto_lr_find: false
+  prepare_data_per_node: null
+  early_stopping: true
+  patience: 10
+optimizer:
+  method: AdamW
+  lr: 0.0001
+  momentum: 0.9
+  weight_decay: 0.00001
+  eps: 0.00000001
+lr_scheduler:
+  policy: StepLR
+  gamma: 0.1
+  step: 7
+model:
+  num_class: 2
+  backbone_model: convnext_base
+data:
+  dataset_type: ImageDataset
+  data_root: data/situp
+  batch_size: 8
+  train:
+    anno: situp-mid/train.txt
+    data_prefix: train
+  val:
+    anno: situp-mid/val.txt
+    data_prefix: val
+  test:
+    anno: situp/val.txt
+    data_prefix: val
+  num_workers: 4
+  transform: null
+  target_transform: null
+log:
+  enable_tensorboard: true
+  enable_wandb: true
+  log_every_n_steps: 20
+  wandb:
+    project: situp-image-mid
+  output_dir: exp/situp-mid
+seed: 3407
+train: true
+checkpoint: null
