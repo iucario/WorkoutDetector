@@ -6,7 +6,7 @@ import time
 from bisect import bisect_left
 from collections import deque
 from os.path import join as osj
-from typing import Deque, Dict, List, Optional, Tuple, Union
+from typing import Callable, Deque, Dict, List, Optional, Tuple, Union
 from torch import nn
 import cv2
 import numpy as np
@@ -19,7 +19,7 @@ import torchvision.transforms as T
 from torchvision.io import read_video
 from mmaction.apis import init_recognizer
 from mmaction.apis.inference import inference_recognizer
-from workoutdetector.datasets import RepcountHelper, Pipeline
+from workoutdetector.datasets import RepcountHelper, Pipeline, build_test_transform
 from workoutdetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 
 onnxruntime.set_default_logger_severity(3)
@@ -40,13 +40,7 @@ COLORS = {
     'yellow': (0, 255, 255),
     'white': (255, 255, 255),
     'black': (0, 0, 0),
-    'orange': (0, 165, 255),
-    'purple': (255, 0, 255),
-    'pink': (255, 192, 203),
-    'brown': (165, 42, 42),
-    'cyan': (0, 255, 255),
-    'magenta': (255, 0, 255),
-    'lime': (0, 255, 0),
+    'orange': (12, 136, 237),
 }
 
 
@@ -89,6 +83,8 @@ def write_to_video(video_path: str,
     """
 
     cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise IOError(f'Failed to open {video_path}')
     fps = cap.get(cv2.CAP_PROP_FPS)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -106,10 +102,10 @@ def write_to_video(video_path: str,
         if not ret:
             break
         count_idx = bisect_left(reps[::2], idx)
-        cv2.putText(frame, str(res), (int(width * 0.2), int(height * 0.2)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, COLORS['cyan'], 2)
-        cv2.putText(frame, f'count {count_idx}', (int(width * 0.2), int(height * 0.4)),
+        cv2.putText(frame, f'class {res}', (int(width * 0.2), int(height * 0.25)),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, COLORS['red'], 2)
+        cv2.putText(frame, f'count {count_idx}', (int(width * 0.25), int(height * 0.5)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, COLORS['orange'], 2)
         out.write(frame)
     cap.release()
     out.release()
@@ -138,7 +134,7 @@ def pred_to_count(preds: List[int], step: int) -> Tuple[int, List[int]]:
             0 to 1, or 2 to 3, aka even to odd, we count the action.
         
         It means the model has to capture the presice time of state transition.
-        Because the model takes 8 continous frames as input.
+        Because the model takes 8 continuous frames as input.
         Or I doubt it will work well. So multiple time scale should be added.
     
     Example:
@@ -249,7 +245,8 @@ def count_by_image_model(model: Union[onnxruntime.InferenceSession, torch.nn.Mod
 
 def inference_video(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
                     inputs: Union[Tensor, np.ndarray],
-                    threshold: float = 0.5) -> List[Tuple[int, float]]:
+                    threshold: float = 0.5,
+                    transform: Callable = None) -> List[Tuple[int, float]]:
     """Time shift module inference. 8 frames. # TODO: fix doc and inputs
 
     Args:
@@ -265,21 +262,22 @@ def inference_video(model: Union[onnxruntime.InferenceSession, torch.nn.Module],
         >>> inference_video(model, inputs)
         [(8: 0.15422), (2: 0.10173), (9: 0.095170), (5: 0.089147), (3: 0.087190)]
     """
-    if type(model) is onnxruntime.InferenceSession:
-        if type(inputs) is np.ndarray:
-            inputs = np.stack([data_transform(x) for x in inputs])
-        elif type(inputs) is torch.Tensor:
-            inputs = Pipeline().transform_read_video(inputs).numpy()
-        inputs = np.expand_dims(inputs, axis=0)
+    if isinstance(model, onnxruntime.InferenceSession):
+        if type(inputs) is not Tensor:
+            x = torch.from_numpy(inputs).float()
+        else:
+            x = inputs.permute(0, 3, 1, 2)
+        assert transform is not None
+        x = transform(x)
+        x = torch.unsqueeze(x, 0)
         input_name = model.get_inputs()[0].name
-        ort_inputs = {input_name: inputs}
-        ort_outs = model.run(None, ort_inputs)
+        ort_outs = model.run(None, {input_name: x.cpu().numpy()})
         score: np.ndarray = ort_outs[0][0]
         pred = list(enumerate(score.tolist()))
     else:  # use mmlab inference
-        input_clip = np.array(inputs)
+        input_clip = np.array(x)
         score = inference_recognizer(model, input_clip)
-        pred = score
+        pred = score  # type: ignore
     # print('score', list(score))
     return pred
 
@@ -341,8 +339,11 @@ def count_by_video_model(model: Union[onnxruntime.InferenceSession, torch.nn.Mod
     return count, reps
 
 
-def inference_dataset(model: nn.Module, splits: List[str], out_dir: str,
-                      checkpoint: str) -> None:
+def inference_dataset(model: nn.Module,
+                      splits: List[str],
+                      out_dir: str,
+                      checkpoint: str,
+                      person_crop: bool = False) -> None:
     """Inference the RepCount dataset. Save predictions to json for analysis later.
     For video models, predict every 8 frames. Note that the 8 frames are sampled from 16 frames.
     For image models, predict every 1 frame.
@@ -386,13 +387,15 @@ def inference_dataset(model: nn.Module, splits: List[str], out_dir: str,
         ...                   checkpoint=ckpt)
         train951.mp4 result saved to out/tsm_lightning_sparse_sample/train951.mp4.score.json
     """
-    
+
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
     data_root = osp.expanduser('~/data/RepCount/')
-    helper = RepcountHelper(data_root, 'data/RepCount/annotation.csv')
+    helper = RepcountHelper(data_root, osp.join(data_root, 'annotation.csv'))
     data = helper.get_rep_data(splits, action=['all'])
+    transform = build_test_transform(person_crop=person_crop)
+    print('==> transform:', transform)
     for item in data.values():
         vid = read_video(item.video_path)[0]
         res_dict = dict(
@@ -407,7 +410,9 @@ def inference_dataset(model: nn.Module, splits: List[str], out_dir: str,
         scores: Dict[int, dict] = dict()
         for i in range(0, len(vid), 8):
             clip = vid[i:i + 16:2]  # sparse sampling
-            pred = inference_video(model, clip)
+            if len(clip) < 16:
+                clip = torch.cat([clip, torch.zeros((8 - len(clip),) + clip.shape[1:])])
+            pred = inference_video(model, clip, transform=transform)
             scores[i] = dict((x[0], float(x[1])) for x in pred)
             # print(scores[i])
         res_dict['scores'] = scores

@@ -172,7 +172,7 @@ class Detector:
         person_boxes = person_boxes[scores > threshold]
         if person_boxes.shape[0] == 0:
             return torch.zeros((1, 4))
-        return person_boxes
+        return person_boxes.to(self.device)
 
     def crop_person(self, images: List[Tensor]) -> List[Tensor]:
         """Crop one person from images.
@@ -224,10 +224,11 @@ class PersonCrop:
 
     def __init__(self):
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.worker = Detector('fasterrcnn_resnet50_fpn', 'cpu')
+        self.worker = Detector('fasterrcnn_resnet50_fpn', device)
+        self.device = device
 
     def __call__(self, images: Tensor) -> Tensor:
-        box_tensor = torch.stack([b[0] for b in self.worker.detect(images)])  # First box
+        box_tensor = torch.stack([b[0].cpu() for b in self.worker.detect(images.cuda())])  # First box
         x1, y1 = box_tensor[:, 0].min().item(), box_tensor[:, 1].min().item()
         x2, y2 = box_tensor[:, 2].max().item(), box_tensor[:, 3].max().item()
         cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
