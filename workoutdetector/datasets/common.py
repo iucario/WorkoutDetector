@@ -36,6 +36,7 @@ class FrameDataset(torch.utils.data.Dataset):
                 `frame_dir total_frames label`
             4-column annotation file:
                 `frame_dir start_index total_frames label`
+        is_test (bool): randomly sampling or not. If true, not random.
 
     Returns:
         Tensor, shape (N, C, H, W)
@@ -57,7 +58,8 @@ class FrameDataset(torch.utils.data.Dataset):
                  num_segments: int = 8,
                  filename_tmpl='img_{:05}.jpg',
                  transform: Optional[Callable] = None,
-                 anno_col: int = 4) -> None:
+                 anno_col: int = 4,
+                 is_test: bool = False) -> None:
         super().__init__()
         assert osp.isfile(anno_path), f'{anno_path} is not file'
         self.data_root = data_root
@@ -67,6 +69,7 @@ class FrameDataset(torch.utils.data.Dataset):
         self.tmpl = filename_tmpl
         self.anno_col = anno_col
         self.anno: List[dict] = self.load_annotation(anno_path)
+        self.random = not is_test
 
     def load_annotation(self, anno_path: str) -> List[dict]:
         video_infos = []
@@ -100,7 +103,7 @@ class FrameDataset(torch.utils.data.Dataset):
         start_index = video_info['start_index'] if self.anno_col == 4 else 1
         total_frames = video_info['total_frames']
         label = video_info['label']
-        samples = sample_frames(total_frames, self.num_segments, start_index)
+        samples = sample_frames(total_frames, self.num_segments, start_index, self.random)
         for i in samples:
             frame_path = os.path.join(frame_dir, self.tmpl.format(i))
             frame = read_image(frame_path)
@@ -165,7 +168,6 @@ class ImageDataset(torch.utils.data.Dataset):
                 name, class_ = line.strip().split()
                 ret.append((name, int(class_)))
         return ret
-
 
 
 if __name__ == '__main__':
