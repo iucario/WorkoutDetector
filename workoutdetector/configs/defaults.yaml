@@ -41,6 +41,7 @@ model:
 
   # Frames around the center to calculate difference. Used in Temportal Difference Network
   num_frames: 1
+  example_input_array: [1, 8, 3, 224, 224]
   base_model: resnet50
   consensus_type: avg
 
@@ -88,8 +89,8 @@ log:
   wandb:
     enable: true
     offline: false
-    project: repcount-12-tsm
-    name: repcount-12-tsm
+    project: default
+    name: null
 
 callbacks:
   modelcheckpoint:
