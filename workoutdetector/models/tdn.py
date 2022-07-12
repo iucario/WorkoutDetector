@@ -63,8 +63,9 @@ def create_model(num_class: int,
     keys1 = set(list(sd.keys()))
     keys2 = set(list(model_dict.keys()))
     set_diff = (keys1 - keys2) | (keys2 - keys1)
-    # print('#### Notice: keys that failed to load: {}'.format(set_diff))
-    # print(model_dict.keys())
+    if set_diff:
+        print('#### Notice: keys that failed to load: {}'.format(set_diff))
+        print(model_dict.keys())
     if sd[fc_layer_weight].shape != model_dict['new_fc.weight'].shape:
         print('=> New dataset, do not load fc weights')
         sd = {k: v for k, v in sd.items() if 'fc' not in k}

@@ -23,16 +23,21 @@ trainer:
   auto_scale_batch_size: null
   prepare_data_per_node: null
   fast_dev_run: false
+
 optimizer:
-  method: SGD
+  method: TSN # `TSN` or `TDN` when using TSN based models
   lr: 0.005
   momentum: 0.9
   weight_decay: 5.0e-4
   eps: 1.0e-8
+
 lr_scheduler:
   policy: StepLR
-  gamma: 0.1
-  step: 8
+  gamma: 0.1 # MultiStepLR lr decay rate
+  step: 8 # StepLR step_size
+  warmup_epoch: 0
+  warmup_multiplier: 100.0
+  steps: [10, 20] # MultiStepLR milestones
 
 model:
   model_type: TSM
@@ -41,39 +46,40 @@ model:
 
   # Frames around the center to calculate difference. Used in Temportal Difference Network
   num_frames: 1
-  example_input_array: [1, 8, 3, 224, 224]
+  example_input_array: [1, 8, 3, 224, 224] # Will be reshaped to [-1, 3, 224, 224] anyway
   base_model: resnet50
   consensus_type: avg
-
-  # I don't think it is used
+  dropout: 0.5
+  partial_bn: false
   img_feature_dim: 256
   is_shift: true
   shift_div: 8
   shift_place: blockres
-  fc_lr5: true
+  fc_lr5: false
   temporal_pool: false
   non_local: false
   checkpoint: checkpoints/finetune/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth
 
 data:
   dataset_type: FrameDataset
-  data_root: /home/root/data
+  data_root: /home/user/data
   num_segments: 8
+  num_frames: 1 # used to calculate difference
   filename_tmpl: "img_{:05}.jpg"
   anno_col: 4
   batch_size: 4
   train:
-    anno: /home/root/data/Binary/all-train.txt
+    anno: /home/user/data/Binary/all-train.txt
     data_prefix: null
     transform:
       person_crop: false
   val:
-    anno: /home/root/data/Binary/all-val.txt
+    anno: /home/user/data/Binary/all-val.txt
     data_prefix: null
     transform:
       person_crop: false
   test:
-    anno: /home/root/data/Binary/all-test.txt
+    anno: /home/user/data/Binary/all-test.txt
     data_prefix: null
     transform:
       person_crop: false

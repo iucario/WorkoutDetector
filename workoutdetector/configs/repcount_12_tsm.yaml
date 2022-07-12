@@ -24,7 +24,7 @@ trainer:
   prepare_data_per_node: null
   fast_dev_run: false
 optimizer:
-  method: SGD
+  method: TSN
   lr: 0.012
   momentum: 0.9
   weight_decay: 5.0e-4
@@ -51,23 +51,23 @@ model:
 
 data:
   dataset_type: FrameDataset
-  data_root: /home/root/data
+  data_root: /home/user/data
   num_segments: 8
   filename_tmpl: 'img_{:05}.jpg'
   anno_col: 4
   batch_size: 4
   train:
-    anno: /home/root/data/Binary/all-train.txt
+    anno: /home/user/data/Binary/all-train.txt
     data_prefix: null
     transform:
       person_crop: false
   val:
-    anno: /home/root/data/Binary/all-val.txt
+    anno: /home/user/data/Binary/all-val.txt
     data_prefix: null
     transform:
       person_crop: false
   test:
-    anno: /home/root/data/Binary/all-test.txt
+    anno: /home/user/data/Binary/all-test.txt
     data_prefix: null
     transform:
       person_crop: false

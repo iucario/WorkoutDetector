@@ -334,7 +334,7 @@ class TSN(nn.Module):
 
     def forward(self, input, reshape=True):
         if reshape:
-            sample_len = (3 if self.modality == "RGB" else 2) * self.new_length
+            sample_len = 3 * self.new_length
             base_out = self.base_model(input.reshape((-1, sample_len) + input.size()[-2:]))
         else:
             base_out = self.base_model(input)

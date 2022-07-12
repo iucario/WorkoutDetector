@@ -12,13 +12,13 @@ from fvcore.common.config import CfgNode
 from pytorch_lightning import LightningDataModule, LightningModule, Trainer
 from pytorch_lightning.callbacks import (LearningRateMonitor, ModelCheckpoint,
                                          early_stopping)
-from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger, CSVLogger
+from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger, WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
 from torch import Tensor, nn, optim
 from torch.utils.data import DataLoader
 
 from workoutdetector.datasets import build_dataset
-from workoutdetector.models import build_model
+from workoutdetector.models import build_model, build_optim
 
 
 class LitModel(LightningModule):
@@ -103,36 +103,10 @@ class LitModel(LightningModule):
         return self(batch)
 
     def configure_optimizers(self):
-        OPTIMIZER = self.cfg.optimizer.method.lower()
-        SCHEDULER = self.cfg.lr_scheduler.policy.lower()
-        if self.model._get_name() in ('TSM', 'TSN'):
-            print('==> Use TSN policies')
-            policies = self.model.get_optim_policies()
-            optimizer = optim.SGD(policies,
-                                  lr=self.cfg.optimizer.lr,
-                                  momentum=self.cfg.optimizer.momentum,
-                                  weight_decay=self.cfg.optimizer.weight_decay)
-        else:
-            if OPTIMIZER == 'sgd':
-                optimizer = optim.SGD(self.parameters(),
-                                      lr=self.cfg.optimizer.lr,
-                                      momentum=self.cfg.optimizer.momentum,
-                                      weight_decay=self.cfg.optimizer.weight_decay)
-            elif OPTIMIZER == 'adamw':
-                optimizer = optim.AdamW(self.parameters(),
-                                        lr=self.cfg.optimizer.lr,
-                                        eps=self.cfg.optimizer.eps,
-                                        weight_decay=self.cfg.optimizer.weight_decay)
-            else:
-                raise NotImplementedError(
-                    f'Not implemented optimizer: {self.cfg.optimizer.method}')
-        if SCHEDULER == 'steplr':
-            scheduler = optim.lr_scheduler.StepLR(optimizer,
-                                                  step_size=self.cfg.lr_scheduler.step,
-                                                  gamma=self.cfg.lr_scheduler.gamma)
-        else:
-            raise NotImplementedError(
-                f'Not implemented lr schedular: {self.cfg.lr_schedular}')
+        n_iter_per_epoch = self.trainer.estimated_stepping_batches
+        optimizer, scheduler = build_optim(self.cfg,
+                                           self.model,
+                                           n_iter_per_epoch=n_iter_per_epoch)
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,
