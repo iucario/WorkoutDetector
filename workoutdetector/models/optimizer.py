@@ -10,9 +10,19 @@ from torch.optim import SGD, AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, MultiStepLR, LambdaLR, _LRScheduler
 
 
-def get_scheduler(optimizer, n_iter_per_epoch, lr_scheduler, lr_decay_rate, warmup_epoch,
-                  lr_steps, epochs, warmup_multiplier) -> _LRScheduler:
-    """TDN schedulers"""
+def get_scheduler(optimizer: torch.optim.Optimizer,
+                  n_iter_per_epoch: int,
+                  epochs: int = 60,
+                  lr_scheduler: str = 'step',
+                  gamma: float = 0.1,
+                  lr_steps: List[int] = [30, 45, 55],
+                  warmup_epoch: int = 0,
+                  warmup_multiplier: float = 100.0) -> _LRScheduler:
+    """TDN schedulers
+
+    Args:
+        n_iter_per_epoch (int): `len(train_loader)`
+    """
     scheduler: _LRScheduler
     if "cosine" in lr_scheduler:
         scheduler = CosineAnnealingLR(optimizer=optimizer,
@@ -21,7 +31,7 @@ def get_scheduler(optimizer, n_iter_per_epoch, lr_scheduler, lr_decay_rate, warm
     elif "step" in lr_scheduler:
         scheduler = MultiStepLR(
             optimizer=optimizer,
-            gamma=lr_decay_rate,
+            gamma=gamma,
             milestones=[(m - warmup_epoch) * n_iter_per_epoch for m in lr_steps])
     else:
         raise NotImplementedError(f"scheduler {lr_scheduler} not supported")
@@ -35,7 +45,7 @@ def get_scheduler(optimizer, n_iter_per_epoch, lr_scheduler, lr_decay_rate, warm
     return scheduler
 
 
-def tsn_optim_policies(model: nn.Module):
+def tsn_optim_policies(model: nn.Module) -> List[dict]:
     """Get Temporal Segment Network optimizer policies."""
 
     first_conv_weight = []
@@ -94,13 +104,13 @@ def tsn_optim_policies(model: nn.Module):
         return [
             {
                 'params': first_conv_weight,
-                'lr_mult': 5 if model.modality == 'Flow' else 1,
+                'lr_mult': 1,
                 'decay_mult': 1,
                 'name': "first_conv_weight"
             },
             {
                 'params': first_conv_bias,
-                'lr_mult': 10 if model.modality == 'Flow' else 2,
+                'lr_mult': 2,
                 'decay_mult': 0,
                 'name': "first_conv_bias"
             },
@@ -145,13 +155,13 @@ def tsn_optim_policies(model: nn.Module):
         return [
             {
                 'params': first_conv_weight,
-                'lr_mult': 5 if model.modality == 'Flow' else 1,
+                'lr_mult': 1,
                 'decay_mult': 1,
                 'name': "first_conv_weight"
             },
             {
                 'params': first_conv_bias,
-                'lr_mult': 10 if model.modality == 'Flow' else 2,
+                'lr_mult': 2,
                 'decay_mult': 0,
                 'name': "first_conv_bias"
             },
@@ -193,11 +203,11 @@ class GradualWarmupScheduler(_LRScheduler):
       """
 
     def __init__(self,
-                 optimizer,
-                 multiplier,
-                 warmup_epoch,
-                 after_scheduler,
-                 last_epoch=-1):
+                 optimizer: torch.optim.Optimizer,
+                 multiplier: float,
+                 warmup_epoch: int,
+                 after_scheduler: _LRScheduler,
+                 last_epoch: int = -1):
         self.multiplier = multiplier
         if self.multiplier <= 1.:
             raise ValueError('multiplier should be greater than 1.')
