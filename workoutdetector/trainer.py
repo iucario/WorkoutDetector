@@ -35,7 +35,7 @@ class LitModel(LightningModule):
         self.best_val_acc = 0.0
 
     def forward(self, x):
-        x = x.view(-1, 3, 224, 224)
+        x = x.reshape(-1, 3, 224, 224)
         return self.model(x)
 
     def training_step(self, batch, batch_idx):
@@ -86,10 +86,10 @@ class LitModel(LightningModule):
         """
         pass
         # FIXME: how to get the best val_acc per epoch?
-        # print('==> outputs:', outputs)
+        print('==> outputs:', outputs)
         gathered = self.all_gather(outputs)  # shape: (world_size, batch, ...)
-        # print('==> gathered:', gathered)
-        # correct = sum([x['correct'].item() for x in gathered])
+        print('==> gathered:', gathered)
+        correct = sum([x['correct'].item() for x in gathered])
         # total = sum([x['total'].item() for x in gathered])
         # print('==> correct:', correct)
         # print('==> total:', total)
