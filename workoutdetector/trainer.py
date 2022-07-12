@@ -36,7 +36,7 @@ class LitModel(LightningModule):
         self.best_val_acc = 0.0
 
     def forward(self, x):
-        # x = x.view(-1, 3, 224, 224)
+        x = x.view(-1, 3, 224, 224)
         return self.model(x)
 
     def training_step(self, batch, batch_idx):
@@ -305,7 +305,7 @@ def train(cfg: CfgNode) -> None:
         logger=LOGGER,
         callbacks=CALLBACKS,
         log_every_n_steps=cfg.log.log_every_n_steps,
-        # strategy=DDPStrategy(find_unused_parameters=True, process_group_backend='gloo'),
+        strategy=DDPStrategy(find_unused_parameters=True, process_group_backend='gloo'),
     )
 
     trainer.fit(model, data_module)
@@ -313,11 +313,12 @@ def train(cfg: CfgNode) -> None:
     # ------------------------------------------------------------------- #
     # Test using best val acc model
     # ------------------------------------------------------------------- #
-    if not cfg.trainer.fast_dev_run and LightningModule.global_rank == 0:
+    if (not cfg.trainer.fast_dev_run and
+            LightningModule.global_rank == 0) or trainer.devices == 1:
         model.load_from_checkpoint(checkpoint_callback.best_model_path)
         print(f"===>Best model saved at:\n{checkpoint_callback.best_model_path}")
 
-    if LightningModule.global_rank == 0:
+    if LightningModule.global_rank == 0 or trainer.devices == 1:
         trainer = Trainer(logger=LOGGER, callbacks=CALLBACKS, devices=1, gpus=1)
         trainer.test(model, data_module)
 
