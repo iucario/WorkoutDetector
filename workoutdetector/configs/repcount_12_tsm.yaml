@@ -25,7 +25,7 @@ trainer:
   fast_dev_run: false
 optimizer:
   method: SGD
-  lr: 0.005
+  lr: 0.012
   momentum: 0.9
   weight_decay: 5.0e-4
   eps: 1.0e-8
@@ -35,6 +35,7 @@ lr_scheduler:
   step: 8
 
 model:
+  model_type: TSM
   num_class: 12
   num_segments: 8
   base_model: resnet50
@@ -83,7 +84,7 @@ log:
     enable: true
     offline: false
     project: repcount-12-tsm
-    name: repcount-12-tsm
+    name: null
 
 callbacks:
   modelcheckpoint:

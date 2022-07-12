@@ -19,7 +19,6 @@ from torch.utils.data import DataLoader
 
 from workoutdetector.datasets import build_dataset
 from workoutdetector.models import build_model
-from workoutdetector.settings import PROJ_ROOT
 
 
 class LitModel(LightningModule):
@@ -29,14 +28,13 @@ class LitModel(LightningModule):
         super().__init__()
         self.save_hyperparameters()
         self.model = build_model(cfg)
-        self.example_input_array = torch.randn(
-            1 * cfg.model.num_segments * cfg.model.num_frames, 3, 224, 224)
+        self.example_input_array = torch.randn(cfg.model.example_input_array)
         self.loss_module = nn.CrossEntropyLoss()
         self.cfg = cfg
         self.best_val_acc = 0.0
 
     def forward(self, x):
-        # x = x.view(-1, 3, 224, 224)
+        x = x.reshape(-1, 3, 224, 224)
         return self.model(x)
 
     def training_step(self, batch, batch_idx):
@@ -85,18 +83,13 @@ class LitModel(LightningModule):
                 {'correct': tensor([1, 0, 1, 0, 1, 0, 0, 0], device='cuda:2', dtype=torch.int32),
                 'total': tensor([4, 4, 4, 4, 4, 4, 4, 4], device='cuda:2', dtype=torch.int32)}]
         """
-        # FIXME: how to get the best val_acc per epoch?
-        # print('==> outputs:', outputs)
         gathered = self.all_gather(outputs)  # shape: (world_size, batch, ...)
-        # print('==> gathered:', gathered)
-        correct = sum([x['correct'].item() for x in gathered])
-        total = sum([x['total'].item() for x in gathered])
-        # print('==> correct:', correct)
-        # print('==> total:', total)
+        correct = sum([x['correct'].sum().item() for x in gathered])
+        total = sum([x['total'].sum().item() for x in gathered])
         acc = correct / total
         if self.trainer.is_global_zero:
             self.best_val_acc = max(self.best_val_acc, acc)
-            self.log('val/best_acc', acc, rank_zero_only=True)
+            self.log('val/best_acc', self.best_val_acc, rank_zero_only=True)
 
     def test_step(self, batch, batch_idx):
         x, y = batch
@@ -215,9 +208,7 @@ def train(cfg: CfgNode) -> None:
     data_module = DataModule(cfg.data, num_class=cfg.model.num_class)
     model = LitModel(cfg)
 
-    timestamp = time.strftime('%Y%m%d-%H%M%S', time.localtime())
-    cfg.timestamp = timestamp
-    LOG_DIR = os.path.join(cfg.trainer.default_root_dir, timestamp)
+    LOG_DIR = os.path.join(cfg.trainer.default_root_dir, cfg.timestamp)
 
     # ------------------------------------------------------------------- #
     # Callbacks
@@ -225,7 +216,7 @@ def train(cfg: CfgNode) -> None:
     CALLBACKS: List[Any] = []
 
     # Learning rate monitor
-    lr_monitor = LearningRateMonitor(logging_interval='step', log_momentum=True)
+    lr_monitor = LearningRateMonitor(logging_interval='epoch', log_momentum=True)
     CALLBACKS.append(lr_monitor)
 
     # ModelCheckpoint callback
@@ -233,13 +224,13 @@ def train(cfg: CfgNode) -> None:
         DIRPATH = cfg.callbacks.modelcheckpoint.dirpath
     else:
         DIRPATH = LOG_DIR
-    if not os.path.isdir(DIRPATH):
+    if model.global_rank == 0 and not os.path.isdir(DIRPATH):
         print(f'Create checkpoint directory: {DIRPATH}')
         os.makedirs(DIRPATH)
     cfg.callbacks.modelcheckpoint.dirpath = DIRPATH
     checkpoint_callback = ModelCheckpoint(
         **cfg.callbacks.modelcheckpoint,
-        filename="best-val-acc={val/acc:.3f}-epoch={epoch:02d}" + f"-{timestamp}",
+        filename="best-val-acc={val/acc:.3f}-epoch={epoch:02d}" + f"-{cfg.timestamp}",
         auto_insert_metric_name=False)
     CALLBACKS.append(checkpoint_callback)
 
@@ -271,28 +262,13 @@ def train(cfg: CfgNode) -> None:
         tensorboard_logger = TensorBoardLogger(save_dir=LOG_DIR,
                                                name='tensorboard',
                                                default_hp_metric=False)
-        tensorboard_logger.log_hyperparams(cfg_dict,
-                                           metrics={
-                                               'train/acc': 0,
-                                               'val/acc': 0,
-                                               'test/acc': 0,
-                                               'train/loss': -1,
-                                               'val/loss': -1,
-                                               'test/loss': -1
-                                           })
+        tensorboard_logger.log_hyperparams(cfg_dict)
         LOGGER.append(tensorboard_logger)
 
     if cfg.log.csv.enable:
         csv_logger = CSVLogger(save_dir=LOG_DIR, name='csv')
         csv_logger.log_hyperparams(cfg_dict)
         csv_logger.log_graph(model)
-        csv_logger.log_metrics(metrics={
-            'train/acc': 0,
-            'val/acc': 0,
-            'test/acc': 0,
-            'train/loss': -1,
-            'base_lr': -1
-        })
         LOGGER.append(csv_logger)
 
     torch.backends.cudnn.deterministic = True
@@ -306,7 +282,7 @@ def train(cfg: CfgNode) -> None:
         logger=LOGGER,
         callbacks=CALLBACKS,
         log_every_n_steps=cfg.log.log_every_n_steps,
-        # strategy=DDPStrategy(find_unused_parameters=True, process_group_backend='gloo'),
+        strategy=DDPStrategy(find_unused_parameters=True, process_group_backend='gloo'),
     )
 
     trainer.fit(model, data_module)
@@ -314,11 +290,11 @@ def train(cfg: CfgNode) -> None:
     # ------------------------------------------------------------------- #
     # Test using best val acc model
     # ------------------------------------------------------------------- #
-    if not cfg.trainer.fast_dev_run and LightningModule.global_rank == 0:
+    if not cfg.trainer.fast_dev_run and model.global_rank == 0:
         model.load_from_checkpoint(checkpoint_callback.best_model_path)
         print(f"===>Best model saved at:\n{checkpoint_callback.best_model_path}")
 
-    if LightningModule.global_rank == 0:
+    if model.global_rank == 0:
         trainer = Trainer(logger=LOGGER, callbacks=CALLBACKS, devices=1, gpus=1)
         trainer.test(model, data_module)
 
@@ -343,12 +319,12 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--cfg",
         dest="cfg_file",
         help="Path to the config file",
-        default=osj(PROJ_ROOT, "workoutdetector/configs/repcount_12_tsm.yaml"),
+        default=osj("workoutdetector/configs/repcount_12_tsm.yaml"),
         type=str,
     )
     parser.add_argument(
         "opts",
-        help="See workoutdetector/configs/lit_img.yaml for all options",
+        help="See workoutdetector/configs/defaults.yaml for all options",
         default=None,
         nargs=argparse.REMAINDER,
     )
@@ -361,7 +337,7 @@ def load_config(args) -> CfgNode:
     Args:
         args (argument): arguments includes `cfg_file`.
     """
-    cfg = CfgNode(new_allowed=True)
+    cfg = CfgNode(yaml.safe_load(open('workoutdetector/configs/defaults.yaml')))
     cfg.merge_from_file(args.cfg_file)
     if args.opts is not None:
         cfg.merge_from_list(args.opts)
@@ -370,7 +346,9 @@ def load_config(args) -> CfgNode:
 
 def main(cfg: CfgNode) -> None:
     pl.seed_everything(cfg.seed)
-
+    timestamp = time.strftime('%Y%m%d-%H%M%S', time.localtime())
+    if not cfg.timestamp:
+        cfg.timestamp = timestamp
     if cfg.train:
         train(cfg)
     else:

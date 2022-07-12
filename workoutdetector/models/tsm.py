@@ -357,13 +357,13 @@ class TSM(nn.Module):
         return [
             {
                 'params': first_conv_weight,
-                'lr_mult': 5 if self.modality == 'Flow' else 1,
+                'lr_mult': 1,
                 'decay_mult': 1,
                 'name': "first_conv_weight"
             },
             {
                 'params': first_conv_bias,
-                'lr_mult': 10 if self.modality == 'Flow' else 2,
+                'lr_mult': 2,
                 'decay_mult': 0,
                 'name': "first_conv_bias"
             },
