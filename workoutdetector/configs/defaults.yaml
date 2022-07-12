@@ -105,4 +105,6 @@ callbacks:
 
 seed: 0
 train: true
-timestamp: null # Will be initialized in python file
+timestamp: null # Will be initialized in python file. Bug.
+# Creates duplicate folders because of Pytorch Lightning's DDP strategy.
+# Better input from shell script `ts=$(date +%Y%m%d-%H%M%S)`
