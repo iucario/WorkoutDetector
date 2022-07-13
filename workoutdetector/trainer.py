@@ -74,7 +74,7 @@ class LitModel(LightningModule):
 
         Example::
             
-            world_size = 8, batch_size = 2
+            world_size = 2, batch_size = 2
             >>> return {'correct': correct, 'total': total}
 
             ===> gathered: 
@@ -83,7 +83,7 @@ class LitModel(LightningModule):
                 {'correct': tensor([1, 0, 1, 0, 1, 0, 0, 0], device='cuda:2', dtype=torch.int32),
                 'total': tensor([4, 4, 4, 4, 4, 4, 4, 4], device='cuda:2', dtype=torch.int32)}]
         """
-        gathered = self.all_gather(outputs)  # shape: (world_size, batch, ...)
+        gathered: list = self.all_gather(outputs)  # shape: (world_size, batch, ...)
         correct = sum([x['correct'].sum().item() for x in gathered])
         total = sum([x['total'].sum().item() for x in gathered])
         acc = correct / total
@@ -94,10 +94,8 @@ class LitModel(LightningModule):
     def test_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self.forward(x)
-        loss = self.loss_module(y_hat, y)
         acc = (y_hat.argmax(dim=1) == y).float().mean()
         self.log("test/acc", acc, on_step=False, on_epoch=True, sync_dist=True)
-        self.log('test/loss', loss, sync_dist=True)
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         return self(batch)
@@ -107,6 +105,7 @@ class LitModel(LightningModule):
         optimizer, scheduler = build_optim(self.cfg,
                                            self.model,
                                            n_iter_per_epoch=n_iter_per_epoch)
+        print(f"Scheduler: {scheduler.__dict__}")
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,
@@ -190,7 +189,7 @@ def train(cfg: CfgNode) -> None:
     CALLBACKS: List[Any] = []
 
     # Learning rate monitor
-    lr_monitor = LearningRateMonitor(logging_interval='epoch', log_momentum=True)
+    lr_monitor = LearningRateMonitor(logging_interval=None, log_momentum=True)
     CALLBACKS.append(lr_monitor)
 
     # ModelCheckpoint callback

@@ -32,10 +32,10 @@ optimizer:
   eps: 1.0e-8
 
 lr_scheduler:
-  policy: StepLR
+  policy: StepLR # SetpLR or MultiStepLR or Consine. Case insensitive
   gamma: 0.1 # MultiStepLR lr decay rate
   step: 8 # StepLR step_size
-  warmup_epoch: 0
+  warmup_epoch: 0 # If not zero, use GradualWarmupScheduler
   warmup_multiplier: 100.0
   steps: [10, 20] # MultiStepLR milestones
 

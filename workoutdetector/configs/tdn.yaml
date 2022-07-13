@@ -1,17 +1,19 @@
 trainer:
   default_root_dir: exp/repcount-12-tdn # where to save logs and checkpoints
-  max_epochs: 50
+  max_epochs: 30
 
 optimizer:
   method: TSN
-  lr: 0.005
+  lr: 0.01
   momentum: 0.9
   weight_decay: 5.0e-4
   eps: 1.0e-8
 lr_scheduler:
-  policy: TDN
+  policy: MultiStepLR
   gamma: 0.1
   step: 8
+  steps: [5, 10, 20]
+  warmup_epoch: 0
 
 model:
   model_type: TDN
@@ -59,10 +61,10 @@ log:
   tensorboard:
     enable: true
   wandb:
-    enable: false
+    enable: true
     offline: false
     project: repcount-12-tdn
-    name: repcount-12-tdn
+    name: null
 
 callbacks:
   modelcheckpoint:

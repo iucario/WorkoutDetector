@@ -105,7 +105,8 @@ def make_temporal_shift(net: nn.Module,
                         n_segment: int,
                         n_div=8,
                         place='blockres',
-                        temporal_pool=False):
+                        temporal_pool=False,
+                        depth: int = 50):
     if temporal_pool:
         n_segment_list = [n_segment, n_segment // 2, n_segment // 2, n_segment // 2]
     else:
@@ -123,9 +124,7 @@ def make_temporal_shift(net: nn.Module,
                 setattr(net, f'layer{j}', nn.Sequential(*(blocks)))
 
         elif 'blockres' in place:
-            n_round = 1
-            if len(list(net.layer3.children())) >= 23:
-                n_round = 2
+            n_round = 1 if depth <= 50 else 2
             for j, seg in enumerate(n_segment_list, 1):
                 blocks = list(getattr(net, f'layer{j}').children())
                 # print('=> Processing stage with {} blocks residual'.format(len(blocks)))
@@ -266,13 +265,15 @@ class TSM(nn.Module):
 
         if 'resnet' in base_model:
             self.base_model = getattr(torchvision.models, base_model)(pretrained=True)
+            depth = int(base_model[6:])  # 18, 34, 50, 101, 152
             if self.is_shift:
                 # print('Adding temporal shift...')
                 make_temporal_shift(self.base_model,
                                     self.num_segments,
                                     n_div=self.shift_div,
                                     place=self.shift_place,
-                                    temporal_pool=self.temporal_pool)
+                                    temporal_pool=self.temporal_pool,
+                                    depth=depth)
 
             self.base_model.last_layer_name = 'fc'
             self.input_size = 224

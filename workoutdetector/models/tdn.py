@@ -7,6 +7,7 @@ from __future__ import absolute_import, division, print_function
 
 import math
 from typing import Tuple
+from einops import rearrange
 
 import torch
 import torch.nn as nn
@@ -336,18 +337,18 @@ class mSEModule(nn.Module):
 
 
 class ShiftModule(nn.Module):
+    """Same as the Temporal Shift Module"""
 
-    def __init__(self, input_channels, n_segment=8, n_div=8, mode='shift'):
+    def __init__(self, in_channels, n_seg=8, n_div=8, mode='shift'):
         super(ShiftModule, self).__init__()
-        self.input_channels = input_channels
-        self.n_segment = n_segment
-        self.fold_div = n_div
-        self.fold = self.input_channels // self.fold_div
-        self.conv = nn.Conv1d(self.fold_div * self.fold,
-                              self.fold_div * self.fold,
+        self.in_channels = in_channels
+        self.n_seg = n_seg
+        self.fold = self.in_channels // n_div
+        self.conv = nn.Conv1d(in_channels,
+                              in_channels,
                               kernel_size=3,
                               padding=1,
-                              groups=self.fold_div * self.fold,
+                              groups=in_channels,
                               bias=False)
 
         if mode == 'shift':
@@ -355,7 +356,7 @@ class ShiftModule(nn.Module):
             self.conv.weight.data.zero_()
             self.conv.weight.data[:self.fold, 0, 2] = 1  # shift left
             self.conv.weight.data[self.fold:2 * self.fold, 0, 0] = 1  # shift right
-            if 2 * self.fold < self.input_channels:
+            if 2 * self.fold < self.in_channels:
                 self.conv.weight.data[2 * self.fold:, 0, 1] = 1  # fixed
         elif mode == 'fixed':
             self.conv.weight.requires_grad = True
@@ -365,16 +366,13 @@ class ShiftModule(nn.Module):
             self.conv.weight.requires_grad = True
 
     def forward(self, x):
-        nt, c, h, w = x.size()
-        n_batch = nt // self.n_segment
-        x = x.view(n_batch, self.n_segment, c, h, w)
-        x = x.permute(0, 3, 4, 2, 1)  # (n_batch, h, w, c, n_segment)
-        x = x.contiguous().view(n_batch * h * w, c, self.n_segment)
-        x = self.conv(x)  # (n_batch*h*w, c, n_segment)
-        x = x.view(n_batch, h, w, c, self.n_segment)
-        x = x.permute(0, 4, 3, 1, 2)  # (n_batch, n_segment, c, h, w)
-        x = x.contiguous().view(nt, c, h, w)
-        return x
+        # x.shape = (nt, c, h, w)
+        nt, c, h, w = x.shape
+        n = nt // self.n_seg
+        x2 = rearrange(x, '(n t) c h w -> (n h w) c t', n=n, c=c, h=h, w=w)
+        o = self.conv(x2)
+        o = rearrange(o, '(n h w) c t -> (n t) c h w', n=n, c=c, h=h, w=w)
+        return o
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -479,7 +477,7 @@ class BottleneckShift(nn.Module):
         self.bn1 = nn.BatchNorm2d(planes)
         self.num_segments = num_segments
         self.mse = mSEModule(planes, n_segment=num_segments, index=1)
-        self.shift = ShiftModule(planes, n_segment=num_segments, n_div=8, mode='shift')
+        self.shift = ShiftModule(planes, n_seg=num_segments, n_div=8, mode='shift')
 
         self.conv2 = nn.Conv2d(planes,
                                planes,
@@ -523,7 +521,7 @@ class BottleneckShift(nn.Module):
 
 class FBResNet(nn.Module):
 
-    def __init__(self, num_segments, block, layers, num_classes=1000):
+    def __init__(self, num_segments, layers, num_classes=1000):
         self.inplanes = 64
 
         self.input_space = None
@@ -538,10 +536,22 @@ class FBResNet(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(self.num_segments, Bottleneck, 64, layers[0])
-        self.layer2 = self._make_layer(self.num_segments, block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(self.num_segments, block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(self.num_segments, block, 512, layers[3], stride=2)
-        self.last_linear = nn.Linear(512 * block.expansion, num_classes)
+        self.layer2 = self._make_layer(self.num_segments,
+                                       BottleneckShift,
+                                       128,
+                                       layers[1],
+                                       stride=2)
+        self.layer3 = self._make_layer(self.num_segments,
+                                       BottleneckShift,
+                                       256,
+                                       layers[2],
+                                       stride=2)
+        self.layer4 = self._make_layer(self.num_segments,
+                                       BottleneckShift,
+                                       512,
+                                       layers[3],
+                                       stride=2)
+        self.last_linear = nn.Linear(512 * BottleneckShift.expansion, num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -607,7 +617,7 @@ model_urls = {
 def fbresnet50(num_segments=8, pretrained=False, num_classes=1000):
     ckpt = 'checkpoints/finetune/resnet50-19c8e357.pth'
     url = 'https://data.lip6.fr/cadene/pretrainedmodels/resnet50-19c8e357.pth'
-    model = FBResNet(num_segments, BottleneckShift, [3, 4, 6, 3], num_classes=num_classes)
+    model = FBResNet(num_segments, [3, 4, 6, 3], num_classes=num_classes)
     if pretrained:
         model.load_state_dict(torch.load(ckpt), strict=False)
     return model
@@ -616,9 +626,7 @@ def fbresnet50(num_segments=8, pretrained=False, num_classes=1000):
 def fbresnet101(num_segments, pretrained=False, num_classes=1000):
     url = 'https://data.lip6.fr/cadene/pretrainedmodels/resnet101-5d3b4d8f.pth'
     ckpt = "checkpoints/finetune/resnet101-5d3b4d8f.pth"
-    model = FBResNet(num_segments,
-                     BottleneckShift, [3, 4, 23, 3],
-                     num_classes=num_classes)
+    model = FBResNet(num_segments, [3, 4, 23, 3], num_classes=num_classes)
     if pretrained:
         model.load_state_dict(torch.load(ckpt), strict=False)
     return model

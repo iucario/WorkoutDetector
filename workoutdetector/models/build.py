@@ -4,9 +4,9 @@ import torch.nn as nn
 from fvcore.common.config import CfgNode
 from fvcore.common.registry import Registry
 from torch.optim import SGD, AdamW
-from torch.optim.lr_scheduler import StepLR, _LRScheduler
+from torch.optim.lr_scheduler import StepLR, _LRScheduler, MultiStepLR, CosineAnnealingLR
 
-from .optimizer import get_scheduler, tsn_optim_policies
+from .optimizer import tsn_optim_policies, GradualWarmupScheduler
 
 MODEL_REGISTRY = Registry("MODEL")
 MODEL_REGISTRY.__doc__ = """
@@ -79,20 +79,31 @@ def build_optim(cfg: CfgNode, model: nn.Module,
         raise NotImplementedError(f'Not implemented optimizer: {cfg.optimizer.method}',
                                   f'Supported optimizers: {["tsn", "sgd", "adamw"]}')
 
-    if POLICY == 'tdn':
-        assert 'n_iter_per_epoch' in kwargs, \
-            "n_iter_per_epoch is required for TDN scheduler."
-        scheduler = get_scheduler(optimizer,
-                                  kwargs['n_iter_per_epoch'],
-                                  epochs=cfg.trainer.max_epochs,
-                                  lr_steps=cfg.lr_scheduler.steps,
-                                  gamma=cfg.lr_scheduler.gamma,
-                                  warmup_epoch=cfg.lr_scheduler.warmup_epoch)
+    if POLICY == 'multisteplr':
+        scheduler = MultiStepLR(
+            optimizer=optimizer,
+            gamma=cfg.lr_scheduler.gamma,
+            milestones=[
+                (m - cfg.lr_scheduler.warmup_epoch) for m in cfg.lr_scheduler.steps
+            ])
     elif POLICY == 'steplr':
         scheduler = StepLR(optimizer,
                            step_size=cfg.lr_scheduler.step,
                            gamma=cfg.lr_scheduler.gamma)
+    elif POLICY == 'consine':
+        scheduler = CosineAnnealingLR(
+            optimizer,
+            T_max=(cfg.trainer.max_epochs - cfg.lr_scheduler.warmup_epoch) *
+            kwargs['n_iter_per_epoch'],
+            eta_min=1e-8)
     else:
-        raise NotImplementedError(f'Not implemented lr schedular: {cfg.lr_schedular}',
-                                  f'Supported lr schedulers: {["tdn", "steplr"]}')
+        raise NotImplementedError(
+            f'Not implemented lr schedular: {cfg.lr_schedular}',
+            f'Supported lr schedulers: {["MultiStepLR", "StepLR"]}')
+    if cfg.lr_scheduler.warmup_epoch != 0:
+        scheduler = GradualWarmupScheduler(optimizer,
+                                           after_scheduler=scheduler,
+                                           multiplier=cfg.lr_scheduler.warmup_multiplier,
+                                           warmup_epoch=cfg.lr_scheduler.warmup_epoch *
+                                           kwargs['n_iter_per_epoch'])
     return optimizer, scheduler

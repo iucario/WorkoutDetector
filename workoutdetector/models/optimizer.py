@@ -32,7 +32,7 @@ def get_scheduler(optimizer: torch.optim.Optimizer,
         scheduler = MultiStepLR(
             optimizer=optimizer,
             gamma=gamma,
-            milestones=[(m - warmup_epoch) * n_iter_per_epoch for m in lr_steps])
+            milestones=[(m - warmup_epoch) for m in lr_steps])
     else:
         raise NotImplementedError(f"scheduler {lr_scheduler} not supported")
 
