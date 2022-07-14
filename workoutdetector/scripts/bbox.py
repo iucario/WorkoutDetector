@@ -10,8 +10,8 @@ from torch import Tensor
 from torchvision.io import read_video
 import torchvision.transforms as T
 import torchvision.transforms.functional as TF
-from torchvision.models.detection import fasterrcnn_resnet50_fpn
 from torchvision.utils import draw_bounding_boxes
+from workoutdetector.datasets import build_test_transform
 from workoutdetector.datasets import RepcountHelper
 from workoutdetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 
@@ -42,7 +42,7 @@ def crop_and_save(results: List[List[dict]], frames: List[np.ndarray], out_path:
     out.release()
 
 
-def draw_person_boxes(results:List[dict], frames: List[np.ndarray], out_path: str,
+def draw_person_boxes(results: List[dict], frames: List[np.ndarray], out_path: str,
                       width: int, height: int, fps: int) -> None:
     """
     Args:
@@ -68,7 +68,6 @@ def draw_person_boxes(results:List[dict], frames: List[np.ndarray], out_path: st
 
 
 def bboxes_to_json(results: List[List[dict]], out_path: str) -> None:
-    # TODO: handle no person
     assert out_path.endswith('.json')
     threshold = 0.7
     with open(out_path, 'w') as f:
@@ -127,7 +126,9 @@ def _video_to_json(model: torch.nn.Module):
             results = [model(TF.to_tensor(img).unsqueeze(0).cuda()) for img in frames]
             bboxes_to_json(results, json_out_path)
 
-def process_bbox(results: List[List[dict]], frames: List[np.ndarray], out_path: str) -> None:
+
+def process_bbox(results: List[List[dict]], frames: List[np.ndarray],
+                 out_path: str) -> None:
     """Post process bounding boxes.
     Select the largest bbox and crop the image and resize to 224*224.
 
@@ -143,16 +144,15 @@ def process_bbox(results: List[List[dict]], frames: List[np.ndarray], out_path: 
     #TODO: input 8 frames, make the bounding boxes consistent.
     #TODO: select the center bbox if there are multiple bboxes.
 
+
 if __name__ == '__main__':
-    # model = fasterrcnn_resnet50_fpn(pretrained=True)
-    # model.eval()
-    # model.cuda()
     json_files = [
         j for j in os.listdir(os.path.join(PROJ_ROOT, 'out')) if j.endswith('.json')
     ]
     for j in json_files:
         results = json_to_bboxes(os.path.join(PROJ_ROOT, 'out', j))
-        frames, _, metadata = read_video(os.path.join(PROJ_ROOT, 'data/RepCount/videos/test', j.replace('.json', '')))
+        frames, _, metadata = read_video(
+            os.path.join(PROJ_ROOT, 'data/RepCount/videos/test', j.replace('.json', '')))
         fps = metadata['video_fps']
         height, width = frames[0].shape[:2]
         print(width, height, fps)

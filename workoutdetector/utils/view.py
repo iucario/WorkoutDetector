@@ -47,15 +47,30 @@ def load_examples() -> List[list]:
     return ret
 
 
-def main(idx: int, name: str, split: str, action: str) -> List[Image.Image]:
+def classify(video_path: str) -> dict:
+    """Video classification function"""
+
+    return {'push_up': 0, 'front_raise': 1}
+
+
+def display(idx: int, name: str, split: str, action: str) -> List[Image.Image]:
     """Gradio main function"""
     return show_one_video(name)
 
 
 if __name__ == '__main__':
+    demo = gr.Interface(
+        fn=classify,
+        inputs=[gr.Video(source='upload')],
+        outputs=["label"],
+        live=False,
+    )
+
+
+def func1():
     examples = load_examples()
 
-    demo = gr.Interface(fn=main,
+    demo = gr.Interface(fn=display,
                         inputs=[
                             gr.Number(label="id"),
                             gr.Text(label="video_name"),

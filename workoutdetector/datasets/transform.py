@@ -1,27 +1,43 @@
+import math
+import random
 from typing import Dict, List, Optional, Tuple, Union
 
 import einops
+import numpy as np
 import torch
 import torchvision
 import torchvision.transforms as T
 import torchvision.transforms.functional as F
 import torchvision.transforms.functional as TF
 from torch import Tensor
-import math
 from torchvision.models import detection
-import random
-import numpy as np
 
 
-def sample_frames(total: int, num: int, offset: int = 0) -> List[int]:
-    """Uniformly sample num frames from video
+def sample_frames(total: int,
+                  num: int,
+                  offset: int = 0,
+                  random: bool = True) -> List[int]:
+    """Uniformly sample `num` frames from video, randomly.
     
     Args:
         total: int, total frames, 
         num: int, number of frames to sample
         offset: int, offset from start of video
+        random: bool, whether to sample randomly, default True.
+            If False, always select the first frame in segments.
     Returns: 
         list of frame indices starting from offset
+    Examples:
+        >>> sample_frames(total=4, num=8, offset=0, random=False)
+        [0, 0, 1, 1, 2, 2, 3, 3]
+        >>> sample_frames(total=10, num=8, offset=0, random=False)
+        [0, 1, 2, 3, 4, 5, 6, 7]
+        >>> sample_frames(total=40, num=8, offset=0, random=False)
+        [0, 5, 10, 15, 20, 25, 30, 35]
+        >>> sample_frames(total=40, num=8, offset=0, random=True)
+        [2, 6, 13, 18, 24, 29, 32, 36]
+        >>> sample_frames(total=40, num=8, offset=20, random=False)
+        [20, 25, 30, 35, 40, 45, 50, 55]
     """
 
     if total < num:
@@ -33,14 +49,15 @@ def sample_frames(total: int, num: int, offset: int = 0) -> List[int]:
         data = list(range(total))
     interval = total // num
     indices = np.arange(0, total, interval)[:num]
-    for i, x in enumerate(indices):
-        rand = np.random.randint(0, interval)
-        if i == num - 1:
-            upper = total
-            rand = np.random.randint(0, upper - x)
-        else:
-            upper = min(interval * (i + 1), total)
-        indices[i] = (x + rand) % upper
+    if random:
+        for i, x in enumerate(indices):
+            rand = np.random.randint(0, interval)
+            if i == num - 1:
+                upper = total
+                rand = np.random.randint(0, upper - x)
+            else:
+                upper = min(interval * (i + 1), total)
+            indices[i] = (x + rand) % upper
     assert len(indices) == num, f'len(indices)={len(indices)}'
     for i in range(1, len(indices)):
         assert indices[i] > indices[i - 1], f'indices[{i}]={indices[i]}'
@@ -135,7 +152,7 @@ class Detector:
     @torch.no_grad()
     def detect(self,
                images: Union[Tensor, List[Tensor]],
-               threshold: float = 0.7) -> Tensor:
+               threshold: float = 0.7) -> List[Tensor]:
         """Detect human. Returns a list of bboxs of input frames.
 
         Args:
@@ -153,7 +170,7 @@ class Detector:
         persons: List[Tensor] = []
         for r in results:
             persons.append(self._get_box_one_frame(r, threshold))
-        return torch.stack(persons)
+        return persons
 
     def _get_box_one_frame(self, result: dict, threshold: float = 0.7) -> Tensor:
         """Get bounding boxes of one frame.
@@ -172,7 +189,7 @@ class Detector:
         person_boxes = person_boxes[scores > threshold]
         if person_boxes.shape[0] == 0:
             return torch.zeros((1, 4))
-        return person_boxes
+        return person_boxes.to(self.device)
 
     def crop_person(self, images: List[Tensor]) -> List[Tensor]:
         """Crop one person from images.
@@ -210,6 +227,8 @@ class PersonCrop:
     """Crop one person from images. Can't asure the same person though.
     If no person detected, return original image.
     Person bboxes are enlarged by 10%.
+    For one group of images, x, y, w, h are fixed to the largest bbox that can 
+        cover all first detected bboxes.
 
     Returns:
         Tensor: shape (..., box_h, box_w)
@@ -223,9 +242,11 @@ class PersonCrop:
     def __init__(self):
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.worker = Detector('fasterrcnn_resnet50_fpn', device)
+        self.device = device
 
     def __call__(self, images: Tensor) -> Tensor:
-        box_tensor = self.worker.detect(images)[:, 0]  # First box
+        box_tensor = torch.stack([b[0].cpu() for b in self.worker.detect(images.cuda())
+                                 ])  # First box
         x1, y1 = box_tensor[:, 0].min().item(), box_tensor[:, 1].min().item()
         x2, y2 = box_tensor[:, 2].max().item(), box_tensor[:, 3].max().item()
         cx, cy = (x1 + x2) / 2, (y1 + y2) / 2

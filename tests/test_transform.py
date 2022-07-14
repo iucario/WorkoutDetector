@@ -18,7 +18,7 @@ def test_Detector():
     y = det.detect(img.cuda())
     assert len(y) == 2, 'detect must return 2 tensors'
 
-    img_human = read_image(osj(PROJ_ROOT, 'tests/data/test.png')).float().cuda()
+    img_human = read_image(osj(PROJ_ROOT, 'tmp/test.png')).float().cuda()
     y = det.detect([img_human])
     assert y[0].shape == (1, 4), 'should detect one person'
 

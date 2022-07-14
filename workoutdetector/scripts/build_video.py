@@ -94,7 +94,7 @@ def build_video_rep(data_dir: str, anno_path: str, dest_dir: str) -> None:
 
 
 if __name__ == '__main__':
-    data_dir = 'data/RepCount/videos'
+    data_dir = '/home/user/data/RepCount/videos'
     anno_path = 'datasets/RepCount/annotation.csv'
     dest_dir = 'data/RepCount/rep_video'
     build_video_rep(data_dir, anno_path, dest_dir)
