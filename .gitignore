@@ -34,3 +34,7 @@ pyrightconfig.json
 *.onnx
 *.pth
 *.pt
+
+# shell scripts
+tools/train.sh
+tools/debug.sh

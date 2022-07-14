@@ -1,18 +1,20 @@
-from dataclasses import dataclass
+import base64
 import os
 import os.path as osp
+from dataclasses import dataclass
 from os.path import join as osj
-from typing import List, Optional, Tuple, Dict
+from typing import Dict, List, Optional, Tuple
+
 import einops
+import numpy as np
+import pandas as pd
 import torch
 from torch import Tensor
-import pandas as pd
-import numpy as np
-import base64
-from torchvision.datasets.utils import download_and_extract_archive, verify_str_arg
+from torchvision.datasets.utils import (download_and_extract_archive,
+                                        verify_str_arg)
 from torchvision.io import read_image
 from workoutdetector.datasets.transform import sample_frames
-from workoutdetector.settings import PROJ_ROOT, DATA_ROOT
+from workoutdetector.settings import DATA_ROOT, PROJ_ROOT
 
 
 def build_label_list(data_root: str,

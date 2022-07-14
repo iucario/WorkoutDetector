@@ -1,10 +1,11 @@
+import json
 import os
 import os.path as osp
 from os.path import join as osj
 
 import pandas as pd
 from torchvision.io import VideoReader
-from workoutdetector.datasets import RepcountDataset
+from workoutdetector.datasets import RepcountDataset, RepcountHelper
 from workoutdetector.settings import PROJ_ROOT
 
 
@@ -164,12 +165,100 @@ def relabeled_csv_to_rawframe_list(csv_path: str, dst_dir: str, video_dir: str) 
     test_txt.close()
 
 
+def activity_net_label(csv: str, outdir: str) -> None:
+    """Creates a JSON file with activity net labels.
+    Used in MMAction2.
+
+    Annotation format::
+
+        {
+            "v_--1DO2V4K74":  {
+                "duration_second": 211.53,
+                "duration_frame": 6337,
+                "annotations": [
+                    {
+                        "segment": [
+                            30.025882995319815,
+                            205.2318595943838
+                        ],
+                        "label": "Rock climbing"
+                    }
+                ],
+                "feature_frame": 6336,
+                "fps": 30.0,
+                "rfps": 29.9579255898
+            },
+            "v_--6bJUbfpnQ": {
+                "duration_second": 26.75,
+                "duration_frame": 647,
+                "annotations": [
+                    {
+                        "segment": [
+                            2.578755070202808,
+                            24.914101404056165
+                        ],
+                        "label": "Drinking beer"
+                    }
+                ],
+                "feature_frame": 624,
+                "fps": 24.0,
+                "rfps": 24.1869158879
+            },
+            ...
+        }
+
+    Args:
+        csv (str): Path to csv file.
+        outdir (str): Dir to save JSON file.
+    Example:
+        >>> root = osj(PROJ_ROOT, 'data/RepCount/videos')
+        >>> csv = osj(root, 'annotation.csv')
+        >>> outdir = osj(root, 'activity')
+        >>> activity_net_label(csv, outdir)
+        train done. 545 videos
+        val done. 100 videos
+        test done. 117 videos
+        Done
+    """
+    if not osp.exists(outdir):
+        os.makedirs(outdir)
+
+    helper = RepcountHelper(anno_file=csv, data_root='/home/umi/data/RepCount')
+    for split in ['train', 'val', 'test']:
+        with open(osj(outdir, f'{split}.json'), 'w') as f:
+            vids = helper.get_rep_data(action=['all'], split=[split])
+            data = {}
+            for vid in vids.values():
+                vr = VideoReader(osp.join(helper.data_root, vid.video_path))
+                meta = vr.get_metadata()
+                fps = meta['video']['fps'][0]
+                anno = []
+                for start, end in zip(vid.reps[::2], vid.reps[1::2]):
+                    anno.append({
+                        'segment': [start * fps, end * fps],
+                        'label': vid.class_
+                    })
+                data[vid.video_name] = {
+                    'duration_second': meta['video']['duration'][0],
+                    'rfps': fps,
+                    'fps': round(fps),
+                    'duration_frame': vid.total_frames,
+                    'feature_frame': vid.total_frames - 1,  # I don't know what this is
+                    'annotations': anno
+                }
+            json.dump(data, f, indent=4)
+            print(f'{split} done. {len(data)} videos')
+    print('Done')
+
+
 if __name__ == '__main__':
     print('project root:', PROJ_ROOT)
     anno_file = 'datasets/RepCount/annotation.csv'
     data_root = osp.expanduser('~/data')
-    dst_dir = os.path.join(data_root, 'Binary')
-    build_with_start(data_root, anno_file, dst_dir)
+    # dst_dir = os.path.join(data_root, 'Binary')
+    # build_with_start(data_root, anno_file, dst_dir)
+    dst = osj(data_root, 'RepCount/activity')
+    activity_net_label(anno_file, dst)
 
     # relabeled_csv_to_rawframe_list(
     #     '/home/umi/data/pull-up-relabeled/pull-up-relabeled.csv',
