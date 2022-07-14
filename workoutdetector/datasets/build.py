@@ -22,7 +22,10 @@ def build_dataset(cfg: CfgNode, split: str) -> torch.utils.data.Dataset:
         anno_path = cfg.get(split).anno
         prefix = cfg.get(split).data_prefix
         transform = cfg.get(split).transform
-
+        if split == 'train':
+            is_test = False
+        else:
+            is_test = True  # deterministic sampling
         return FrameDataset(
             data_root=cfg.data_root,
             anno_path=anno_path,
@@ -31,6 +34,7 @@ def build_dataset(cfg: CfgNode, split: str) -> torch.utils.data.Dataset:
             filename_tmpl=cfg.filename_tmpl,
             transform=build_transform(split, person_crop=transform.person_crop),
             anno_col=cfg.anno_col,
+            is_test=is_test,
         )
     elif cfg.dataset_type == 'ImageDataset':
         anno_path = cfg.get(split).anno
@@ -118,9 +122,9 @@ def build_test_transform(person_crop: bool) -> T.Compose:
     """
     if person_crop:
         return T.Compose([
-            PersonCrop(),
             T.ConvertImageDtype(torch.float32),
-            T.Resize(256),
+            PersonCrop(),
+            T.Resize(INPUT_SIZE),
             T.Normalize(**MEAN_STD),
         ])
     else:

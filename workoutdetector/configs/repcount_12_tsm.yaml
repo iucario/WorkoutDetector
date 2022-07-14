@@ -32,12 +32,13 @@ optimizer:
 lr_scheduler:
   policy: StepLR
   gamma: 0.1
-  step: 8
+  step: 7
 
 model:
   model_type: TSM
   num_class: 12
   num_segments: 8
+  num_frames: 1
   base_model: resnet50
   consensus_type: avg
   img_feature_dim: 256
