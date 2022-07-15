@@ -6,4 +6,4 @@ from workoutdetector.utils.inference_count import (COLORS,
                                                    pred_to_count)
 from workoutdetector.utils.visualize import (Vis2DPose, plot_all,
                                              plot_per_action, plot_pred,
-                                             to_softmax)
+                                             plt_params, to_softmax)
