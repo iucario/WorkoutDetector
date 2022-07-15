@@ -1,12 +1,9 @@
 from typing import Optional
-from workoutdetector.trainer import LitModel
-import torch
+
 import onnx
 import onnxruntime as ort
-import mmcv
-from mmcv.runner import load_checkpoint
-from mmaction.models import build_model
-from workoutdetector.settings import PROJ_ROOT
+import torch
+from workoutdetector.trainer import LitModel
 
 
 def _convert_batchnorm(module: torch.nn.Module) -> torch.nn.Module:
@@ -32,22 +29,44 @@ def _convert_batchnorm(module: torch.nn.Module) -> torch.nn.Module:
     return module_output
 
 
-def export_lit_model(ckpt: str, onnx_path: Optional[str] = None) -> None:
-    """Export a LitImageModel to ONNX format."""
+def export_lit_model(ckpt: str,
+                     mode: str = 'onnx',
+                     out_path: Optional[str] = None) -> None:
+    """Export a LitImageModel to ONNX or torch script.
+    
+    Args:   
+        ckpt (str): path to the checkpoint file
+        mode (str): 'onnx' or 'torchscript'
+        out_path (str): path to the output file
+    """
 
     model = LitModel.load_from_checkpoint(ckpt)
     model.eval()
     model.cuda()
-    if onnx_path is None:
-        onnx_path = ckpt.replace('.ckpt', '.onnx')
-    model.to_onnx(onnx_path,
-                  input_sample=torch.randn(1, 8, 3, 224, 224),
-                  export_params=True,
-                  opset_version=11)
-    print(f'Model exported to {onnx_path}')
+    ext = 'onnx' if mode == 'onnx' else 'pt'
+    if out_path is None:
+        out_path = ckpt.replace('.ckpt', f'.{ext}')
+    if mode == 'onnx':
+        model.to_onnx(out_path,
+                      input_sample=torch.randn(1, 8, 3, 224, 224),
+                      export_params=True,
+                      opset_version=11)
+    elif mode == 'torchscript':
+        model.to_torchscript(
+            out_path,
+            example_inputs=torch.randn(1, 8, 3, 224, 224),
+        )
+    x = torch.randn(1, 8, 3, 224, 224).cuda()
+    onnx_model = onnx.load(out_path)
+    assert torch.equal(torch.Tensor(onnx_model(x)), model(x)), \
+        'ONNX output does not match with the torch model output'
+    print(f'Model exported to {out_path}')
 
 
 def export_mmlab_model(ckpt: str, output: str, cfg_path: str) -> None:
+    import mmcv
+    from mmaction.models import build_model
+    from mmcv.runner import load_checkpoint
     input_sample = torch.randn(1, 3, 8, 224, 224)
     cfg = mmcv.Config.fromfile(cfg_path)
     model = build_model(cfg.model, train_cfg=None, test_cfg=cfg.get('test_cfg'))
@@ -77,8 +96,8 @@ if __name__ == '__main__':
     #     f'--cfg={PROJ_ROOT}/workoutdetector/configs/tsm_MultiActionRepCount_sthv2.py'
     # ]
     args_lit = [
-        '--ckpt',
-        "exp/repcount-12-tsm/checkpoints/best-val-acc=0.86-epoch=07-20220705-220720.ckpt"
+        '--cfg', 'workoutdetector/configs/defaults.yaml', '--ckpt',
+        "checkpoints/repcount-12/best-val-acc=0.841-epoch=26-20220711-191616.ckpt"
     ]
     args = parser.parse_args(args_lit)
     export_lit_model(args.ckpt, args.output)

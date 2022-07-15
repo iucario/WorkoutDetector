@@ -28,7 +28,8 @@ class LitModel(LightningModule):
         super().__init__()
         self.save_hyperparameters()
         self.model = build_model(cfg)
-        self.example_input_array = torch.randn(cfg.model.example_input_array)
+        if cfg.model.get('example_input_array'):
+            self.example_input_array = torch.randn(cfg.model.example_input_array)
         self.loss_module = nn.CrossEntropyLoss()
         self.cfg = cfg
         self.best_val_acc = 0.0

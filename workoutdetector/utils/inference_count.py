@@ -7,19 +7,20 @@ from bisect import bisect_left
 from collections import deque
 from os.path import join as osj
 from typing import Callable, Deque, Dict, List, Optional, Tuple, Union
-from torch import nn
+
 import cv2
 import numpy as np
 import onnx
 import onnxruntime
 import pandas as pd
 import torch
-from torch import Tensor
 import torchvision.transforms as T
-from torchvision.io import read_video
 from mmaction.apis import init_recognizer
 from mmaction.apis.inference import inference_recognizer
-from workoutdetector.datasets import RepcountHelper, Pipeline, build_test_transform
+from torch import Tensor, nn
+from torchvision.io import read_video
+from workoutdetector.datasets import (Pipeline, RepcountHelper,
+                                      build_test_transform)
 from workoutdetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 
 onnxruntime.set_default_logger_severity(3)
@@ -343,10 +344,16 @@ def inference_dataset(model: nn.Module,
                       splits: List[str],
                       out_dir: str,
                       checkpoint: str,
+                      stride: int = 1,
+                      step: int = 1,
                       person_crop: bool = False) -> None:
-    """Inference the RepCount dataset. Save predictions to json for analysis later.
-    For video models, predict every 8 frames. Note that the 8 frames are sampled from 16 frames.
-    For image models, predict every 1 frame.
+    """Inference the RepCount dataset using video classification model.
+    Save predictions to json for analysis later.
+
+    For video models, predict every `stride` frames. Sample the video every `step` frames.
+        E.g. stride=1, step=2. Current index `idx`. 
+        Current inputs are `video[idx-step*8 : idx : step]`.
+        Next inputs starts from `idx + stride`.
     
     Results are saved in format of:
         video_1.score.json::
@@ -355,7 +362,7 @@ def inference_dataset(model: nn.Module,
                 "video_name": "video_1.mp4",
                 "scores": {
                     0: [0.1, 0.2, 0.3, ...], # frame_idx: score for every classes
-                    1: [0.3, 0.2, 0.1, ...],
+                    1: [0.3, 0.2, 0.1, ...], # The input frames are in `[idx-8*step, idx)`
                 },
                 "model": "video_model",
                 "input_shape": [1, 8, 3, 224, 224],
@@ -366,10 +373,12 @@ def inference_dataset(model: nn.Module,
             }
     
     Args:
-        model (nn.Module): mmaction model.
+        model (nn.Module): video classification model.
         splits (List[str]): list of splits to inference. ['train', 'val', 'test']
         out_dir (str): output directory. Will create one if not exists.
         checkpoint (str): path to the checkpoint. Just for logging.
+        stride (int): stride of prediction frame indices.
+        step (int): step of sampling frames.
 
     Example::
 
@@ -387,7 +396,8 @@ def inference_dataset(model: nn.Module,
         ...                   checkpoint=ckpt)
         train951.mp4 result saved to out/tsm_lightning_sparse_sample/train951.mp4.score.json
     """
-
+    assert step >= 1, 'step must be greater than or equal to 1'
+    assert stride >= 1, 'stride must be greater than or equal to 1'
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
@@ -397,7 +407,12 @@ def inference_dataset(model: nn.Module,
     transform = build_test_transform(person_crop=person_crop)
     print('==> transform:', transform)
     for item in data.values():
-        vid = read_video(item.video_path)[0]
+        out_path = os.path.join(out_dir,
+                                f'{item.video_name}.stride_{stride}_step_{step}.json')
+        if os.path.exists(out_path):
+            print(f'{out_path} already exists. Skip.')
+            continue
+        vid, _, meta = read_video(item.video_path)
         res_dict = dict(
             video_name=item.video_name,
             model='video_model',
@@ -408,15 +423,14 @@ def inference_dataset(model: nn.Module,
             action=item.class_,
         )
         scores: Dict[int, dict] = dict()
-        for i in range(0, len(vid), 8):
-            clip = vid[i:i + 16:2]  # sparse sampling
-            if len(clip) < 16:
-                clip = torch.cat([clip, torch.zeros((8 - len(clip),) + clip.shape[1:])])
+        for i in range(step * 8, len(vid), stride):
+            clip = vid[i - step * 8:i:step]
             pred = inference_video(model, clip, transform=transform)
             scores[i] = dict((x[0], float(x[1])) for x in pred)
             # print(scores[i])
+
         res_dict['scores'] = scores
-        out_path = os.path.join(out_dir, f'{item.video_name}.score.json')
+        
         json.dump(res_dict, open(out_path, 'w'))
         print(f'{item.video_name} result saved to {out_path}')
 
@@ -615,10 +629,18 @@ if __name__ == '__main__':
     # args = parse_args()
     # main(args)
 
-    cfg_path = 'workoutdetector/configs/tsm_MultiActionRepCount_sthv2.py'
-    ckpt = 'checkpoints/repcount-12/rep_12_20220705_220720.onnx'
-    model = onnxruntime.InferenceSession(ckpt, providers=['CUDAExecutionProvider'])
+    # cfg_path = 'workoutdetector/configs/tsm_MultiActionRepCount_sthv2.py'
     # model = init_recognizer(cfg_path, ckpt, device='cuda')
-    inference_dataset(model, ['train', 'val', 'test'],
-                      out_dir='out/tsm_lightning_sparse_sample',
+    providers = [
+        ('CUDAExecutionProvider', {
+            'device_id': 4,
+        }),
+        'CPUExecutionProvider',
+    ]
+    ckpt = 'checkpoints/repcount-12/best-val-acc=0.841-epoch=26-20220711-191616.onnx'
+    model = onnxruntime.InferenceSession(ckpt, providers=providers)
+    inference_dataset(model, ['val'],
+                      out_dir='out/acc_0.841_epoch_26_20220711-191616_1x1',
+                      stride=1,
+                      step=1,
                       checkpoint=ckpt)
