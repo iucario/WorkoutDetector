@@ -87,10 +87,9 @@ def build_label_list(data_root: str,
 
 def parse_onedrive(link: str) -> str:
     """Parse onedrive link to download link.
-
+    
     Args:
         link: str, start with `https://1drv.ms/u/s!`
-
     Returns:
         str, download link.
     """

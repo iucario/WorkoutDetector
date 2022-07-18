@@ -2,7 +2,7 @@
 
 - [x] Clean and process datasets
 - [x] Action recognition
-- [ ] Train on more datasets
+- [ ] Train on more data
 - [x] Action detection
 - [ ] Use pose estimation
 - [x] Repetition counting
@@ -14,9 +14,6 @@
 git clone https://github.com/iucario/workoutdetector.git
 cd WorkoutDetector
 
-conda env create -f conda_env.yml
-pip install openmim
-mim install mmcv
 pip install -r requirements.txt
 pip install -e .
 ```
@@ -108,7 +105,11 @@ E.g. `PROJ_ROOT = '/home/your_name/WorkoutDetector/'`
 Or set environment variable `PROJ_ROOT` to your project root.
 E.g. `export PROJ_ROOT=$PWD`
 
-### Build dataset
+### Extract video frames
+
+Extract frames to `data/{dataset}/rawframes/{split}/{video_name}/img_{frame_id}.jpg`
+
+### Build labels
 
 `Workouts` are subsets taking from Countix and RepCount.
 For now, I am using 11 classes. [Dataset.md](datasets/Dataset.md)
