@@ -120,6 +120,17 @@ class FrameDataset(torch.utils.data.Dataset):
         return len(self.anno)
 
 
+class VideoDataset(torch.utils.data.Dataset):
+    """Video dataset. 
+    label.txt has the following format:
+        `dir/to/video start_index length label`
+    """
+
+    def __init__(self):
+        super().__init__()
+        pass
+
+
 class ImageDataset(torch.utils.data.Dataset):
     """General image dataset
     label text files of format `path/to/image.png class` are required

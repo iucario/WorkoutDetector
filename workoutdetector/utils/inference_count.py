@@ -15,12 +15,9 @@ import onnxruntime
 import pandas as pd
 import torch
 import torchvision.transforms as T
-from mmaction.apis import init_recognizer
-from mmaction.apis.inference import inference_recognizer
 from torch import Tensor, nn
 from torchvision.io import read_video
-from workoutdetector.datasets import (Pipeline, RepcountHelper,
-                                      build_test_transform)
+from workoutdetector.datasets import (Pipeline, RepcountHelper, build_test_transform)
 from workoutdetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 
 onnxruntime.set_default_logger_severity(3)
@@ -610,6 +607,8 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 
 if __name__ == '__main__':
+    from mmaction.apis import init_recognizer
+    from mmaction.apis.inference import inference_recognizer
     example_args = [
         '-ckpt', 'checkpoints/tsm_video_all_20220616.onnx', '--threshold', '0.5',
         '--video', 'data/RepCount/videos/test/stu1_27.mp4'

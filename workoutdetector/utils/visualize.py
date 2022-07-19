@@ -4,6 +4,7 @@ from typing import Any, Dict, List, NewType, OrderedDict, Union
 
 import cv2
 import decord
+import matplotlib
 import matplotlib.pyplot as plt
 import moviepy.editor as mpy
 import numpy as np
@@ -13,6 +14,24 @@ from matplotlib.collections import LineCollection
 from tqdm import tqdm
 
 CLASSES = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
+
+
+def plt_params() -> dict:
+    COLORS = list(plt.get_cmap('Set3').colors)
+    plt.style.use('seaborn-dark')
+    params = {
+        'figure.dpi': 300,
+        'figure.figsize': (8, 5),
+        'figure.autolayout': True,
+        'lines.linewidth': 0.8,
+        'axes.prop_cycle': plt.cycler('color', COLORS),
+        'font.size': 8,
+        'font.family': 'serif'
+    }
+    return params
+
+
+matplotlib.RcParams.update(plt_params())
 
 
 def plot_pred(result: List[int],
@@ -30,13 +49,16 @@ def plot_pred(result: List[int],
         step (int): step of prediction.
     """
 
+    fps = info.get('fps', 30)
+    video_len = total_frames / fps
     max_num_ticks = 10
     plt.figure(figsize=(8, 2))
-    plt.xlabel('Frame index')
+    plt.xlabel('Seconds')
     plt.yticks([])
     plt.ylim(0, 1)
     plt.xlim(0, total_frames)
-    plt.xticks([i for i in range(0, total_frames, total_frames // max_num_ticks)])
+    plt.xticks(np.linspace(0, total_frames, max_num_ticks),
+               np.round(np.linspace(0.0, video_len, max_num_ticks), 2))
     for i in range(0, len(gt), 2):
         rect = plt.Rectangle((gt[i], 0.5), (gt[i + 1] - gt[i]),
                              0.5,
@@ -53,15 +75,21 @@ def plot_pred(result: List[int],
     plt.show()
 
 
-def plot_all(gt_reps: np.ndarray, info: Dict[str, Any], softmax: bool = False) -> None:
+def plot_all(gt_reps: np.ndarray,
+             info: Dict[str, Any],
+             softmax: bool = False,
+             stride: int = 8) -> None:
     """
     Args:
         gt_reps (np.ndarray): ground truth reps.
         info (Dict[str, Any]): info dict. Inferenced json for each video.
         softmax (boo): Apply softmax or not.
+        stride (int): Predict every stride frames.
     """
 
     total_frames = info['total_frames']
+    fps = info.get('fps', 30)
+    video_len = total_frames / fps
     ys = []
     if softmax:
         score_list: List[Dict[str, float]] = list(info['scores'].values())
@@ -78,16 +106,17 @@ def plot_all(gt_reps: np.ndarray, info: Dict[str, Any], softmax: bool = False) -
     COLORS = list(plt.get_cmap('Set3').colors)
     max_num_ticks = 10
     plt.plot(yarr, marker='.', linestyle='None')
-    plt.xticks([i for i in range(0, total_frames, total_frames // max_num_ticks)])
-    plt.xlabel('Frame index')
+    plt.xticks(np.linspace(0, total_frames, max_num_ticks),
+               np.round(np.linspace(0.0, video_len, max_num_ticks), 1))
+    plt.xlabel('Seconds')
     plt.ylabel('Softmax score')
     plt.title(f"{info['video_name']} {info['action']} count={counts}")
     plt.ylim(0, 1.1)
-    plt.vlines(x=gt_reps[0::2] // 8,
+    plt.vlines(x=gt_reps[0::2] // stride,
                color=COLORS[GT_CLASS_INDEX * 2],
                ymin=0.51,
                ymax=1.0)
-    plt.vlines(x=gt_reps[1::2] // 8,
+    plt.vlines(x=gt_reps[1::2] // stride,
                color=COLORS[GT_CLASS_INDEX * 2 + 1],
                ymin=0.0,
                ymax=0.49)
@@ -100,8 +129,8 @@ def plot_all(gt_reps: np.ndarray, info: Dict[str, Any], softmax: bool = False) -
         start = gt_reps[i * 2]
         end = gt_reps[i * 2 + 1]
         mid = (start + end) // 2
-        segs.append([(start // 8, HEIGHT), (mid // 8, HEIGHT)])
-        segs.append([(mid // 8, HEIGHT), (end // 8, HEIGHT)])
+        segs.append([(start // stride, HEIGHT), (mid // stride, HEIGHT)])
+        segs.append([(mid // stride, HEIGHT), (end // stride, HEIGHT)])
     lc = LineCollection(
         segs,
         colors=[COLORS[GT_CLASS_INDEX * 2], COLORS[GT_CLASS_INDEX * 2 + 1]],
@@ -110,8 +139,21 @@ def plot_all(gt_reps: np.ndarray, info: Dict[str, Any], softmax: bool = False) -
     plt.show()
 
 
-def plot_per_action(info: dict, softmax: bool = False) -> None:
+def plot_per_action(info: dict, softmax: bool = False, action_only: bool = False) -> None:
+    """Plot prediction for each action.
+    
+    Args:
+        info (dict): info dict. Inferenced json.
+        softmax (bool): Apply softmax or not.
+        action_only (bool): Plot only predicted action. If true, only
+            the action with the highest score will be plotted. This uses
+            the entire video and is offline.
+            I just take the ground truth label for now.
+            #TODO: implement real action detection.
+    """
     total_frames = info['total_frames']
+    fps = info.get('fps', 30)
+    video_len = total_frames / fps
     ys = []
     if softmax:
         score_list: List[Dict[str, float]] = list(info['scores'].values())
@@ -123,16 +165,27 @@ def plot_per_action(info: dict, softmax: bool = False) -> None:
     for item in od_list:
         ys.append([item[str(j)] if str(j) in item else 0 for j in range(12)])
     yarr = np.asarray(ys)
-    fig, ax = plt.subplots(len(CLASSES), 1, figsize=(8, 8))
     max_num_ticks = 10
-    for idx in range(len(CLASSES)):
-        ax[idx].set_ylim(0, 1.1)
-        ax[idx].plot(yarr[:, idx * 2:idx * 2 + 2])
-        ax[idx].set_xlim(0, total_frames)
-        ax[idx].set_xticks(
-            [i for i in range(0, total_frames, total_frames // max_num_ticks)])
-        ax[idx].set_title(f'{CLASSES[idx]}', y=0.95)
-    plt.xlabel('Frame index')
+    if action_only:
+        plt.figure(figsize=(10, 3))
+        plt.xlim(0, total_frames)
+        plt.ylim(0, 1)
+        idx = CLASSES.index(info['action'])
+        plt.plot(yarr[:, idx * 2:idx * 2 + 2])
+        plt.xticks(np.linspace(0, total_frames, max_num_ticks),
+                   np.round(np.linspace(0.0, video_len, max_num_ticks), 1))
+        plt.title(f'{CLASSES[idx]}')
+    else:
+        fig, ax = plt.subplots(len(CLASSES), 1, figsize=(8, 8))
+        for idx in range(len(CLASSES)):
+            ax[idx].set_ylim(0, 1.1)
+            ax[idx].plot(yarr[:, idx * 2:idx * 2 + 2])
+            ax[idx].set_xlim(0, total_frames)
+            ax[idx].set_xticks(
+                np.linspace(0, total_frames, max_num_ticks),
+                np.round(np.linspace(0.0, video_len, num=max_num_ticks), 2))
+            ax[idx].set_title(f'{CLASSES[idx]}', y=0.95)
+    plt.xlabel('Seconds')
     plt.ylabel('Softmax score')
     plt.show()
 
@@ -148,21 +201,6 @@ def to_softmax(d: Union[Dict[str, float], OrderedDict[str, float]]) -> Dict[str,
 
     softmax_d = F.softmax(torch.Tensor(list(d.values())), dim=0)
     return dict(zip(d.keys(), softmax_d.numpy()))
-
-
-def plt_params() -> dict:
-    COLORS = list(plt.get_cmap('Set3').colors)
-    plt.style.use('seaborn-dark')
-    params = {
-        'figure.dpi': 300,
-        'figure.figsize': (8, 5),
-        'figure.autolayout': True,
-        'lines.linewidth': 0.8,
-        'axes.prop_cycle': plt.cycler('color', COLORS),
-        'font.size': 8,
-        'font.family': 'serif'
-    }
-    return params
 
 
 class Vis3DPose:

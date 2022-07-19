@@ -1,10 +1,12 @@
-import os
 import csv
-import shutil
-import pandas as pd
-from typing import Tuple, List
-from os.path import join as osj
+import os
 import os.path as osp
+import shutil
+from os.path import join as osj
+from typing import List, Tuple
+
+import pandas as pd
+from torchvision.io import VideoReader
 from workoutdetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 
 
@@ -37,8 +39,8 @@ def name_to_png(vid: str, sec: float) -> str:
 
 def screenshots_to_csv(path: str, csv_path: str, num_frame: int = 3) -> None:
     """Convert a folder of mpv screenshots to csv. Can be used for video clipping.
-    Labeled 0 and 1. Format:
-    ::
+    Labeled 0 and 1. Format::
+
         name,sec,label,split
 
         stu10_35.mp4,6.2,0,train
@@ -100,7 +102,7 @@ def build_general_image_dataset(path: str, out_dir: str, anno: str) -> None:
     test_txt = open(os.path.join(out_dir, 'test.txt'), 'w')
 
     for s, m, e in zip(l[::3], l[1::3], l[2::3]):
-        split = df.loc[df['name'] == s.split('.')].iloc[0]['split']
+        split = df.loc[s.split('.')].iloc[0]['split']
         shutil.copy(os.path.join(path, s), os.path.join(out_dir, split, s))
         shutil.copy(os.path.join(path, m), os.path.join(out_dir, split, m))
         shutil.copy(os.path.join(path, e), os.path.join(out_dir, split, e))
@@ -155,7 +157,7 @@ def build_label(path: str, out_dir: str, anno_path: str) -> None:
     for folder in folders:
         for img in os.listdir(os.path.join(path, folder)):
             name, sec = process_screenshot(img)
-            split = df[df['name'] == name]['split'].values
+            split = df[name]['split'].values
             if split:
                 split = split[0]
             else:
@@ -181,7 +183,7 @@ def label_from_folder(path: str, out_dir: str, anno: str) -> None:
     with open(osj(path, 'train.txt'), 'w') as f:
         for x in os.listdir(osj(path, 'train')):
             name, sec = process_screenshot(x)
-            class_ = df[(df['name'] == name) & (df['sec'] == sec)]['class_'].values[0]
+            class_ = df[(name) & (df['sec'] == sec)]['class_'].values[0]
             png_name = name_to_png(name, sec)
             assert osp.exists(osj(path, str(class_),
                                   png_name)), f"{class_}/{png_name} does not exist"
@@ -189,7 +191,7 @@ def label_from_folder(path: str, out_dir: str, anno: str) -> None:
     with open(osj(path, 'val.txt'), 'w') as f:
         for x in os.listdir(osj(path, 'val')):
             name, sec = process_screenshot(x)
-            class_ = df[(df['name'] == name) & (df['sec'] == sec)]['class_'].values[0]
+            class_ = df[(name) & (df['sec'] == sec)]['class_'].values[0]
             png_name = name_to_png(name, sec)
             assert osp.exists(osj(path, str(class_),
                                   png_name)), f"{class_}/{png_name} does not exist"
@@ -216,24 +218,75 @@ def label_from_split(path: str) -> None:
                 f.write(f'{split}/{m} 1\n')
 
 
+def process(src_dir: str, data_root: str, anno: str):
+    """Process a folder of mpv screenshots. Convert it to labels
+        and save it in src_dir/anno.csv. In the format:
+        `test/stu10_36 107 16 0`
+        3 images per video.
+    """
+    assert osp.isdir(src_dir), src_dir
+    assert osp.exists(anno), anno
+    df = pd.read_csv(anno)
+    df.set_index('name', inplace=True)
+    data: List[dict] = []
+    l = os.listdir(src_dir)
+    l.sort()
+    for s, m, e in zip(l[::3], l[1::3], l[2::3]):
+        n1, s1 = process_screenshot(s)
+        n2, s2 = process_screenshot(m)
+        n3, s3 = process_screenshot(e)
+        assert n1 == n2 == n3, f'{n1} {n2} {n3} not equal'
+        split = df.loc[n1]['split']
+        video_path = osj(data_root, split, n1)
+        vid = VideoReader(video_path)
+        meta = vid.get_metadata()
+        fps = meta['video']['fps'][0]
+        f1 = round(fps * s1)
+        f2 = round(fps * s2)
+        f3 = round(fps * s3)
+        data.append({
+            'name': n1,
+            'start': f1,
+            'length': f2 - f1,
+            'start_sec': s1,
+            'split': split,
+            'class_': 0,
+            'fps': fps
+        })
+        data.append({
+            'name': n2,
+            'start': f2,
+            'length': f3 - f2,
+            'start_sec': s2,
+            'split': split,
+            'class_': 1,
+            'fps': fps
+        })
+    pd.DataFrame(data).to_csv(osp.join(src_dir, 'anno.csv'))
+    print('Done')
+
+
 def main():
     """How to prepare data
 
     1. The mpv screenshot filename template is `screenshot-template=~/Desktop/%f_%P`
     2. Will get files like `stu2_48.mp4_00_00_09.943.png`
-    3. If saved in train, val, test folders, use label_from_split(root_dir)
-    4. If screenshots are saved in one folder, I need to write a new script.
+    3. If saved in train, val, test folders, use `label_from_split(root_dir)`.
+    4. If screenshots are saved in one folder, use `process(src_dir, data_root, anno)`.
     5. And `screenshots_to_csv` can save filenames with timestamp to csv for future usage.
     """
 
-    screenshots_to_csv('/home/umi/data/pull-up-relabeled',
-                       '/home/umi/data/pull-up-relabeled/pull-up-relabeled.csv')
-    # label_from_split('/home/umi/data/pull-up-relabeled/')
+    src_dir = osp.expanduser('~/data/front_raise')
+    data_root = osp.expanduser('~/data/RepCount/videos')
+    process(src_dir, data_root, REPCOUNT_ANNO_PATH)
+    # screenshots_to_csv('~/data/pull-up-relabeled',
+    #                    '~/data/pull-up-relabeled/pull-up-relabeled.csv')
+    # label_from_split('~/data/pull-up-relabeled/')
 
 
 if __name__ == '__main__':
 
-    # build_image_folder('/home/umi/tmp/situp', '/home/umi/data/situp')
-    # build_label('/home/umi/data/pull-up-relabeled/', '/home/umi/data/pull-up-relabeled/',
+    # build_image_folder('~/tmp/situp', '~/data/situp')
+    # build_label('~/data/pull-up-relabeled/', '~/data/pull-up-relabeled/',
     #             REPCOUNT_ANNO_PATH)
     main()
