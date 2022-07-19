@@ -1,9 +1,63 @@
 import os
+from typing import Union
 import pandas as pd
 import cv2
+from torchvision.io import read_video, write_video, VideoReader
+from os.path import join as osj
 
 
-def build_video_rep(data_dir: str, anno_path: str, dest_dir: str) -> None:
+def cut_video(video: str,
+              start: Union[float, int],
+              end: Union[float, int],
+              out_file: str,
+              mode: str = 'frame') -> None:
+    """Cut video from start to end and save to file.
+
+    Args:
+        video (str): path to video
+        start (int or float): start time in frame index or seconds
+        end (int or float): end time in frame index or seconds
+        out_file (str): path to output video
+        mode (str): 'frame' or 'sec'.
+    """
+
+    vr = VideoReader(video)
+    meta = vr.get_metadata()
+    fps = meta['video']['fps'][0]
+    if mode == 'frame':
+        start_sec, end_sec = start / fps, end / fps
+    elif mode == 'sec':
+        start_sec, end_sec = start, end
+    vid, _, _ = read_video(video, start_sec, end_sec, 'sec')
+    print(f'Writing {out_file}, fps: {fps}, start: {start}, end: {end}, {vid.shape}')
+    write_video(out_file, vid, fps)
+
+
+def build_video(data_root: str, label_file: str, dest_dir: str) -> None:
+    """Cut untrimmed videos and save to dest_dir.
+
+    Args:
+        data_root (str): path to data root
+        label_file (str): path to label file. Contains 
+            (video_name, start_frame, length, label)
+        dest_dir (str): path to destination directory. Videos will be renamed to
+            `{video_name}_{start_frame}.mp4`
+    """
+    for split in ['train', 'test', 'val']:
+        os.makedirs(osj(dest_dir, split), exist_ok=True)
+    with open(label_file) as f:
+        for line in f:
+            vid, start, length, label = line.strip().split(' ')
+            name = os.path.basename(vid)
+            if not vid.endswith('.mp4'):
+                vid += '.mp4'
+            video_path = osj(data_root, vid)
+            out_path = osj(dest_dir, f'{name}_{start}.mp4')
+            cut_video(video_path, int(start), int(start) + int(length), out_path)
+    print(f'Done! Videos are saved to {dest_dir}')
+
+
+def build_video_rep(data_root: str, anno_path: str, dest_dir: str) -> None:
     """Cut videos to rep states. Matches the SlowFast Kinetics dataset format.
     Specifically, RepCount dataset 12 classes.
     Generates label files `train.csv`, `val.csv`, `test.csv` in `dest_dir`.
@@ -12,7 +66,7 @@ def build_video_rep(data_dir: str, anno_path: str, dest_dir: str) -> None:
     Args:
         data_dir: path like `data/RepCount/videos`. Expects train,val,test subfolders in it.
         anno_path: csv file path
-        dest_dir: cutted videos will be saved int `dest_dir/split/video_name`. 
+        dest_dir: cutted videos will be saved in `dest_dir/{split}/{name}.mp4`. 
 
     Example:
         >>> data_dir = '~/data/RepCount/video'
@@ -22,8 +76,7 @@ def build_video_rep(data_dir: str, anno_path: str, dest_dir: str) -> None:
         # first line in train.txt: train/train951_0.mp4 10
     """
 
-    if not os.path.exists(dest_dir):
-        os.makedirs(dest_dir)
+    os.makedirs(dest_dir, exist_ok=True)
     for split in ['train', 'val', 'test']:
         if not os.path.exists(os.path.join(dest_dir, split)):
             os.makedirs(os.path.join(dest_dir, split))
@@ -47,7 +100,7 @@ def build_video_rep(data_dir: str, anno_path: str, dest_dir: str) -> None:
             continue
 
         split = row["split"]
-        video_path = os.path.join(data_dir, split, row['name'])
+        video_path = os.path.join(data_root, split, row['name'])
         video_name = row['name']
 
         reps = [int(x) for x in row['reps'].split()]
@@ -94,7 +147,9 @@ def build_video_rep(data_dir: str, anno_path: str, dest_dir: str) -> None:
 
 
 if __name__ == '__main__':
-    data_dir = '/home/user/data/RepCount/videos'
+    data_root = os.path.expanduser('~/data/RepCount/videos')
     anno_path = 'datasets/RepCount/annotation.csv'
-    dest_dir = 'data/RepCount/rep_video'
-    build_video_rep(data_dir, anno_path, dest_dir)
+    dest_dir = os.path.expanduser('~/data/RepCount/action_video/train')
+    label_file = os.path.expanduser('~/data/RepCount/rawframes/train-action.txt')
+    # build_video_rep(data_root, anno_path, dest_dir)
+    build_video(data_root, label_file, dest_dir)
