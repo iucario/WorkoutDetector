@@ -33,6 +33,9 @@ def build_model(cfg) -> torch.nn.Module:
     elif cfg.model.model_type.lower() == 'tsm':
         from .tsm import create_model as create_model_tsm
         model = create_model_tsm(**cfg.model)
+    elif cfg.model.model_type.lower() == 'videomae':
+        from .videomae import create_model as create_model_videomae
+        model = create_model_videomae(**cfg.model)
     else:
         raise KeyError(f"Model '{cfg.model.model_type}' is not supported.")
     return model

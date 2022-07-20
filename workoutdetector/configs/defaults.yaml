@@ -40,11 +40,11 @@ lr_scheduler:
   steps: [10, 20] # MultiStepLR milestones
 
 model:
-  model_type: TSM
+  model_type: TSM # TDN, VideoMAE
   num_class: 12
-  num_segments: 8
+  num_segments: 8 # Break video into `num_segments` and sample within the segments.
 
-  # Frames around the center to calculate difference. Used in Temportal Difference Network
+  # Frames around the center. Used in Temportal Difference Network and ViT
   num_frames: 1
   example_input_array: [1, 8, 3, 224, 224] # Will be reshaped to [-1, 3, 224, 224] anyway
   base_model: resnet50
@@ -59,12 +59,22 @@ model:
   temporal_pool: false
   non_local: false
   checkpoint: checkpoints/finetune/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth
-
+  # Transformer settings
+  # Use num_frames = 16 and num_segments = 1 for Transformers
+  patch_size: 16
+  embed_dim: 768
+  depth: 12
+  num_heads: 12
+  mlp_ratio: 4
+  qkv_bias: true
+  tubelet_size: 2
+  img_size: 224
+  
 data:
   dataset_type: FrameDataset
   data_root: /home/user/data
   num_segments: 8
-  num_frames: 1 # used to calculate difference
+  num_frames: 1 # used to calculate difference and in ViT
   filename_tmpl: "img_{:05}.jpg"
   anno_col: 4
   batch_size: 4
