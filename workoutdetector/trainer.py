@@ -319,6 +319,8 @@ def load_config(args) -> CfgNode:
 
 
 def main(cfg: CfgNode) -> None:
+    assert cfg.model.num_frames == cfg.data.num_frames, \
+        f"model.num_frames ({cfg.model.num_frames}) != data.num_frames ({cfg.data.num_frames})"
     pl.seed_everything(cfg.seed)
     timestamp = time.strftime('%Y%m%d-%H%M%S', time.localtime())
     if not cfg.timestamp:
