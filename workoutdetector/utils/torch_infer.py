@@ -123,6 +123,6 @@ def main(ckpt: str, out_dir: str, stride: int = 1, step: int = 1):
 
 
 if __name__ == '__main__':
-    ckpt = 'checkpoints/repcount-12/best-val-acc=0.841-epoch=26-20220711-191616.ckpt'
-    out_dir = f'out/acc_0.841_epoch_26_20220711-191616_1x2'
+    ckpt = 'checkpoints/repcount-12/best-val-acc=0.923-epoch=10-20220720-151025.ckpt'
+    out_dir = f'out/acc_0.923_epoch_10_20220720-151025_1x2'
     main(ckpt, out_dir, step=2)

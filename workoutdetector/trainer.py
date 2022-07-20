@@ -135,9 +135,8 @@ class DataModule(LightningDataModule):
         print(f"Checking {self.cfg.dataset_type} at {self.cfg.data_root}")
         for split in ['train', 'val', 'test']:
             ds = build_dataset(self.cfg, split)
-            for i, (x, y) in enumerate(ds):
-                assert type(x) == torch.Tensor, f"{type(x) is not Tensor}"
-                assert 0 <= y < self.num_class, f"{y} is not in [0, {self.num_class})"
+            assert len(ds) > 0, f"{split} dataset is empty"
+            assert ds[0]
         print("Data check passed.")
 
     def train_dataloader(self):
@@ -180,6 +179,7 @@ def test(cfg: CfgNode) -> None:
 
 def train(cfg: CfgNode) -> None:
     data_module = DataModule(cfg.data, num_class=cfg.model.num_class)
+    data_module._check_data()
     model = LitModel(cfg)
 
     LOG_DIR = os.path.join(cfg.trainer.default_root_dir, cfg.timestamp)
