@@ -109,16 +109,17 @@ def write_to_video(video_path: str,
     out.release()
 
 
-def pred_to_count(preds: List[int], step: int) -> Tuple[int, List[int]]:
+def pred_to_count(preds: List[int], stride: int, step: int = 1) -> Tuple[int, List[int]]:
     """Convert a list of predictions to a repetition count.
     
     Args:
-        preds: list of size total_frames//step in the video. If -1, it means no action.
-        step: step size of the predictions.
+        preds (List[int]): list of size total_frames//stride in the video. If -1, it means no action.
+        stride (int): predict every stride frames.
+        step (int): step size of the sampled frames. Does not effect the result.
 
     Returns:
-        A tuple of (repetition count, 
-        list of preds of action start and end states, e.g. start_1, end_1, start_2, end_2, ...)
+        A tuple of (repetition count, list of preds of action start and end states, 
+            e.g. start_1, end_1, start_2, end_2, ...)
 
     Note:
         The labels are in order. Because that's how I loaded the data.
@@ -137,7 +138,7 @@ def pred_to_count(preds: List[int], step: int) -> Tuple[int, List[int]]:
     
     Example:
         >>> preds = [-1, -1, 6, 6, 6, 7, 6, 6, 6, 7, 6, 6, 7, 7, 6, 6, 7, 7, 6, 6, 7, 7, 6, 6, 7, 7, -1]
-        >>> pred_to_count(preds, step=8)
+        >>> pred_to_count(preds, stride=8, step=2)
         (6, [16, 40, 48, 72, 80, 96, 112, 128, 144, 160, 176, 192])
     """
 
@@ -152,8 +153,8 @@ def pred_to_count(preds: List[int], step: int) -> Tuple[int, List[int]]:
         if states and states[-1] != pred:
             if pred % 2 == 1 and states[-1] == pred - 1:
                 count += 1
-                reps.append(prev_state_start_idx * step)
-                reps.append(idx * step)
+                reps.append(prev_state_start_idx * stride)
+                reps.append(idx * stride)
         states.append(pred)
         prev_state = preds[prev_state_start_idx]
         if pred != prev_state:  # new state, new start index
@@ -230,7 +231,7 @@ def count_by_image_model(model: Union[onnxruntime.InferenceSession, torch.nn.Mod
 
     cap.release()
 
-    count, reps = pred_to_count(preds=states, step=7)
+    count, reps = pred_to_count(preds=states, stride=7)
     gt_count = len(ground_truth) // 2 if ground_truth else -1
     correct = (abs(count - gt_count) <= 1)
     print(f'count={count} gt_count={gt_count} correct={correct}')
@@ -328,7 +329,7 @@ def count_by_video_model(model: Union[onnxruntime.InferenceSession, torch.nn.Mod
         frame_idx += 1
     cap.release()
 
-    count, reps = pred_to_count(preds=states, step=8)
+    count, reps = pred_to_count(preds=states, stride=8)
     gt_count = len(ground_truth) // 2 if ground_truth else -1
     correct = (abs(gt_count - count) <= 1)
     print(f'count={count}, gt_count={gt_count}, correct={correct}')
@@ -427,7 +428,7 @@ def inference_dataset(model: nn.Module,
             # print(scores[i])
 
         res_dict['scores'] = scores
-        
+
         json.dump(res_dict, open(out_path, 'w'))
         print(f'{item.video_name} result saved to {out_path}')
 
