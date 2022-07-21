@@ -25,7 +25,7 @@ Why this method:
     Reduces a loooot of engineering. And is suitable for online inference.
 """
 
-from cgitb import enable
+import json
 import os
 from typing import Any, Callable, List, Tuple, Union
 
@@ -297,18 +297,6 @@ def val_epoch(model, loader, loss_fn, device) -> float:
     return epoch_loss
 
 
-def evaluate(model, pkl_path, gt_count: int, device) -> float:
-    model.eval()
-    model = model.to(device)
-    pkl = torch.load(pkl_path).to(device)
-    density = 0.0
-    for i, x in enumerate(pkl):
-        y_pred = model(x.unsqueeze(0))
-        density += y_pred.squeeze(1).item()
-
-    return density
-
-
 def test_epoch(model, loader, loss_fn, device) -> Tuple[float, float]:
     """Returns MSE loss and MAE."""
     model.eval()
@@ -423,5 +411,45 @@ def train():
     trainer.fit(model)
 
 
+def eval_one_video(model, pkl_path, device) -> float:
+    pkl = torch.load(pkl_path, map_location=device)
+    density = 0.0
+    for i, x in enumerate(pkl):
+        y_pred = model(x.unsqueeze(0))
+        density += y_pred.squeeze(1).item()
+    return density
+
+
+def evaluate(stride: int = 1):
+    split = 'test'
+    result = dict()
+    ckpt_path = 'checkpoints/predictor_epoch_99_mae_3.7959224247932433.pth'
+    device = 'cuda:0'
+    ckpt = torch.load(ckpt_path, map_location=device)
+    model = Regressor(input_dim=2048, output_dim=1).to(device)
+    model.load_state_dict(ckpt)
+    model.eval()
+    ds = Dataset(data_root='out/acc_0.923_epoch_10_20220720-151025_1x2',
+                     anno_path=os.path.expanduser('~/data/RepCount/annotation.csv'),
+                     split=split)
+    mae, obo = 0.0, 0.0
+    for i, (x, y, gt_count) in enumerate(tqdm(ds)):
+        x = x.to(device)
+        density = 0.0
+        for z in x[::stride]:
+            y_pred = model(z.unsqueeze(0))
+            density += y_pred.squeeze(1).item() * stride
+        result[i] = dict(pred_count=density, gt_count=gt_count)
+        diff = abs(gt_count - density)
+        mae += diff
+        obo += 1 if diff <= 1 else 0
+    mae /= len(ds)
+    obo /= len(ds)
+    print(f"stride={stride}, mae={mae:.4f}, obo={obo:.4f}")
+    json.dump(result, open(f'out/predictor_{split}_stride_{stride}.json', 'w'))
+    return mae
+
+
 if __name__ == '__main__':
-    train()
+    # train()
+    evaluate(stride=8)

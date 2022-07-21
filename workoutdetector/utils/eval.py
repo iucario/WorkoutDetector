@@ -131,6 +131,13 @@ def true_seg_only(pred: List[int]):
     """Only the segments that has valid action are evaluated."""
     pass
 
+def eval_one_video_heuristic():
+    pass
+
+def eval_one_video_density():
+    pass
+
+
 def main(json_dir: str,
          anno_path: str,
          out_csv: Optional[str],
