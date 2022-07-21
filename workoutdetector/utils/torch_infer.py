@@ -19,7 +19,10 @@ import tqdm
 from pytorch_lightning import Trainer
 from torch import Tensor, nn
 from torchvision.io import VideoReader, read_video
-from workoutdetector.datasets import (Pipeline, RepcountHelper, build_test_transform)
+from torchvision.models.feature_extraction import (create_feature_extractor,
+                                                   get_graph_node_names)
+from workoutdetector.datasets import (Pipeline, RepcountHelper,
+                                      build_test_transform)
 from workoutdetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 from workoutdetector.trainer import LitModel
 
@@ -84,6 +87,16 @@ def main(ckpt: str, out_dir: str, stride: int = 1, step: int = 1):
     if not os.path.isdir(out_dir):
         os.makedirs(out_dir)
 
+    # Feature extraction
+    avgpool = nn.AdaptiveAvgPool2d(1)
+    feature_maps = [] # item: (batch*8, 2048)
+    def hook_feat_map(mod, inp, out):
+        o = avgpool(out).view(out.shape[0], -1)
+        feature_maps.append(o)
+
+    model.model.base_model.register_forward_hook(hook_feat_map)
+
+
     for item in data.values():
         out_path = os.path.join(out_dir,
                                 f'{item.video_name}.stride_{stride}_step_{step}.json')
@@ -120,6 +133,10 @@ def main(ckpt: str, out_dir: str, stride: int = 1, step: int = 1):
 
         json.dump(res_dict, open(out_path, 'w'))
         print(f'{item.video_name} result saved to {out_path}')
+        # Save feature maps to pkl
+        feature_maps_path = os.path.join(out_dir, f'{item.video_name}.stride_{stride}_step_{step}.pkl')
+        torch.save(feature_maps, feature_maps_path)
+        feature_maps = []
 
 
 if __name__ == '__main__':
