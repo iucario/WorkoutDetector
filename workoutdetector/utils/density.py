@@ -12,7 +12,7 @@ Outputs:
     A float value between 0 and 1.
 
 Model:
-    A action recognizer + FC layer.
+    An action recognizer + FC layers.
 
 Loss function:
     Mean squared error. Compares with the density function at i+4.
@@ -22,7 +22,7 @@ Inference:
     Sum the predicted density at each frame.
 
 Why this method:
-    Reduces a loooot of engineering. And is suitable for online inference.
+    Saves a loooot of engineering. And it is suitable for online inference.
 """
 
 import json
@@ -171,9 +171,10 @@ class LitModel(LightningModule):
 
     def __init__(self, cfg: CfgNode):
         super().__init__()
-        self.save_hyperparameters(cfg.__dict__)
+        cfg_dict = yaml.safe_load(cfg.dump())
+        self.save_hyperparameters()
         if self.logger:
-            self.logger.log_hyperparams(cfg.__dict__)
+            self.logger.log_hyperparams(cfg_dict)
         self.model = Regressor(input_dim=cfg.model.input_dim,
                                output_dim=cfg.model.output_dim,
                                hidden_dim=cfg.model.hidden_dim,
@@ -216,27 +217,29 @@ class LitModel(LightningModule):
     def validation_step(self, batch, batch_idx):
         """Returns MSE loss and MAE."""
         obo, loss, mae = 0, 0, 0
-        for data, y, gt_count in batch:  # loader batch_size = 1
-            density = 0.0  # sum of density = predicted count
-            for i, x in enumerate(data):
-                y_pred = self.model(x)
-                loss = self.loss_fn(y_pred.squeeze(-1), y.squeeze(0))
-                density += y_pred.squeeze(1).sum().item()
-                loss += loss.item()
-            diff = abs(gt_count.item() - density)
-            mae += diff
-            obo += 1 if diff <= 1 else 0
+        data, y, gt_count = batch  # loader batch_size = 1
+        density = 0.0  # sum of density = predicted count
+        for i, x in enumerate(data):
+            y_pred = self.model(x)
+            loss = self.loss_fn(y_pred.squeeze(-1), y.squeeze(0))
+            density += y_pred.squeeze(1).sum().item()
+            loss += loss.item()
+        diff = abs(gt_count.item() - density)
+        mae += diff
+        obo += 1 if diff <= 1 else 0
         loss /= len(batch)
-        mae /= len(batch)
-        self.log('val/error', mae, prog_bar=True, sync_dist=True)
+        self.log('val/mae', mae, prog_bar=True, sync_dist=True, on_epoch=True)
+        self.log('val/obo', obo, prog_bar=True, sync_dist=True, on_epoch=True)
+        self.log('val/loss', loss, sync_dist=True, on_epoch=True)
         return loss, mae, obo
 
-    def validation_epoch_end(self, outputs):
-        """Returns mean loss and MAE."""
-        loss = torch.stack([x[0] for x in outputs]).mean()
-        mae = torch.stack([x[1] for x in outputs]).mean()
-        self.log_dict({'val/loss': loss, 'val/mae': mae})
-        return {'val/loss': loss, 'val/mae': mae}
+    # def validation_epoch_end(self, outputs):
+    #     """Returns mean loss and MAE."""
+    #     # print(outputs)
+    #     loss = sum(o[0] for o in outputs) / len(outputs)
+    #     mae = sum(o[1] for o in outputs) / len(outputs)
+    #     self.log_dict({'val/loss': loss, 'val/mae': mae})
+    #     return {'val/loss': loss, 'val/mae': mae}
 
     def predict_step(self, batch, batch_idx):
         """Returns MSE loss and MAE."""
@@ -258,108 +261,20 @@ class LitModel(LightningModule):
         return count_list, mae_list, obo_list
 
 
-def train_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim.Optimizer,
-                scheduler, loss_fn: Callable, device: str) -> float:
-    model.train()
-    epoch_loss = 0.0
-    pbar = tqdm(loader, desc='Training')
-    for x, y in pbar:
-        x = x.to(device)
-        y = y.to(device)
-        assert x.is_floating_point(), x.type()
-        assert y.is_floating_point(), y.type()
-        y_pred = model(x)  # [batch, 1]
-        loss = loss_fn(y_pred.squeeze(-1), y)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        scheduler.step(loss)
-        epoch_loss += loss.item()
-        if pbar.n % 10 == 0:
-            pbar.set_postfix(train_step_loss=f'{loss.item():.4f}')
-
-    epoch_loss /= len(loader)
-    print(f"train_epoch_loss={epoch_loss:.4f}")
-    return epoch_loss
-
-
-def val_epoch(model, loader, loss_fn, device) -> float:
-    model.eval()
-    epoch_loss = 0.0
-    for x, y in tqdm(loader):
-        x = x.to(device)
-        y = y.to(device)
-        y_pred = model(x)
-        loss = loss_fn(y_pred.squeeze(-1), y)
-        epoch_loss += loss.item()
-    epoch_loss /= len(loader)
-    print(f"val_loss={epoch_loss:.4f}")
-    return epoch_loss
-
-
-def test_epoch(model, loader, loss_fn, device) -> Tuple[float, float]:
-    """Returns MSE loss and MAE."""
-    model.eval()
-    epoch_loss = 0.0
-    mae = 0.0  # mean absolute error
-    for data, y, gt_count in tqdm(loader):  # loader batch_size = 1
-        data = data.to(device)
-        density = 0.0  # sum of density = predicted count
-        for i, x in enumerate(data):
-            y_pred = model(x).to(device)
-            # print(y_pred.shape, y.shape)
-            loss = loss_fn(y_pred.squeeze(-1), y.squeeze(0).to(device))
-            density += y_pred.squeeze(1).sum().item()
-            epoch_loss += loss.item()
-        mae += abs(gt_count.item() - density)
-    epoch_loss /= len(loader)
-    mae /= len(loader)
-    print(f"test_loss={epoch_loss:.4f}, test_mae={mae:.4f}")
-    return epoch_loss, mae
-
-
-def main():
-    dir_path = 'out/acc_0.923_epoch_10_20220720-151025_1x2'
-    ckpt_dir = 'checkpoints'
-    files = [f for f in os.listdir(dir_path) if f.endswith('.pkl')]
-    data = torch.load(os.path.join(dir_path, files[0]))
-    print(len(data), data[0].shape)
-    anno_path = os.path.expanduser('~/data/RepCount/annotation.csv')
-    train_ds = Dataset(data_root=dir_path, anno_path=anno_path, split='train')
-    val_ds = Dataset(data_root=dir_path, anno_path=anno_path, split='val')
-    test_ds = Dataset(data_root=dir_path, anno_path=anno_path, split='test')
-    print(len(val_ds), len(test_ds))
-
-    device = 'cuda:7' if torch.cuda.is_available() else 'cpu'
-    model = Regressor(input_dim=2048, output_dim=1).to(device)
-    loss_fn = nn.MSELoss()
-    optimizer = Adam(model.parameters(), lr=1e-6)
-    scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, patience=5)
-    train_loader = DataLoader(train_ds, batch_size=32, shuffle=True)
-    val_loader = DataLoader(val_ds, batch_size=1, shuffle=True)
-    test_loader = DataLoader(test_ds, batch_size=1, shuffle=False)
-
-    best_mae = float('inf')
-    for epoch in range(100):
-        train_epoch(model, train_loader, optimizer, scheduler, loss_fn, device)
-        loss, mae = test_epoch(model, val_loader, loss_fn, device)
-        if mae < best_mae:
-            best_mae = mae
-            torch.save(model.state_dict(),
-                       os.path.join(ckpt_dir, f'predictor_epoch_{epoch}_mae_{mae}.pth'))
-
-
 def load_config():
     cfg = CfgNode(
         init_dict={
             'trainer': {
+                'default_root_dir': 'exp/density',
                 'max_epochs': 200,
-                'devices': 8,
+                'devices': 1,
+                'deterministic': True,
             },
             'data': {
+                # dir of extracted features
                 'data_root': 'out/acc_0.923_epoch_10_20220720-151025_1x2',
                 'anno_path': os.path.expanduser('~/data/RepCount/annotation.csv'),
-                'batch_size': 32 * 8,
+                'batch_size': 32 * 1,
             },
             'model': {
                 'input_dim': 2048,
@@ -368,10 +283,10 @@ def load_config():
                 'dropout': 0.25,
             },
             'optimizer': {
-                'lr': 1e-5 * 8
+                'lr': 1e-5 * 1,
             },
             'lr_scheduler': {
-                'step': 20,
+                'step': 50,
                 'gamma': 0.1
             },
         })
@@ -383,30 +298,28 @@ def train():
     pl.seed_everything(42)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+    model = LitModel(cfg)
 
-    exp = 'density'
     LOGGER = [
-        CSVLogger('exp', name=exp),
-        WandbLogger(
-            save_dir=f'exp/{exp}',
-            project='density',
-            offline=True,
-        )
+        CSVLogger(save_dir='exp/density', name='csv'),
+        TensorBoardLogger(save_dir='exp/density', name='tb'),
+        # WandbLogger(save_dir=f'exp/density', project='density')
     ]
     CALLBACKS = [
-        LearningRateMonitor(logging_interval='epoch', log_momentum=True),
-        ModelCheckpoint(dirpath=f'exp/{exp}',
+        LearningRateMonitor(log_momentum=True),
+        ModelCheckpoint(dirpath=f'exp/density',
                         filename="mae_{val/mae:.3f}_epoch_{epoch:03d}",
+                        monitor='val/mae',
+                        mode='min',
                         auto_insert_metric_name=False)
     ]
-    model = LitModel(cfg)
+
     trainer = Trainer(
-        model,
         **cfg.trainer,
-        fast_dev_run=True,
+        fast_dev_run=False,
         logger=LOGGER,
         callbacks=CALLBACKS,
-        strategy=DDPStrategy(find_unused_parameters=True, process_group_backend='gloo'),
+        # strategy=DDPStrategy(find_unused_parameters=True, process_group_backend='gloo'),
     )
     trainer.fit(model)
 
@@ -430,8 +343,8 @@ def evaluate(stride: int = 1):
     model.load_state_dict(ckpt)
     model.eval()
     ds = Dataset(data_root='out/acc_0.923_epoch_10_20220720-151025_1x2',
-                     anno_path=os.path.expanduser('~/data/RepCount/annotation.csv'),
-                     split=split)
+                 anno_path=os.path.expanduser('~/data/RepCount/annotation.csv'),
+                 split=split)
     mae, obo = 0.0, 0.0
     for i, (x, y, gt_count) in enumerate(tqdm(ds)):
         x = x.to(device)
@@ -451,5 +364,5 @@ def evaluate(stride: int = 1):
 
 
 if __name__ == '__main__':
-    # train()
-    evaluate(stride=8)
+    train()
+    # evaluate(stride=8)
