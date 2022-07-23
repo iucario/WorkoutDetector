@@ -32,15 +32,15 @@ class TemporalShift(nn.Module):
         return self.net(x)
 
     @staticmethod
-    def shift(x, n_segment, fold_div=3, inplace=False):
+    def shift(x, n_segment: int, fold_div: int = 3, inplace: bool = False):
         nt, c, h, w = x.size()
         n_batch = nt // n_segment
         x = x.view(n_batch, n_segment, c, h, w)
 
         fold = c // fold_div
         if inplace:
-            out = InplaceShift.apply(x, fold)
-            # raise NotImplementedError
+            # out = InplaceShift.apply(x, fold)
+            raise NotImplementedError
         else:
             out = torch.zeros_like(x)
             out[:, :-1, :fold] = x[:, 1:, :fold]  # shift left

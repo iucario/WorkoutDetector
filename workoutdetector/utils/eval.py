@@ -114,6 +114,31 @@ def analyze_count(csv: str, out_csv: Optional[str]) -> None:
     print(df_out)
 
 
+def smooth_pred(pred: List[int], window: int) -> List[int]:
+    """Select the most frequent predicted labels in non-overlapping windows.
+    Test on different values and select the best for evaluation.
+    Previous related papers did this. They selected the best stride.
+    """
+    pred_smooth = []
+    for i in range(0, len(pred), window):
+        counter = Counter(pred[i:min(i + window, len(pred))])
+        pred_smooth.append(counter.most_common(1)[0][0])
+    return pred_smooth
+
+
+def true_seg_only(pred: List[int]):
+    """Only the segments that has valid action are evaluated."""
+    pass
+
+
+def eval_one_video_heuristic():
+    pass
+
+
+def eval_one_video_density():
+    pass
+
+
 def main(json_dir: str,
          anno_path: str,
          out_csv: Optional[str],
@@ -181,9 +206,18 @@ def main(json_dir: str,
 
 
 if __name__ == '__main__':
-    d = 'tsm_lightning_sparse_sample'
+    d = 'acc_0.841_epoch_26_20220711-191616_1x1'
     json_dir = f'out/{d}'
-    anno_path = 'data/RepCount/annotation.csv'
-    out_csv = f'out/{d}.csv'
-    # main(json_dir, anno_path, out_csv, softmax=True)
+    anno_path = 'datasets/RepCount/annotation.csv'
+    window = 10
+    threshold = 0.5
+    out_csv = f'out/{d}_window_{window}_threshold_{threshold}.csv'
+    main(json_dir,
+         anno_path,
+         out_csv,
+         softmax=True,
+         window=window,
+         stride=1,
+         step=1,
+         threshold=threshold)
     analyze_count(out_csv, out_csv.replace('.csv', '_meta.csv'))

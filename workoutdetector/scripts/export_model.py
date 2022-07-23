@@ -57,10 +57,18 @@ def export_lit_model(ckpt: str,
             example_inputs=torch.randn(1, 8, 3, 224, 224),
         )
     x = torch.randn(1, 8, 3, 224, 224).cuda()
-    onnx_model = onnx.load(out_path)
-    assert torch.equal(torch.Tensor(onnx_model(x)), model(x)), \
-        'ONNX output does not match with the torch model output'
     print(f'Model exported to {out_path}')
+    if mode == 'onnx':
+        onnx_model = ort.InferenceSession(out_path, providers=['CUDAExecutionProvider'])
+        name = onnx_model.get_inputs()[0].name
+        output = onnx_model.run(None, {name: x.cpu().numpy()})[0]
+        assert output.shape == model(x).shape, f'{output.shape} != {model(x).shape}'
+        assert torch.allclose(torch.Tensor(output), model(x).cpu()), \
+            'ONNX output does not match with the torch model output'
+    else:
+        torch_model = torch.jit.load(out_path)
+        assert torch.equal(torch_model(x), model(x)), \
+            'Torchscript output does not match with the torch model output'
 
 
 def export_mmlab_model(ckpt: str, output: str, cfg_path: str) -> None:
@@ -89,6 +97,7 @@ if __name__ == '__main__':
     parser.add_argument('--ckpt', type=str, required=True)
     parser.add_argument('-o', '--output', type=str, required=False)
     parser.add_argument('--cfg', type=str, required=False)
+    parser.add_argument('--mode', type=str, default='onnx', choices=['onnx', 'torchscript'])
 
     # args_mmlab = [
     #     f'--ckpt={PROJ_ROOT}/work_dirs/tsm_MultiActionRepCount_sthv2_20220625-224626/best_top1_acc_epoch_5.pth',
@@ -97,8 +106,10 @@ if __name__ == '__main__':
     # ]
     args_lit = [
         '--cfg', 'workoutdetector/configs/defaults.yaml', '--ckpt',
-        "checkpoints/repcount-12/best-val-acc=0.841-epoch=26-20220711-191616.ckpt"
+        "checkpoints/repcount-12/best-val-acc=0.841-epoch=26-20220711-191616.ckpt",
+        '-o', 'rural-river-23-repcount-12-20220711-191616.onnx',
+        '--mode', 'onnx'
     ]
     args = parser.parse_args(args_lit)
-    export_lit_model(args.ckpt, args.output)
+    export_lit_model(args.ckpt,args.mode, args.output)
     # export_mmlab_model(args.ckpt, args.output, args.cfg)

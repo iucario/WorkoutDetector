@@ -70,12 +70,57 @@ class Dataset(torch.utils.data.Dataset):
         return len(self.indices)
 
 
-def main(ckpt: str, out_dir: str, stride: int = 1, step: int = 1):
+@torch.no_grad()
+def infer_one_video(model, path: str, out_path: str, stride: int, step: int, transform,
+                    total_frames, reps, class_name, device):
+    ds = Dataset(path, stride=stride, step=step, length=8, transform=transform)
+    loader = torch.utils.data.DataLoader(ds, batch_size=1, shuffle=False)
+    video_name = path.split('.')[0] + '.mp4'
+    res_dict = dict(
+        video_name=video_name,
+        model='TSM',
+        stride=stride,
+        step=step,
+        length=8,
+        fps=ds.fps,
+        input_shape=[1, 8, 3, 224, 224],
+        checkpoint=ckpt,
+        total_frames=total_frames,
+        ground_truth=reps,
+        action=class_name,
+    )
+    scores: Dict[int, dict] = dict()
+    for x, i in loader:
+        start_index = i.item()
+        with torch.no_grad():
+            pred: Tensor = model(x.to(device))
+            scores[start_index] = dict((j, v.item()) for j, v in enumerate(pred[0]))
+        # print(scores[start_index])
+    res_dict['scores'] = scores
+
+    json.dump(res_dict, open(out_path, 'w'))
+    print(f'{video_name} result saved to {out_path}')
+    # Save feature maps to pkl
+
+
+def main(ckpt: str,
+         out_dir: str,
+         stride: int = 1,
+         step: int = 1,
+         rank: int = 0,
+         world_size: int = 1):
     """Inference videos in the dataset and save results to JSON"""
 
     data_root = os.path.expanduser('~/data/RepCount')
     helper = RepcountHelper(data_root, os.path.join(data_root, 'annotation.csv'))
-    data = helper.get_rep_data(split=['val', 'test'], action=['all'])
+    data = helper.get_rep_data(split=['train', 'val', 'test'], action=['all'])
+    # data parallel
+    part_size = len(data) // world_size
+    if rank == world_size - 1:
+        end = len(data)
+    else:
+        end = part_size * (rank + 1)
+
     transform = build_test_transform(person_crop=False)
     device = 'cuda:7'
     model = LitModel.load_from_checkpoint(ckpt)
@@ -84,45 +129,46 @@ def main(ckpt: str, out_dir: str, stride: int = 1, step: int = 1):
     if not os.path.isdir(out_dir):
         os.makedirs(out_dir)
 
-    for item in data.values():
+    # Feature extraction
+    avgpool = nn.AdaptiveAvgPool2d(1)
+    feature_maps = []  # item: (batch*8, 2048)
+
+    def hook_feat_map(mod, inp, out):
+        o = avgpool(out).view(out.shape[0], -1)
+        feature_maps.append(o)
+
+    # model.model.base_model.register_forward_hook(hook_feat_map)
+
+    for item in list(data.values())[rank * part_size:end]:
         out_path = os.path.join(out_dir,
                                 f'{item.video_name}.stride_{stride}_step_{step}.json')
         if os.path.exists(out_path):
             print(f'{out_path} already exists. Skip.')
             continue
-        ds = Dataset(item.video_path,
-                     stride=stride,
-                     step=step,
-                     length=8,
-                     transform=transform)
-        loader = torch.utils.data.DataLoader(ds, batch_size=1, shuffle=False)
-        res_dict = dict(
-            video_name=item.video_name,
-            model='TSM',
-            stride=stride,
-            step=step,
-            length=8,
-            fps=ds.fps,
-            input_shape=[1, 8, 3, 224, 224],
-            checkpoint=ckpt,
-            total_frames=item.total_frames,
-            ground_truth=item.reps,
-            action=item.class_,
-        )
-        scores: Dict[int, dict] = dict()
-        for x, i in tqdm.tqdm(loader):
-            start_index = i.item()
-            with torch.no_grad():
-                pred: Tensor = model(x.to(device))
-                scores[start_index] = dict((j, v.item()) for j, v in enumerate(pred[0]))
-            # print(scores[start_index])
-        res_dict['scores'] = scores
-
-        json.dump(res_dict, open(out_path, 'w'))
-        print(f'{item.video_name} result saved to {out_path}')
+        infer_one_video(model, item.video_path, out_path, stride, step, transform,
+                        item.total_frames, item.reps, item.class_, device)
+        # feature_maps_path = os.path.join(
+        #     out_dir, f'{item.video_name}.stride_{stride}_step_{step}.pkl')
+        # torch.save(feature_maps, feature_maps_path)
+        # feature_maps = []
 
 
 if __name__ == '__main__':
     ckpt = 'checkpoints/repcount-12/best-val-acc=0.841-epoch=26-20220711-191616.ckpt'
-    out_dir = f'out/acc_0.841_epoch_26_20220711-191616_1x2'
-    main(ckpt, out_dir, step=2)
+    out_dir = f'out/acc_0.841_epoch_26_20220711-191616_1x1'
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--ckpt', type=str, default=ckpt)
+    parser.add_argument('--out_dir', type=str, default=out_dir)
+    parser.add_argument('--stride', type=int, default=1)
+    parser.add_argument('--step', type=int, default=1)
+    parser.add_argument('--rank', type=int, default=0)
+    parser.add_argument('--world_size', type=int, default=1)
+    args = parser.parse_args()
+
+    main(ckpt,
+         out_dir,
+         stride=args.stride,
+         step=1,
+         rank=args.rank,
+         world_size=args.world_size)
