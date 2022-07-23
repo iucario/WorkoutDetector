@@ -1,11 +1,12 @@
-from typing import Dict, List, Optional, OrderedDict, Tuple, Union
-import torch
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
 import json
-from workoutdetector.utils import pred_to_count, to_softmax
 import os
+from typing import Dict, List, Optional, OrderedDict, Tuple, Union
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import torch
+from workoutdetector.utils import pred_to_count, to_softmax
 
 
 def obo_mae(preds: List[int],
@@ -37,8 +38,8 @@ def eval_count(preds: List[int], gt: List[int]):
         - MAE: mean averaged error
         * True positive: count when repetition occurs
         * False positive: count when no repetition occurs
-        - Recall: TP / predicted counts
-        - Precision: TP / ground truth counts
+        - Recall: TP / ground truth counts
+        - Precision: TP / predicted counts
     Example::
 
         >>> preds = [1, 3, 5, 7]

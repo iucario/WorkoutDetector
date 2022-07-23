@@ -39,7 +39,7 @@ def export_lit_model(ckpt: str,
         mode (str): 'onnx' or 'torchscript'
         out_path (str): path to the output file
     """
-
+    assert mode in ['onnx', 'torchscript']
     model = LitModel.load_from_checkpoint(ckpt)
     model.eval()
     model.cuda()

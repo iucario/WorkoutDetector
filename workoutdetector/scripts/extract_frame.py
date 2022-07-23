@@ -30,11 +30,12 @@ def extract_all(data_dir: str, dest_dir: str):
 
     for split in os.listdir(data_dir):
         for video in os.listdir(os.path.join(data_dir, split)):
-            extract(os.path.join(data_dir, split, video), dest_dir)
+            extract(os.path.join(data_dir, split, video), os.path.join(dest_dir, split))
 
 if __name__ == '__main__':
-    data_root = os.path.expanduser('~/data/RepCount/videos/test')
-    dest_dir = os.path.expanduser('~/data/RepCount/rawframe/test')
-    for video in os.listdir(data_root):
-        video_path = os.path.join(data_root, video)
-        extract(video_path, dest_dir)
+    data_root = os.path.expanduser('~/data/RepCount/videos/')
+    dest_dir = os.path.expanduser('~/data/RepCount/rawframes/')
+    extract_all(data_root, dest_dir)
+    # for video in os.listdir(data_root):
+    #     video_path = os.path.join(data_root, video)
+    #     extract(video_path, dest_dir)

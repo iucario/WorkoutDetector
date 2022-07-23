@@ -1,0 +1,61 @@
+trainer:
+  default_root_dir: exp/repcount-12-tsm
+  max_epochs: 50
+optimizer:
+  method: SGD
+  lr: 0.01
+  momentum: 0.9
+  weight_decay: 1.0e-5
+  eps: 1.0e-8
+lr_scheduler:
+  policy: StepLR
+  gamma: 0.1
+  step: 7
+
+model:
+  model_type: TSM
+  num_class: 12
+  num_segments: 8
+  base_model: resnet50
+  consensus_type: avg
+  img_feature_dim: 256
+  is_shift: true
+  shift_div: 8
+  shift_place: blockres
+  fc_lr5: true
+  temporal_pool: false
+  non_local: false
+  checkpoint: checkpoints/finetune/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth
+
+data:
+  dataset_type: FrameDataset
+  data_root: /home/user/data/
+  num_segments: 8
+  filename_tmpl: "img_{:05}.jpg"
+  batch_size: 4
+  train:
+    anno: /home/user/data/relabel/train.txt
+    data_prefix: null
+  val:
+    anno: /home/user/data/relabel/val.txt
+    data_prefix: null
+  test:
+    anno: /home/user/data/relabel/test.txt
+    data_prefix: null
+  num_workers: 4
+
+log:
+  output_dir: null
+  log_every_n_steps: 20
+  csv:
+    enable: true
+  tensorboard:
+    enable: true
+  wandb:
+    enable: true
+    offline: false
+    project: repcount-12-tsm
+
+seed: 42
+train: true
+timestamp: null
