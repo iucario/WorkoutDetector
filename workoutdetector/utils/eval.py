@@ -1,5 +1,6 @@
 import json
 import os
+from collections import Counter
 from typing import Dict, List, Optional, OrderedDict, Tuple, Union
 
 import matplotlib.pyplot as plt
@@ -74,13 +75,12 @@ def analyze_count(csv: str, out_csv: Optional[str]) -> None:
     actions = df.action.unique()
     splits = df.split.unique()
     out = []
-    split_out: Dict[str,
-                    dict] = dict((sp, {
-                        'mae': 0,
-                        'obo': 0,
-                        'total': 0,
-                        'avg_count': 0.0
-                    }) for sp in splits)
+    split_out: Dict[str, dict] = dict((sp, {
+        'mae': 0,
+        'obo': 0,
+        'total': 0,
+        'avg_count': 0.0
+    }) for sp in splits)
     for split in splits:
         for action in actions:
             df_action = df.loc[(df.action == action) & (df.split == split)]
@@ -100,14 +100,16 @@ def analyze_count(csv: str, out_csv: Optional[str]) -> None:
     for split in splits:
         print(f'{split}: {split_out[split]}')
         total = split_out[split]['total']
-        row = pd.DataFrame({
-            'action': 'all',
-            'split': split,
-            'mae': split_out[split]['mae'] / total,
-            'obo_acc': split_out[split]['obo'],
-            'total': total,
-            'avg_count': split_out[split]['avg_count'] / total
-        }, index=[0])
+        row = pd.DataFrame(
+            {
+                'action': 'all',
+                'split': split,
+                'mae': split_out[split]['mae'] / total,
+                'obo_acc': split_out[split]['obo'],
+                'total': total,
+                'avg_count': split_out[split]['avg_count'] / total
+            },
+            index=[0])
         df_out = df_out.append(row, ignore_index=True)
 
     if out_csv:
@@ -126,15 +128,12 @@ def smooth_pred(pred: List[int], window: int) -> List[int]:
         pred_smooth.append(counter.most_common(1)[0][0])
     return pred_smooth
 
-
 def true_seg_only(pred: List[int]):
     """Only the segments that has valid action are evaluated."""
     pass
 
-
 def eval_one_video_heuristic():
     pass
-
 
 def eval_one_video_density():
     pass
@@ -143,7 +142,11 @@ def eval_one_video_density():
 def main(json_dir: str,
          anno_path: str,
          out_csv: Optional[str],
-         softmax: bool = False) -> None:
+         softmax: bool = False,
+         threshold: float = 0.5,
+         stride: int = 1,
+         step: int = 2,
+         window: int = 1) -> None:
     """Evaluates obo accuracy and mean absolute error.
     
     Args:
@@ -162,8 +165,6 @@ def main(json_dir: str,
         =====Mean absolute error: 4.0141, OBO acc: 0.2293=====
     """
 
-    threshold = 0.5
-    step = 8
     files = [f for f in os.listdir(json_dir) if f.endswith('.json')]
     anno = pd.read_csv(anno_path, index_col='name')
     out = []
@@ -172,6 +173,10 @@ def main(json_dir: str,
 
     for f in files:
         video_name = f.split('.')[0] + '.mp4'
+        if not video_name in anno.index:
+            print(f'{video_name} not in annotation')
+            continue
+        # print(f'Evaluating {video_name}')
         with open(os.path.join(json_dir, f)) as fp:
             json_data = json.load(fp)
         # scores: {frame_index: {class_1: score}, {class_2: score}}
@@ -188,7 +193,9 @@ def main(json_dir: str,
                 pred.append(int(class_id))
             else:
                 pred.append(-1)
-        pred_cout, pred_rep = pred_to_count(pred, step=step)
+        # smooth predictions
+        pred = smooth_pred(pred, window)
+        pred_cout, pred_rep = pred_to_count(pred, stride=stride * window, step=step)
         preds.append(pred_cout)
         gts.append(gt_count)
         split = anno.loc[video_name]['split']

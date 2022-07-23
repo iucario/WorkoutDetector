@@ -19,6 +19,8 @@ import tqdm
 from pytorch_lightning import Trainer
 from torch import Tensor, nn
 from torchvision.io import VideoReader, read_video
+from torchvision.models.feature_extraction import (create_feature_extractor,
+                                                   get_graph_node_names)
 from workoutdetector.datasets import (Pipeline, RepcountHelper, build_test_transform)
 from workoutdetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 from workoutdetector.trainer import LitModel
@@ -111,6 +113,7 @@ def main(ckpt: str,
          world_size: int = 1):
     """Inference videos in the dataset and save results to JSON"""
 
+    device = f'cuda:{rank}'
     data_root = os.path.expanduser('~/data/RepCount')
     helper = RepcountHelper(data_root, os.path.join(data_root, 'annotation.csv'))
     data = helper.get_rep_data(split=['train', 'val', 'test'], action=['all'])
@@ -122,7 +125,6 @@ def main(ckpt: str,
         end = part_size * (rank + 1)
 
     transform = build_test_transform(person_crop=False)
-    device = 'cuda:7'
     model = LitModel.load_from_checkpoint(ckpt)
     model.to(device)
     model.eval()
