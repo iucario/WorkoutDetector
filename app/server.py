@@ -101,7 +101,8 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     except WebSocketDisconnect:
         detect_task.cancel()
     finally:
-        await manager.disconnect(websocket)
+        if websocket in manager.active_connections:
+            await manager.disconnect(websocket)
 
 
 @app.post("/image")
@@ -125,7 +126,9 @@ async def read_video(video: bytes = File(...)):
                     'score': {
                         action[0]: 1.0
                     },
-                    'count': {action[0]: action[1]},
+                    'count': {
+                        action[0]: action[1]
+                    },
                 })
 
 
@@ -138,5 +141,5 @@ if __name__ == '__main__':
                 reload=True,
                 debug=True,
                 workers=1,
-                ssl_keyfile='/home/umi/cert/localhost+2-key.pem',
-                ssl_certfile='/home/umi/cert/localhost+2.pem')
+                ssl_keyfile=os.path.expanduser('~/cert/localhost+2-key.pem'),
+                ssl_certfile=os.path.expanduser('~/cert/localhost+2.pem'))

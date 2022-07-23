@@ -319,7 +319,7 @@ const App = () => {
               <li>
                 Click "Start Streaming" to show real time inference results.
               </li>
-              <li>Click "Start Capture" to record a video. video.</li>
+              <li>Click "Start Capture" to record a video.</li>
               <li>Click "Upload Video" to inference the uploaded video.</li>
             </ul>
           </Typography>
@@ -349,7 +349,7 @@ const App = () => {
               <TableHead>
                 <TableRow>
                   <TableCell align="center">Workout</TableCell>
-                  <TableCell align="center">Result</TableCell>
+                  <TableCell align="center">Score</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>

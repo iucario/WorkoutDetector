@@ -87,7 +87,8 @@ def torch_inference(model, inputs: Tensor) -> List[Tuple[int, float]]:
 def inference_video(model, inputs):
     if isinstance(inputs, np.ndarray):
         inputs = torch.from_numpy(inputs)
-    # print(inputs.shape)
+        inputs = inputs.permute(0, 3, 1, 2)
+    print(inputs.shape)
     return torch_inference(model, data_transform(inputs))
 
 
@@ -152,38 +153,42 @@ async def get_frame(websocket: WebSocket, queue: asyncio.Queue) -> None:
     frame_queue = []
     action_count: Dict[str, int] = defaultdict(int)
     while True:
-        frame = await queue.get()
-        print(frame.shape)
-        frame_queue.append(frame)
-        if len(frame_queue) == sample_length:
-            input_clip = np.array(frame_queue)  # [8, 3, 224, 224]
-            pred = inference_video(torch_model, input_clip)
-            action_score = dict([(rep_6_labels[x[0] // 2], x[1]) for x in pred])
-            pred_class = pred[0][0] if pred[0][1] > 0.5 else -1
-            pred_action = rep_6_labels[pred_class // 2]
-            # check previous 3 states whether state changed
-            if pred_class % 2 == 1:  # if state 1
-                for i in range(-3, 0):
-                    # if previous state
-                    if states[i] // 2 == pred_class // 2 and states[i] % 2 == 0:
-                        count += 1
-                        action_count[pred_action] += 1
-                        break
-            states.append(pred_class)
-            print(f'{pred_class} {count}')
-            if action_score:
+        try:
+            frame = await queue.get()
+            # print(frame.shape)
+            frame_queue.append(frame)
+            if len(frame_queue) == sample_length:
+                input_clip = np.array(frame_queue)  # [8, 3, 224, 224]
+                pred = inference_video(torch_model, input_clip)
+                action_score = dict([(rep_6_labels[x[0] // 2], float(x[1])) for x in pred])
+                pred_class = pred[0][0] if pred[0][1] > 0.5 else -1
+                pred_action = rep_6_labels[pred_class // 2]
+                # check previous 3 states whether state changed
+                if pred_class % 2 == 1 and len(states) >= 3:  # if state 1
+                    for i in range(-3, 0):
+                        # if previous state
+                        if states[i] // 2 == pred_class // 2 and states[i] % 2 == 0:
+                            count += 1
+                            action_count[pred_action] += 1
+                            break
+                states.append(pred_class)
+                print(f'{pred_class} {count}')
                 print(action_score)
                 msg = dict(success=True,
                            msg='success',
                            type='rep',
-                           data=dict(score=action_score, count=dict(count=action_count)))
+                           data=dict(score=action_score, count=action_count))
                 await websocket.send_json(msg)
-            frame_queue.clear()
+                frame_queue.clear()
+        except Exception as e:
+            print(e)
+            msg = dict(success=False, msg=str(e))
+            await websocket.send_json(msg)
 
 
 if __name__ == '__main__':
 
-    video = '/home/umi/data/RepCount/videos/train/test1465.mp4'
+    video = os.path.expanduser('~/data/RepCount/videos/train/test1465.mp4')
     count, reps, actions = count_rep_video(video)
     print(f'count={count}, reps={reps}')
     print(f'actions={actions}')
