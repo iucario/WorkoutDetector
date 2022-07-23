@@ -1,6 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import asyncio
-from collections import deque
+from collections import Counter, deque
 import json
 import os
 from time import sleep
@@ -17,12 +17,13 @@ import io
 from PIL import Image
 from base64 import b64decode
 
-from inference import inference_video, get_frame
+from inference import count_rep_video, get_frame
 
 sample_length = 8
 app = FastAPI()
 origins = [
     "http://localhost",
+    "*",
 ]
 
 app.add_middleware(
@@ -35,6 +36,7 @@ app.add_middleware(
 
 
 class ConnectionManager:
+
     def __init__(self):
 
         # ws: [state, frame_queue, result_queue]
@@ -45,7 +47,9 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections[websocket] = [
-            False, deque(maxlen=sample_length), deque(maxlen=1)]
+            False, deque(maxlen=sample_length),
+            deque(maxlen=1)
+        ]
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
@@ -86,7 +90,7 @@ async def receive(websocket: WebSocket, queue: asyncio.Queue):
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
     await manager.connect(websocket)
     print(f"Client {client_id} connected")
-    queue = asyncio.Queue(maxsize=16)
+    queue: asyncio.Queue[np.ndarray] = asyncio.Queue(maxsize=16)
     detect_task = asyncio.create_task(get_frame(websocket, queue))
     try:
         while True:
@@ -112,8 +116,27 @@ async def read_video(video: bytes = File(...)):
     video_path = os.path.join(tempfile.gettempdir(), 'tmp.mp4')
     with open(video_path, 'wb') as f:
         f.write(video)
-    pred = inference_video(video_path)
-    return pred
+    count, reps, actions = count_rep_video(video_path)
+    action = Counter(actions).most_common(1)[0]
+    return dict(success=True,
+                msg='success',
+                type='rep',
+                data={
+                    'score': {
+                        action[0]: 1.0
+                    },
+                    'count': {action[0]: action[1]},
+                })
 
 
-app.mount("/", StaticFiles(directory="my-app/build", html=True), name="static")
+# app.mount("/", StaticFiles(directory="my-app/build", html=True), name="static")
+if __name__ == '__main__':
+    import uvicorn
+    uvicorn.run(app,
+                host='localhost',
+                port=8000,
+                reload=True,
+                debug=True,
+                workers=1,
+                ssl_keyfile='/home/umi/cert/localhost+2-key.pem',
+                ssl_certfile='/home/umi/cert/localhost+2.pem')
