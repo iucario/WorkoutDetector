@@ -117,6 +117,11 @@ def analyze_count(csv: str, out_csv: Optional[str]) -> None:
     print(df_out)
 
 
+def exp_moving_avg(prev: float, curr: float, alpha: float = 0.9) -> float:
+    """Exponential moving average."""
+    return alpha * curr + (1 - alpha) * prev
+
+
 def smooth_pred(pred: List[int], window: int) -> List[int]:
     """Select the most frequent predicted labels in non-overlapping windows.
     Test on different values and select the best for evaluation.
@@ -128,12 +133,15 @@ def smooth_pred(pred: List[int], window: int) -> List[int]:
         pred_smooth.append(counter.most_common(1)[0][0])
     return pred_smooth
 
+
 def true_seg_only(pred: List[int]):
     """Only the segments that has valid action are evaluated."""
     pass
 
+
 def eval_one_video_heuristic():
     pass
+
 
 def eval_one_video_density():
     pass
