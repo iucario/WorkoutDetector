@@ -1,10 +1,8 @@
 import base64
 import os
-from pathlib import Path
 
 import pandas as pd
 import yt_dlp
-from workoutdetector.settings import PROJ_ROOT
 
 
 def parse_onedrive(link: str) -> str:
@@ -50,22 +48,49 @@ def download_repcount(csv_path, folder='~'):
         download_ytb(url, folder)
 
 
-def _get_url():
-    URL_VIDEO = parse_onedrive('https://1drv.ms/u/s!AiohV3HRf-34ipk0i1y2P1txpKYXFw')
-    URL_ANNO = parse_onedrive('https://1drv.ms/u/s!AiohV3HRf-34i_YvMob5Vpgvxjc3mQ')
-    URL_RAWFRAME = parse_onedrive('https://1drv.ms/u/s!AiohV3HRf-34ipwACYfKSHhkZzebrQ')
-    COUNTIX = parse_onedrive('https://1drv.ms/u/s!AiohV3HRf-34ipwWwzztzGynyj5Fwg')
-    print(COUNTIX)
-
 class Downloader:
-    
-    def __init__(self, data_dir:str):
-        self.data_dir = data_dir
+    _BASE = 'https://1drv.ms/u/s!AiohV3HRf'
+    _DATASETS = {
+        'repcount_videos': "34ipk0i1y2P1txpKYXFw",
+        'repcount_anno': "34i_YvMob5Vpgvxjc3mQ",
+        'repcount_rawframes': "34ipwACYfKSHhkZzebrQ",
+        'countix': "34ipwWwzztzGynyj5Fwg",
+    }
+    _WEIGHTS = {
+        'ssv2_videomae_pretrain_base_patch16_224_frame_16x2_tube_mask_ratio_0.9_e2400.pth':
+            '34jJNTPAlz0XrR9CQM_A',
+        'TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth':
+            '34jIdNWFvaFEZb6BpC6g',
+        'tdn_sthv2_r50_8x1x1.pth':
+            '34jIdRXV1Kogylklw5lA'
+    }
 
-    def download(self):
+    def __init__(self, root: str):
+        self.root = root
+
+    def get_dataset(self, name: str) -> str:
+        link = f'{self._BASE}-{self._DATASETS[name]}'
+        return parse_onedrive(link)
+
+    def get_weight(self, name: str) -> str:
+        link = f'{self._BASE}-{self._WEIGHTS[name]}'
+        return parse_onedrive(link)
+
+    @property
+    def datasets(self):
+        return list(self._DATASETS.keys())
+
+    @property
+    def weights(self):
+        return list(self._WEIGHTS.keys())
+
+    def download(self, name: str, path: str):
         pass
 
+    def __repr__(self):
+        return f'Downloader({self.root})'
+
+
 if __name__ == '__main__':
-    # download_repcount(Path(PROJ_ROOT, 'datasets/RepCount/all_data.csv'),
-    #                   '/mnt/d/repcount-redown')
-    _get_url()
+    downloader = Downloader('checkpoints')
+    print(downloader.weights)
