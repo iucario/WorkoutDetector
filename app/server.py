@@ -1,21 +1,20 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import asyncio
-from collections import Counter, deque
-import json
-import os
-from time import sleep
-from typing import Dict, List, Set
-import numpy as np
-
-from fastapi import Body, FastAPI, File, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-
-import tempfile
 import io
-from PIL import Image
+import os
+import tempfile
 from base64 import b64decode
+from collections import Counter
+import time
+from typing import Dict, List, Set
+
+import numpy as np
+from fastapi import Body, FastAPI, File, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from PIL import Image
+from torchvision.io import VideoReader
 
 from inference import count_rep_video, get_frame
 
@@ -38,22 +37,18 @@ app.add_middleware(
 class ConnectionManager:
 
     def __init__(self):
+        # Websocket: client_id
+        self.active_connections: Dict[WebSocket, str] = dict()
 
-        # ws: [state, frame_queue, result_queue]
-        self.active_connections: Dict(WebSocket) = {}
-        self.num_recv = 0
-        self.num_pred = 0
-
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket, client_id: str):
         await websocket.accept()
-        self.active_connections[websocket] = [
-            False, deque(maxlen=sample_length),
-            deque(maxlen=1)
-        ]
+        print(f"Client {client_id} connected")
+        self.active_connections[websocket] = client_id
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
-            self.active_connections.pop(websocket)
+            client_id = self.active_connections.pop(websocket)
+            print(f"Client {client_id} disconnected")
 
     async def send_personal_message(self, message: str, websocket: WebSocket):
         await websocket.send_text(message)
@@ -74,12 +69,10 @@ async def receive(websocket: WebSocket, queue: asyncio.Queue):
     recv = await websocket.receive_text()
     if recv.startswith('data:image/webp;base64,'):
         recv = recv.split(',')[1]  # base64
-        manager.num_recv += 1
         img = b64decode(recv)
         image = np.array(Image.open(io.BytesIO(img)))
         # print(f'got {image.shape} from client')
         await queue.put(image)
-        manager.num_pred += 1
         # print(pred)
         # await manager.send_personal_message(json.dumps(pred), websocket)
     if recv == 'stop':
@@ -88,8 +81,8 @@ async def receive(websocket: WebSocket, queue: asyncio.Queue):
 
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
-    await manager.connect(websocket)
-    print(f"Client {client_id} connected")
+    await manager.connect(websocket, client_id)
+
     queue: asyncio.Queue[np.ndarray] = asyncio.Queue(maxsize=16)
     detect_task = asyncio.create_task(get_frame(websocket, queue))
     try:
@@ -101,8 +94,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     except WebSocketDisconnect:
         detect_task.cancel()
     finally:
-        if websocket in manager.active_connections:
-            await manager.disconnect(websocket)
+        manager.disconnect(websocket)
 
 
 @app.post("/image")
@@ -118,18 +110,46 @@ async def read_video(video: bytes = File(...)):
     with open(video_path, 'wb') as f:
         f.write(video)
     count, reps, actions = count_rep_video(video_path)
-    action = Counter(actions).most_common(1)[0]
-    return dict(success=True,
-                msg='success',
-                type='rep',
-                data={
-                    'score': {
-                        action[0]: 1.0
-                    },
-                    'count': {
-                        action[0]: action[1]
-                    },
-                })
+    if actions:
+        action = Counter(actions).most_common(1)[0]
+        return dict(success=True,
+                    msg='success',
+                    type='rep',
+                    data={
+                        'score': {
+                            action[0]: 1.0
+                        },
+                        'count': {
+                            action[0]: action[1]
+                        },
+                    })
+    return dict(success=False, msg='no action')
+
+
+def process_video(fname: str) -> None:
+    if not os.path.exists(fname):
+        print(f'{fname} not found')
+        return
+    vr = VideoReader(fname)
+    meta = vr.get_metadata()
+    print(meta)
+
+
+@app.websocket("/test/{client_id}")
+async def stream_test(websocket: WebSocket, client_id: str):
+    await manager.connect(websocket, client_id)
+    try:
+        while True:
+            recv = await websocket.receive_bytes()
+            print(f'got len={len(recv)} from client')
+            ts = time.time()
+            with open(f'recv_{ts}.webm', 'wb') as f:
+                f.write(recv)
+            
+    except Exception as e:
+        print('[Exception]', e)
+    finally:
+        manager.disconnect(websocket)
 
 
 # app.mount("/", StaticFiles(directory="my-app/build", html=True), name="static")
