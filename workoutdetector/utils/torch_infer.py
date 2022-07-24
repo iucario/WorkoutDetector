@@ -24,6 +24,7 @@ from torchvision.models.feature_extraction import (create_feature_extractor,
 from workoutdetector.datasets import (Pipeline, RepcountHelper, build_test_transform)
 from workoutdetector.settings import PROJ_ROOT, REPCOUNT_ANNO_PATH
 from workoutdetector.trainer import LitModel
+from einops import rearrange
 
 onnxruntime.set_default_logger_severity(3)
 
@@ -36,6 +37,7 @@ class Dataset(torch.utils.data.Dataset):
         stride (int): stride of prediction frame indices. Default 1.
         step (int): step of sampling frames. Default 1.
         length (int): length of input frames to model. Default 8.
+        input_shape (str): shape of input frames. Default 'TCHW'. 'CTHW' for 3D CNN.
         transform (Callable): transform for frames.
     """
 
@@ -44,14 +46,16 @@ class Dataset(torch.utils.data.Dataset):
                  stride: int = 1,
                  step: int = 1,
                  length: int = 8,
+                 input_shape: str = 'TCHW',
                  transform: Optional[Callable] = None):
         assert step >= 1, 'step must be greater than or equal to 1'
         assert stride >= 1, 'stride must be greater than or equal to 1'
 
         video, _, meta = read_video(video_path)
         # start index of each inputs.
-        self.indices = list(range(0, len(video) - step * length, stride))
-        self.video = video.permute(0, 3, 1, 2)  # (T, C, H, W)
+        self.indices = list(range(0, len(video) - step * length + 1, stride))
+        self.shape = ' '.join(list(input_shape))
+        self.video = video
         self.meta = meta
         self.fps: float = meta['video_fps']
         self.step = step
@@ -66,6 +70,8 @@ class Dataset(torch.utils.data.Dataset):
         assert frames.shape[0] == self.length
         if self.transform is not None:
             frames = self.transform(frames)
+        t, h, w, c = frames.shape
+        frames = rearrange(frames, f'T C H W -> {self.shape}', T=t, C=c, H=h, W=w)
         return frames, i
 
     def __len__(self) -> int:

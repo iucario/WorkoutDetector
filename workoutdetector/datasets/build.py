@@ -112,7 +112,7 @@ def build_train_transform(
         ])
 
 
-def build_test_transform(person_crop: bool) -> T.Compose:
+def build_test_transform(person_crop: bool = False) -> T.Compose:
     """Build test transform
     
     Args:

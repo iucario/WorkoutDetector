@@ -57,6 +57,13 @@ def _get_url():
     COUNTIX = parse_onedrive('https://1drv.ms/u/s!AiohV3HRf-34ipwWwzztzGynyj5Fwg')
     print(COUNTIX)
 
+class Downloader:
+    
+    def __init__(self, data_dir:str):
+        self.data_dir = data_dir
+
+    def download(self):
+        pass
 
 if __name__ == '__main__':
     # download_repcount(Path(PROJ_ROOT, 'datasets/RepCount/all_data.csv'),

@@ -405,12 +405,12 @@ def load_checkpoint(model: VisionTransformer,
     else:
         checkpoint = torch.load(ckpt_path, map_location='cpu')
 
-    print("Load ckpt from %s" % checkpoint)
+    print(f"Load ckpt from {ckpt_path}")
     checkpoint_model = None
     for model_key in ('model', 'module'):
         if model_key in checkpoint:
             checkpoint_model = checkpoint[model_key]
-            print("Load state_dict by model_key = %s" % model_key)
+            print(f"Load state_dict by model_key = {model_key}")
             break
     if checkpoint_model is None:
         checkpoint_model = checkpoint
@@ -566,7 +566,7 @@ def create_model(num_class=2,
                  tubelet_size=2,
                  num_segments=1,
                  img_size=224,
-                 **cfg) -> VisionTransformer:
+                 **kwargs) -> VisionTransformer:
     model = VisionTransformer(num_classes=num_class,
                               all_frames=num_frames * num_segments,
                               patch_size=patch_size,
