@@ -55,7 +55,7 @@ class Dataset(torch.utils.data.Dataset):
         # start index of each inputs.
         self.indices = list(range(0, len(video) - step * length + 1, stride))
         self.shape = ' '.join(list(input_shape))
-        self.video = video
+        self.video = video.permute(0, 3, 1, 2) # TCHW
         self.meta = meta
         self.fps: float = meta['video_fps']
         self.step = step
@@ -67,11 +67,10 @@ class Dataset(torch.utils.data.Dataset):
 
         i = self.indices[index]
         frames = self.video[i:i + self.step * self.length:self.step]
-        assert frames.shape[0] == self.length
         if self.transform is not None:
             frames = self.transform(frames)
-        t, h, w, c = frames.shape
-        frames = rearrange(frames, f'T C H W -> {self.shape}', T=t, C=c, H=h, W=w)
+        t, c, h, w = frames.shape
+        frames = rearrange(frames,f'T C H W -> {self.shape}', T=t, C=c, H=h, W=w)
         return frames, i
 
     def __len__(self) -> int:
