@@ -68,7 +68,7 @@ class FrameDataset(torch.utils.data.Dataset):
         self.num_segments = num_segments
         self.tmpl = filename_tmpl
         self.anno_col = anno_col
-        self.anno: List[dict] = self.load_annotation(anno_path)
+        self.video_infos: List[dict] = self.load_annotation(anno_path)
         self.random = not is_test
 
     def load_annotation(self, anno_path: str) -> List[dict]:
@@ -98,7 +98,7 @@ class FrameDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[Tensor, int]:
         frame_list = []
-        video_info = self.anno[idx]
+        video_info = self.video_infos[idx]
         frame_dir = video_info['frame_dir']
         start_index = video_info['start_index'] if self.anno_col == 4 else 1
         total_frames = video_info['total_frames']
@@ -117,7 +117,7 @@ class FrameDataset(torch.utils.data.Dataset):
         return frame_tensor, label
 
     def __len__(self) -> int:
-        return len(self.anno)
+        return len(self.video_infos)
 
 
 class VideoDataset(torch.utils.data.Dataset):

@@ -125,7 +125,7 @@ def exp_moving_avg(prev: float, curr: float, alpha: float = 0.9) -> float:
 def smooth_pred(pred: List[int], window: int) -> List[int]:
     """Select the most frequent predicted labels in non-overlapping windows.
     Test on different values and select the best for evaluation.
-    Previous related papers did this. They selected the best stride.
+    Prior related works did this. They selected the best stride.
     """
     pred_smooth = []
     for i in range(0, len(pred), window):
@@ -222,11 +222,11 @@ def main(json_dir: str,
 
 
 if __name__ == '__main__':
-    d = 'acc_0.841_epoch_26_20220711-191616_1x1'
+    d = '0720_stride_1_step_2'
     json_dir = f'out/{d}'
     anno_path = 'datasets/RepCount/annotation.csv'
     window = 10
-    threshold = 0.5
+    threshold = 0.6
     out_csv = f'out/{d}_window_{window}_threshold_{threshold}.csv'
     main(json_dir,
          anno_path,
@@ -234,6 +234,6 @@ if __name__ == '__main__':
          softmax=True,
          window=window,
          stride=1,
-         step=1,
+         step=2,
          threshold=threshold)
     analyze_count(out_csv, out_csv.replace('.csv', '_meta.csv'))

@@ -123,12 +123,14 @@ class RepcountItem:
     reps: List[int]  # start_1, end_1, start_2, end_2, ...
     split: str
     video_name: str
+    fps: float = 30.0
     ytb_id: Optional[str] = None  # YouTube id
     ytb_start_sec: Optional[int] = None  # YouTube start sec
     ytb_end_sec: Optional[int] = None  # YouTube end sec
 
     def __str__(self):
-        return f'{self.video_name}\n{self.class_}\n{self.count}\n{self.reps}'
+        return (f'video: {self.video_name}\nclass: {self.class_}\n'
+            f'count: {self.count}\nreps: {self.reps}\nfps: {self.fps}')
 
     def __getitem__(self, key):
         return self.__dict__[key]
@@ -195,7 +197,7 @@ class RepcountHelper:
             video_path = os.path.join(self.data_root, 'videos', split_, name)
             frame_path = os.path.join(self.data_root, 'rawframes', split_, name_no_ext)
             total_frames = -1
-            if os.path.isdir(frame_path):
+            if os.path.isdir(frame_path): # TODO: this relies on rawframe dir. Not good.
                 total_frames = len(os.listdir(frame_path))
             video_id = row['vid']
             count = int(row['count'])
@@ -204,7 +206,7 @@ class RepcountHelper:
             else:
                 reps = []
             item = RepcountItem(video_path, frame_path, total_frames, class_, count, reps,
-                                split_, name, video_id, row['start'], row['end'])
+                                split_, name, row.fps, video_id, row['start'], row['end'])
             ret[name] = item
         return ret
 

@@ -1,6 +1,5 @@
-# copied from https://github.com/kennymckormick/pyskl/blob/main/pyskl/utils/visualize.py
 import io
-from typing import Any, Dict, List, NewType, OrderedDict, Union
+from typing import Any, Dict, List, OrderedDict, Union
 
 import cv2
 import decord
@@ -11,7 +10,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from matplotlib.collections import LineCollection
-from tqdm import tqdm
 
 CLASSES = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
 
@@ -340,7 +338,7 @@ def Vis2DPose(item: dict,
         'f': ((0x8d, 0x99, 0xae), (0x2b, 0x2d, 0x42))
     }
 
-    for i in tqdm(range(total_frames)):
+    for i in range(total_frames):
         for m in range(kp.shape[0]):
             ske = kp[m, i]
             for e in edges:

@@ -1,6 +1,6 @@
 import base64
 import os
-
+from os.path import join as osj
 import pandas as pd
 import yt_dlp
 
@@ -51,7 +51,7 @@ def download_repcount(csv_path, folder='~'):
 class Downloader:
     _BASE = 'https://1drv.ms/u/s!AiohV3HRf'
     _DATASETS = {
-        'repcount_videos': "34ipk0i1y2P1txpKYXFw",
+        'repcountA': '34iptWkA3RXj6Y_wspxw',
         'repcount_anno': "34i_YvMob5Vpgvxjc3mQ",
         'repcount_rawframes': "34ipwACYfKSHhkZzebrQ",
         'countix': "34ipwWwzztzGynyj5Fwg",
@@ -86,6 +86,16 @@ class Downloader:
 
     def download(self, name: str, path: str):
         pass
+
+    def _download_repcount(self, path: str) -> str:
+        """Returns download and extraction shell command."""
+        link = self.get_dataset('repcountA')
+        cmd = [
+            f'wget -O /tmp/content.tar {link}', f'tar xf /tmp/content.tar /tmp/',
+            f'rm /tmp/content.tar', f'mv /tmp/LLSP/video {osj(path, "videos")}',
+            f'mv {osj(path, "videos/valid")} {osj(path, "videos/val")}'
+        ]
+        return '\n'.join(cmd)
 
     def __repr__(self):
         return f'Downloader({self.root})'

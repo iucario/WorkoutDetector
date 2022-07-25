@@ -23,6 +23,12 @@ Inference:
 
 Why this method:
     Saves a loooot of engineering. And it is suitable for online inference.
+
+Model not converging:
+    Changed model and stride and length.
+    TODO:
+        1. Modify density function to take in `stride`.
+        2. Currently the unit is frame. Would time be better?
 """
 
 import json
@@ -54,19 +60,22 @@ def density_fn(start: int, end: int) -> Any:
     return dist
 
 
-def create_label(reps: List[int], total_frames: int) -> Tensor:
+def create_label(reps: List[int], total_frames: int, stride: int) -> Tensor:
     """Create normalized label.
 
     Args:
         reps (List[int]): A list of repetition starts and ends. `[start_1, end_1, start_2, end_2, ...]`
         total_frames (int): Total number of frames.
+        stride (int): Stride of sampling.
     Returns:
         Tensor, shape [total_frames]
     """
-    labels = [0] * total_frames
+    num_sampled_frames = total_frames // stride
+    reps = [x//stride for x in reps]
+    labels = [0] * num_sampled_frames
     for s, e in zip(reps[::2], reps[1::2]):
         dist = density_fn(s, e)
-        for i in range(s, min(e + 1, total_frames)):
+        for i in range(s, min(e + 1, num_sampled_frames)):
             labels[i] = dist.pdf(i)
     return torch.tensor(labels, dtype=torch.float32)
 
@@ -125,7 +134,7 @@ class DensityDataset(torch.utils.data.Dataset):
             path = os.path.join(self.data_root, filename)
             # list of Tensor(8, 2048). Features of [i:i+8)
             pkl = pickle.load(open(path, 'rb'))
-            norm_label = create_label(item.reps, item.total_frames)
+            norm_label = create_label(item.reps, item.total_frames, self.stride)
             # Squeeze because I accidentally added a dimension
             data_tensor = torch.cat(
                 [data_tensor,
@@ -145,7 +154,7 @@ class DensityDataset(torch.utils.data.Dataset):
     def _load_features(self, path, reps, total_frames) -> Tuple[Tensor, Tensor]:
         # list of Tensor(8, 2048). Features of [i:i+8)
         pkl = pickle.load(open(path, 'rb'))
-        norm_label = create_label(reps, total_frames)
+        norm_label = create_label(reps, total_frames, self.stride)
         # Squeeze because I accidentally added a dimension
         feat = torch.from_numpy(pkl['features'].squeeze((1, 2)))  # Tensor(N, 768).
         inds = torch.arange(0, self.stride * pkl['total_frames'], self.stride)
@@ -351,7 +360,7 @@ def train():
 
     trainer = Trainer(
         **cfg.trainer,
-        fast_dev_run=True,
+        fast_dev_run=False,
         logger=LOGGER,
         callbacks=CALLBACKS,
         # strategy=DDPStrategy(find_unused_parameters=True, process_group_backend='gloo'),
