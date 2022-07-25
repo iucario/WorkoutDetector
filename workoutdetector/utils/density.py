@@ -27,6 +27,7 @@ Why this method:
 
 import json
 import os
+import pickle
 from typing import Any, Callable, List, Tuple, Union
 
 import pytorch_lightning as pl
@@ -70,36 +71,52 @@ def create_label(reps: List[int], total_frames: int) -> Tensor:
     return torch.tensor(labels, dtype=torch.float32)
 
 
-class Dataset(torch.utils.data.Dataset):
+class DensityDataset(torch.utils.data.Dataset):
+    """Load features from pickle files and normalize labels.
+
+    Note:
+        - How feature frames are loaded:
+            `frames = self.video[i:i + self.step * self.length:self.step]`
+        - Pickle dictionary extracted by VideoMAE::
+
+            {'features': list of Tensor(1, 768), 'video_path': str, 'model': 'VideoMAE',
+                'stride': int, 'step': int, 'length': int, 'total_frames': int}
+            * 'total_frames' is the length of the extracted features. Not the length of the video.
+
+        - Normalized labels should align with the center of the frames.
+        - Training data are loaded from all the videos.
+        - Batch of testing data is features from one video.
+    """
 
     def __init__(self,
                  data_root: str,
                  anno_path: str,
                  split: str,
-                 num_frames: int = 8,
+                 length: int = 16,
                  stride: int = 1,
                  step: int = 2,
-                 filename_tmpl: str = '{name}.stride_{stride}_step_{step}.pkl'):
+                 filename_tmpl: str = '{name}.pkl'):
         self.data_root = data_root
         self.anno_path = anno_path
         self.split = split
         self.stride = stride
         self.step = step
+        self.length = length
         self.filename_tmpl = filename_tmpl
         helper = RepcountHelper(os.path.expanduser('~/data/RepCount'), anno_path)
         self.data = helper.get_rep_data(split=[split], action=['all'])
         if split == 'train':
-            self.data_list, self.label_list = self._train_dataset()
-            for x in self.data_list:
+            self.data_tensor, self.label_list = self._train_dataset()
+            for x in self.data_tensor:
                 assert x.dtype == torch.float32, x.dtype
             for x in self.label_list:
                 assert x.dtype == torch.float32, x.dtype
         else:
             self.data_list, self.label_list = self._test_dataset()
 
-    def _train_dataset(self) -> Tuple[list, list]:
+    def _train_dataset(self) -> Tuple[Tensor, list]:
         # Use all items in pkl
-        data_list: List[Tensor] = []
+        data_tensor = Tensor([])
         label_list: List[float] = []
         for item in self.data.values():
             filename = self.filename_tmpl.format(name=item.video_name,
@@ -107,26 +124,45 @@ class Dataset(torch.utils.data.Dataset):
                                                  step=self.step)
             path = os.path.join(self.data_root, filename)
             # list of Tensor(8, 2048). Features of [i:i+8)
-            pkl = torch.load(path, map_location='cpu')
+            pkl = pickle.load(open(path, 'rb'))
             norm_label = create_label(item.reps, item.total_frames)
-            data_list += pkl
-            # Align data[i:i+8*step] with label[i+4*step]
-            label_list += norm_label[4 * self.step:4 * self.step + len(pkl):self.stride]
-        assert len(data_list) == len(label_list)
-        return data_list, label_list
+            # Squeeze because I accidentally added a dimension
+            data_tensor = torch.cat(
+                [data_tensor,
+                 torch.from_numpy(pkl['features'].squeeze((1, 2)))])  # ndarray(N, 768).
+            inds = torch.arange(0, self.stride * pkl['total_frames'], self.stride)
+            # Align video[i : i+ length * step] with label[i + length/2 * step]
+            label_list += norm_label[inds + self.length // 2 * self.step]
+            assert len(data_tensor) == len(label_list), (len(data_tensor),
+                                                         len(label_list))
+        return data_tensor, label_list
 
     def _test_dataset(self) -> Tuple[list, list]:
         data_list = list(self.data.values())
         label_list = [item.count for item in data_list]
         return data_list, label_list
 
+    def _load_features(self, path, reps, total_frames) -> Tuple[Tensor, Tensor]:
+        # list of Tensor(8, 2048). Features of [i:i+8)
+        pkl = pickle.load(open(path, 'rb'))
+        norm_label = create_label(reps, total_frames)
+        # Squeeze because I accidentally added a dimension
+        feat = torch.from_numpy(pkl['features'].squeeze((1, 2)))  # Tensor(N, 768).
+        inds = torch.arange(0, self.stride * pkl['total_frames'], self.stride)
+        # Align video[i : i+ length * step] with label[i + length/2 * step]
+        label = norm_label[inds + self.length // 2 * self.step]
+        assert len(feat) == len(label), (len(feat), len(label))
+        return feat, label
+
     def __getitem__(self,
                     index) -> Union[Tuple[Tensor, float], Tuple[Tensor, Tensor, int]]:
         if self.split == 'train':
-            return self.data_list[index], self.label_list[index]
+            return self.data_tensor[index], self.label_list[index]
         return self._get_test_item(index)
 
     def __len__(self):
+        if self.split == 'train':
+            return len(self.data_tensor)
         return len(self.data_list)
 
     def _get_test_item(self, index) -> Tuple[Tensor, Tensor, int]:
@@ -136,10 +172,8 @@ class Dataset(torch.utils.data.Dataset):
                                              stride=self.stride,
                                              step=self.step)
         path = os.path.join(self.data_root, filename)
-        pkl = torch.load(path, map_location='cpu')
-        norm_label = create_label(item.reps, item.total_frames)
-        norm_label = norm_label[4 * self.step:4 * self.step + len(pkl):self.stride]
-        return torch.stack(pkl), norm_label, item.count
+        feat, label = self._load_features(path, item.reps, item.total_frames)
+        return feat, label, item.count
 
 
 class Regressor(nn.Module):
@@ -163,7 +197,7 @@ class Regressor(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         # [batch, num_frames, input_dim]
-        x = x.mean(dim=1)  # [batch, input_dim]
+        # x = x.mean(dim=1)  # [batch, input_dim]
         return self.layers(x)
 
 
@@ -183,7 +217,7 @@ class LitModel(LightningModule):
         self.cfg = cfg
         self.data_root = cfg.data.data_root
         self.anno_path = cfg.data.anno_path
-        self.example_input_array = torch.randn(1, 8, 2048)
+        self.example_input_array = torch.randn(cfg.model.example_input_array)
 
     def forward(self, x):
         return self.model(x)
@@ -196,15 +230,15 @@ class LitModel(LightningModule):
         return [optimizer], [scheduler]
 
     def train_dataloader(self):
-        train_ds = Dataset(self.data_root, self.anno_path, split='train')
+        train_ds = DensityDataset(self.data_root, self.anno_path, split='train')
         return DataLoader(train_ds, batch_size=self.cfg.data.batch_size, shuffle=True)
 
     def val_dataloader(self):
-        val_ds = Dataset(self.data_root, self.anno_path, split='val')
+        val_ds = DensityDataset(self.data_root, self.anno_path, split='val')
         return DataLoader(val_ds, batch_size=1, shuffle=False)
 
     def test_dataloader(self):
-        test_ds = Dataset(self.data_root, self.anno_path, split='test')
+        test_ds = DensityDataset(self.data_root, self.anno_path, split='test')
         return DataLoader(test_ds, batch_size=1, shuffle=False)
 
     def training_step(self, batch, batch_idx):
@@ -272,15 +306,16 @@ def load_config():
             },
             'data': {
                 # dir of extracted features
-                'data_root': 'out/acc_0.923_epoch_10_20220720-151025_1x2',
+                'data_root': 'out/videomae_features_length_16_stride_4_step_1',
                 'anno_path': os.path.expanduser('~/data/RepCount/annotation.csv'),
                 'batch_size': 32 * 1,
             },
             'model': {
-                'input_dim': 2048,
+                'input_dim': 768,
                 'output_dim': 1,
                 'hidden_dim': 512,
                 'dropout': 0.25,
+                'example_input_array': [1, 768]
             },
             'optimizer': {
                 'lr': 1e-5 * 1,
@@ -302,8 +337,8 @@ def train():
 
     LOGGER = [
         CSVLogger(save_dir='exp/density', name='csv'),
-        TensorBoardLogger(save_dir='exp/density', name='tb'),
-        # WandbLogger(save_dir=f'exp/density', project='density')
+        TensorBoardLogger(save_dir='exp/density', name='tensorboard'),
+        WandbLogger(save_dir=f'exp/density', project='density')
     ]
     CALLBACKS = [
         LearningRateMonitor(log_momentum=True),
@@ -316,7 +351,7 @@ def train():
 
     trainer = Trainer(
         **cfg.trainer,
-        fast_dev_run=False,
+        fast_dev_run=True,
         logger=LOGGER,
         callbacks=CALLBACKS,
         # strategy=DDPStrategy(find_unused_parameters=True, process_group_backend='gloo'),
@@ -333,7 +368,7 @@ def eval_one_video(model, pkl_path, device) -> float:
     return density
 
 
-def evaluate(stride: int = 1):
+def evaluate(stride: int = 4):
     split = 'test'
     result = dict()
     ckpt_path = 'checkpoints/predictor_epoch_99_mae_3.7959224247932433.pth'
@@ -342,9 +377,9 @@ def evaluate(stride: int = 1):
     model = Regressor(input_dim=2048, output_dim=1).to(device)
     model.load_state_dict(ckpt)
     model.eval()
-    ds = Dataset(data_root='out/acc_0.923_epoch_10_20220720-151025_1x2',
-                 anno_path=os.path.expanduser('~/data/RepCount/annotation.csv'),
-                 split=split)
+    ds = DensityDataset(data_root='out/acc_0.923_epoch_10_20220720-151025_1x2',
+                        anno_path=os.path.expanduser('~/data/RepCount/annotation.csv'),
+                        split=split)
     mae, obo = 0.0, 0.0
     for i, (x, y, gt_count) in enumerate(tqdm(ds)):
         x = x.to(device)
@@ -365,4 +400,4 @@ def evaluate(stride: int = 1):
 
 if __name__ == '__main__':
     train()
-    # evaluate(stride=8)
+    # evaluate(stride=4)
