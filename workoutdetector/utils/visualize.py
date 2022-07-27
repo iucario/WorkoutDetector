@@ -85,6 +85,7 @@ def plot_all(gt_reps: np.ndarray,
         stride (int): Predict every stride frames.
     """
 
+    gt_reps = np.array(gt_reps)
     total_frames = info['total_frames']
     fps = info.get('fps', 30)
     video_len = total_frames / fps

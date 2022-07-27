@@ -83,6 +83,15 @@ def create_label(reps: List[int], total_frames: int, stride: int) -> Tensor:
 class DensityDataset(torch.utils.data.Dataset):
     """Load features from pickle files and normalize labels.
 
+    Args:
+        data_root (str): Data directory.
+        anno_path (str): Annotation file.
+        split (str): 'train', 'val' or 'test'.
+        length (int): Length of input frames. Default: 16.
+        stride (int): Stride of starting frame index. Default: 1.
+        step (int): Step of frames in a sequence. Default: 2.
+        filename_tmpl (str): Template of filename. Default: '{name}.pkl'.
+
     Note:
         - How feature frames are loaded:
             `frames = self.video[i:i + self.step * self.length:self.step]`
