@@ -9,7 +9,6 @@ import pandas as pd
 import torch
 from workoutdetector.utils import pred_to_count, to_softmax
 
-
 def obo_mae(preds: List[int],
             targets: List[int],
             ratio: bool = True) -> Union[Tuple[float, int], Tuple[float, float]]:
@@ -146,11 +145,36 @@ def eval_one_video_heuristic():
 def eval_one_video_density():
     pass
 
+def load_json(fpath, softmax: bool = True) -> Tuple[dict, str]:
+    with open(fpath) as fp:
+        json_data = json.load(fp)
+    # scores: {frame_index: {class_1: score}, {class_2: score}}
+    scores: Dict[str, Dict[str, float]] = json_data['scores']
+    if softmax:
+        for k in scores.keys():
+            scores[k] = to_softmax(scores[k])
+    return scores, json_data['action']
+
+def hmm_infer(json_dir):
+    pass
+
+def infer(scores: dict, threshold: float) -> List[int]:
+    """Naive inference by state transition"""
+    pred = []
+    for v in scores.values():
+        class_id, score = max(v.items(), key=lambda x: x[1])
+        if score >= threshold:
+            pred.append(int(class_id))
+        else:
+            pred.append(-1)
+    # smooth predictions
+    pred = smooth_pred(pred, window)
+    return pred
 
 def main(json_dir: str,
          anno_path: str,
          out_csv: Optional[str],
-         softmax: bool = False,
+         softmax: bool = True,
          threshold: float = 0.5,
          stride: int = 1,
          step: int = 2,
@@ -185,29 +209,14 @@ def main(json_dir: str,
             print(f'{video_name} not in annotation')
             continue
         # print(f'Evaluating {video_name}')
-        with open(os.path.join(json_dir, f)) as fp:
-            json_data = json.load(fp)
-        # scores: {frame_index: {class_1: score}, {class_2: score}}
-        scores: Dict[str, Dict[str, float]] = json_data['scores']
-        if softmax:
-            for k in scores.keys():
-                scores[k] = to_softmax(scores[k])
+        scores, action = load_json(os.path.join(json_dir, f), softmax=softmax)
         gt: List[int] = anno.loc[video_name]['reps']
         gt_count = anno.loc[video_name]['count'].astype(int)
-        pred = []
-        for v in scores.values():
-            class_id, score = max(v.items(), key=lambda x: x[1])
-            if score >= threshold:
-                pred.append(int(class_id))
-            else:
-                pred.append(-1)
-        # smooth predictions
-        pred = smooth_pred(pred, window)
+        pred = infer(scores, threshold)
         pred_cout, pred_rep = pred_to_count(pred, stride=stride * window, step=step)
         preds.append(pred_cout)
         gts.append(gt_count)
         split = anno.loc[video_name]['split']
-        action = json_data['action']
         out.append([video_name, gt_count, pred_cout, gt, pred_rep, split, action])
     mae, obo = obo_mae(preds, gts)
     df = pd.DataFrame(out,

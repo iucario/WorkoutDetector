@@ -251,8 +251,8 @@ class FeatureDataset(torch.utils.data.Dataset):
             # Last frame label is the sequence label
             y += [item_y[i + window - 1] for i in start_ids if i + window <= n]
         x = np.stack(x, axis=0)
-        y = np.array(y) # type: ignore
-        return x, y # type: ignore
+        y = np.array(y)  # type: ignore
+        return x, y  # type: ignore
 
     def hmm_stats(self, x, y):
         """Calculate transition matrix and initial pi and means and covariances
@@ -270,24 +270,26 @@ class FeatureDataset(torch.utils.data.Dataset):
             >>> hmm_stats = feat_ds.hmm_stats(feat_ds.x.squeeze(1), feat_ds.y)
         """
         assert x.shape[0] == y.shape[0], 'x and y must have the same length'
-        max_labels = np.arange(np.max(y) + 1)
-        n_states = np.max(y) + 1
-        if  x.shape[1] == 1 and x.ndim == 3:
+        unique_labels = np.unique(y)
+        for i, label in enumerate(unique_labels):
+            y[y == label] = i
+        n_states = len(unique_labels)
+        if x.shape[1] == 1 and x.ndim == 3:
             x = x.squeeze(1)
         assert x.ndim == 2, f'x {x.shape} must be 2D'
         n_samples, n_feats = x.shape
 
         # compute pi
         pi = np.zeros((n_states,))
-        for i, u_label in enumerate(max_labels):
-            pi[i] = np.count_nonzero(y == u_label)
+        for i, u_label in enumerate(unique_labels):
+            pi[i] = np.count_nonzero(y == i)
         # normalize prior probabilities
         pi = pi / pi.sum()
 
         # compute transition matrix:
         transmat = np.zeros((n_states, n_states))
         for i in range(y.shape[0] - 1):
-            transmat[int(y[i]), int(y[i + 1])] += 1
+            transmat[y[i], y[i+1]] += 1
         # normalize rows of transition matrix:
         divisor = np.sum(transmat, axis=1, keepdims=True)
         divisor[divisor == 0] = 1
@@ -306,8 +308,9 @@ class FeatureDataset(torch.utils.data.Dataset):
                 # use line above if HMM using full gaussian distributions are to be used
                 cov[i, :] = np.std(x[y == i, :], axis=0)
         cov[np.isnan(cov)] = 0
-
-        return pi, transmat, means, cov
+        assert transmat.shape == (n_states, n_states), f'transmat {transmat.shape}'
+        assert pi.shape == (n_states,), f'pi {pi.shape}'
+        return transmat, pi, means, cov
 
     def __getitem__(self, index: int) -> Tuple[Tensor, int]:
         return self.x[index], self.y[index]

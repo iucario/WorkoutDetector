@@ -134,7 +134,7 @@ def pred_to_count(preds: List[int], stride: int, step: int = 1) -> Tuple[int, Li
         
         It means the model has to capture the presice time of state transition.
         Because the model takes 8 continuous frames as input.
-        Or I doubt it will work well. So multiple time scale should be added.
+        Or I doubt it would work well. Multiple time scale should be added.
     
     Example:
         >>> preds = [-1, -1, 6, 6, 6, 7, 6, 6, 6, 7, 6, 6, 7, 7, 6, 6, 7, 7, 6, 6, 7, 7, 6, 6, 7, 7, -1]
