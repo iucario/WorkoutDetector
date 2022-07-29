@@ -211,6 +211,7 @@ class FeatureDataset(torch.utils.data.Dataset):
         self.json_dir = json_dir
         self.template = template
         self.x, self.y = self.load_data(split, action, window, stride)
+        self.tensor_x = torch.from_numpy(self.x).float()
 
     def reps_to_label(self, reps, total, classname):
         class_idx = self.classes.index(classname)
@@ -313,10 +314,10 @@ class FeatureDataset(torch.utils.data.Dataset):
         return transmat, pi, means, cov
 
     def __getitem__(self, index: int) -> Tuple[Tensor, int]:
-        return self.x[index], self.y[index]
+        return self.tensor_x[index], self.y[index]
 
     def __len__(self) -> int:
-        return len(self.x)
+        return len(self.tensor_x)
 
 
 if __name__ == '__main__':
