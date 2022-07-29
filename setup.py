@@ -5,5 +5,15 @@ setup(
     version='0.0.1',
     description='WorkoutDetector',
     packages=[],
+    install_requires=[
+        'torch',
+        'torchvision',
+        'numpy',
+        'pandas',
+        'pytorch-lightning',
+        'tqdm',
+        'fvcore',
+        'einops'
+    ],
     homepage='https://github.com/iucario/WorkoutDetector',
 )
