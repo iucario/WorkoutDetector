@@ -1,3 +1,4 @@
+import json
 import math
 import os
 import os.path as osp
@@ -9,8 +10,8 @@ import numpy as np
 import torch
 from torch import Tensor
 from torchvision.io import read_image, read_video
+from workoutdetector.datasets import RepcountHelper
 from workoutdetector.datasets.transform import sample_frames
-from workoutdetector.settings import PROJ_ROOT
 
 
 class FrameDataset(torch.utils.data.Dataset):
@@ -181,20 +182,169 @@ class ImageDataset(torch.utils.data.Dataset):
         return ret
 
 
+class FeatureDataset(torch.utils.data.Dataset):
+    """Read JSON file containing action scores and return a time series dataset
+    
+    dict_keys(['video_name', 'model', 'stride', 'step', 'length', 'fps', 
+        'input_shape', 'checkpoint', 'total_frames', 'ground_truth', 'action', 'scores'])
+
+    Example:
+        >>> json_dir = os.path.expanduser(
+        ...     '~/projects/WorkoutDetector/out/acc_0.841_epoch_26_20220711-191616_1x1')
+        >>> template = '{}.stride_1_step_1.json'
+        >>> anno_path = os.path.expanduser("~/data/RepCount/annotation.csv")
+        >>> feat_ds = FeatureDataset(json_dir, anno_path, 'train', 'squat',
+        ...                          window=1, stride=1, template=template)
+    """
+
+    def __init__(self,
+                 json_dir: str,
+                 anno_path: str,
+                 split: str,
+                 action: str = 'all',
+                 window: int = 100,
+                 stride: int = 20,
+                 template: str = '{}.stride_1_step_1.json') -> None:
+        super().__init__()
+        self.helper = RepcountHelper('', anno_path)
+        self.classes = self.helper.classes
+        self.json_dir = json_dir
+        self.template = template
+        self.x, self.y = self.load_data(split, action, window, stride)
+
+    def reps_to_label(self, reps, total, classname):
+        class_idx = self.classes.index(classname)
+        y = [0] * total
+        for start, end in zip(reps[::2], reps[1::2]):
+            mid = (start + end) // 2
+            y[start:mid] = [class_idx * 2 + 1] * (mid - start)
+            y[mid:end] = [class_idx * 2 + 2] * (end - mid)  # plus 1 because no-class is 0
+        return y
+
+    def load_data(self,
+                  split: str,
+                  action: str,
+                  window=100,
+                  stride=20) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Returns:
+            x (np.ndarray): [num_sample, window, 12]
+            y (np.ndarray): [num_sample,] labels of int
+        """
+        data = list(self.helper.get_rep_data([split], [action]).values())
+        x = []  # action scores
+        y: List[int] = []  # labels + 1 no-class = 13 classes
+        for item in data:
+            js = json.load(open(osj(self.json_dir,
+                                    self.template.format(item.video_name))))
+            start_ids = list(map(int, list(js['scores'].keys())))
+            n = len(start_ids)
+            item_y = self.reps_to_label(item.reps, start_ids[-1] + 8, item.class_)
+            length = (n - window + 1) // stride
+            start_ids = start_ids[:n - window + 1:stride]
+            item_x = []
+            for i, v in js['scores'].items():
+                item_x.append(np.array(list(v.values())))
+            assert len(item_x) == n
+            assert len(item_y) >= n, item
+            x += [item_x[i:i + window] for i in start_ids if i + window <= n]
+            # Last frame label is the sequence label
+            y += [item_y[i + window - 1] for i in start_ids if i + window <= n]
+        x = np.stack(x, axis=0)
+        y = np.array(y) # type: ignore
+        return x, y # type: ignore
+
+    def hmm_stats(self, x, y):
+        """Calculate transition matrix and initial pi and means and covariances
+            for hmmlearn.hmm.GaussianHMM
+
+        Args:
+            x (np.ndarray): [num_sample, feature_dim]
+            y (np.ndarray): [num_sample,] labels of int
+        Returns:
+            transition_matrix (np.ndarray): [num_states, num_states]
+            pi (np.ndarray): [num_states,]
+            means (np.ndarray): [feature_dim,]
+            covariances (np.ndarray): [feature_dim,]
+        Example:
+            >>> hmm_stats = feat_ds.hmm_stats(feat_ds.x.squeeze(1), feat_ds.y)
+        """
+        assert x.shape[0] == y.shape[0], 'x and y must have the same length'
+        max_labels = np.arange(np.max(y) + 1)
+        n_states = np.max(y) + 1
+        n_samples, n_feats = x.shape
+
+        # compute pi
+        pi = np.zeros((n_states,))
+        for i, u_label in enumerate(max_labels):
+            pi[i] = np.count_nonzero(y == u_label)
+        # normalize prior probabilities
+        pi = pi / pi.sum()
+
+        # compute transition matrix:
+        transmat = np.zeros((n_states, n_states))
+        for i in range(y.shape[0] - 1):
+            transmat[int(y[i]), int(y[i + 1])] += 1
+        # normalize rows of transition matrix:
+        divisor = np.sum(transmat, axis=1, keepdims=True)
+        divisor[divisor == 0] = 1
+        transmat = transmat / divisor
+
+        means = np.zeros((n_states, n_feats))
+        for i in range(n_states):
+            with np.errstate(divide='ignore'):
+                means[i, :] = np.nanmean(x[y == i, :], axis=0)
+        means[np.isnan(means)] = 0
+
+        cov = np.zeros((n_states, n_feats))
+        with np.errstate(divide='ignore'):
+            for i in range(n_states):
+                # cov[i, :, :] = np.cov(x[y == i, :].T)
+                # use line above if HMM using full gaussian distributions are to be used
+                cov[i, :] = np.std(x[y == i, :], axis=0)
+        cov[np.isnan(cov)] = 0
+
+        return pi, transmat, means, cov
+
+    def __getitem__(self, index: int) -> Tuple[Tensor, int]:
+        return self.x[index], self.y[index]
+
+    def __len__(self) -> int:
+        return len(self.x)
+
+
 if __name__ == '__main__':
-    import matplotlib.pyplot as plt
-    data_root = osp.expanduser('~/data/RepCount/rawframes')
-    anno_path = osp.expanduser('data/relabeled/pull_up/train.txt')
-    dataset = FrameDataset(data_root,
-                           anno_path=anno_path,
-                           data_prefix=None,
-                           num_segments=8)
-    print(len(dataset))
-    random_index = np.random.randint(0, len(dataset))
-    img, label = dataset[random_index]
-    plt.figure(figsize=(8, 4), dpi=200)
-    img = einops.rearrange(img, '(b1 b2) c h w -> (b1 h) (b2 w) c', b2=4)
-    plt.title(f'label: {label}')
-    print(img.shape)
-    plt.imshow(img)
-    plt.show()
+    # import matplotlib.pyplot as plt
+    # data_root = osp.expanduser('~/data/RepCount/rawframes')
+    # anno_path = osp.expanduser('data/relabeled/pull_up/train.txt')
+    # dataset = FrameDataset(data_root,
+    #                        anno_path=anno_path,
+    #                        data_prefix=None,
+    #                        num_segments=8)
+    # print(len(dataset))
+    # random_index = np.random.randint(0, len(dataset))
+    # img, label = dataset[random_index]
+    # plt.figure(figsize=(8, 4), dpi=200)
+    # img = einops.rearrange(img, '(b1 b2) c h w -> (b1 h) (b2 w) c', b2=4)
+    # plt.title(f'label: {label}')
+    # print(img.shape)
+    # plt.imshow(img)
+    # plt.show()
+
+    json_dir = os.path.expanduser(
+        '~/projects/WorkoutDetector/out/acc_0.841_epoch_26_20220711-191616_1x1')
+    template = '{}.stride_1_step_1.json'
+    anno_path = os.path.expanduser("~/data/RepCount/annotation.csv")
+
+    feat_ds = FeatureDataset(json_dir,
+                             anno_path,
+                             'train',
+                             'squat',
+                             window=1,
+                             stride=1,
+                             template=template)
+    print(len(feat_ds))
+    print(feat_ds.x.shape, feat_ds.y.shape)
+
+    hmm_stats = feat_ds.hmm_stats(feat_ds.x.squeeze(1), feat_ds.y)
+    print(hmm_stats)
