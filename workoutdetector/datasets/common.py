@@ -272,6 +272,9 @@ class FeatureDataset(torch.utils.data.Dataset):
         assert x.shape[0] == y.shape[0], 'x and y must have the same length'
         max_labels = np.arange(np.max(y) + 1)
         n_states = np.max(y) + 1
+        if  x.shape[1] == 1 and x.ndim == 3:
+            x = x.squeeze(1)
+        assert x.ndim == 2, f'x {x.shape} must be 2D'
         n_samples, n_feats = x.shape
 
         # compute pi
