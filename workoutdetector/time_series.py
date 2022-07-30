@@ -1,33 +1,35 @@
-import numpy as np
 import json
 import os
-import pickle
+import time
 from typing import Any, Callable, List, Tuple, Union
 
+import numpy as np
+import pandas as pd
 import pytorch_lightning as pl
 import torch
 import yaml
 from fvcore.common.config import CfgNode
 from pytorch_lightning import LightningDataModule, LightningModule, Trainer
-from pytorch_lightning.callbacks import (LearningRateMonitor, ModelCheckpoint,
-                                         early_stopping)
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger, WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
-from scipy.stats import norm
 from torch import Tensor, nn
-from torch.autograd import Variable
 from torch.optim import Adam, lr_scheduler
 from torch.utils.data import DataLoader, Dataset
-from tqdm import tqdm
+
 from workoutdetector.datasets import FeatureDataset, RepcountHelper
 from workoutdetector.utils import pred_to_count
 
 
 class LSTMNet(nn.Module):
 
-    def __init__(self, input_dim, num_layers, hidden_dim, output_dim, device):
+    def __init__(self, input_dim, num_layers, hidden_dim, output_dim, dropout, device):
         super(LSTMNet, self).__init__()
-        self.rnn = nn.LSTM(input_dim, hidden_dim, num_layers, batch_first=True)
+        self.rnn = nn.LSTM(input_dim,
+                           hidden_dim,
+                           num_layers,
+                           batch_first=True,
+                           dropout=dropout)
         self.head = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
                                   nn.Linear(hidden_dim, output_dim))
         self.hidden_size = hidden_dim
@@ -37,7 +39,7 @@ class LSTMNet(nn.Module):
     def forward(self, x):
         h = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to('cuda')
         c = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to('cuda')
-        x, (h, c) = self.rnn(x, (h, c))
+        x, (h, c) = self.rnn(x, (h.detach(), c.detach()))
         o = self.head(h[-1])
         return o
 
@@ -58,7 +60,8 @@ class LitModel(LightningModule):
         if self.logger:
             self.logger.log_hyperparams(cfg_dict)
         self.net = LSTMNet(cfg.model.input_dim, cfg.model.num_layers,
-                           cfg.model.hidden_dim, cfg.model.output_dim, self.device)
+                           cfg.model.hidden_dim, cfg.model.output_dim, cfg.model.dropout,
+                           self.device)
         self.loss_fn = nn.CrossEntropyLoss()
         self.cfg = cfg
         self.example_input_array = torch.randn(cfg.model.example_input_array)
@@ -72,14 +75,6 @@ class LitModel(LightningModule):
                                         step_size=self.cfg.lr_scheduler.step,
                                         gamma=self.cfg.lr_scheduler.gamma)
         return [optimizer], [scheduler]
-
-    def _dataloader(self, split, action, window, stride):
-        return FeatureDataset(self.cfg.data.json_dir,
-                              self.cfg.data.anno_path,
-                              split=split,
-                              action=action,
-                              window=window,
-                              stride=stride)
 
     def _trainval(self, batch, step):
         x, y = batch
@@ -107,10 +102,15 @@ class LitModel(LightningModule):
         x, y = item['x'], item['y']
         window, stride = self.cfg.data.window, 1
         batch_x, batch_y = [], []
-        x = x.squeeze(0) # why one more dimension?
-        for i in range(0, len(x)-window+1, stride):
-            batch_x.append(x[i:i + window])
-            batch_y.append(y[i + window - 1])
+        x = x.squeeze(0)  # why one more dimension?
+        for i in range(0, len(x), stride):
+            if i + window > len(x):
+                break
+                # batch_x.append(x[i:])
+                # batch_y.append(y[i:])
+            else:
+                batch_x.append(x[i:i + window])
+                batch_y.append(y[i + window - 1])
         if not batch_x:
             batch_x = x.to(self.device).unsqueeze(0)
             batch_y = torch.tensor(y).to(self.device)
@@ -119,17 +119,59 @@ class LitModel(LightningModule):
             batch_y = torch.tensor(batch_y).to(self.device)
         pred = self.net(batch_x).argmax(dim=1)
         acc = (pred == batch_y).float().mean()
-        return pred, acc
+        item.update({'pred': pred, 'acc': acc})
+        return item
 
     def test_epoch_end(self, outputs):
-        print(len(outputs))
-        print(outputs[0])
-        result = dict()
-            
+        df = pd.DataFrame(columns=[
+            'video_name', 'action', 'split', 'acc', 'count', 'gt_count', 'reps', 'gt_reps'
+        ])
+        obo, mae = 0, 0
+        for o in outputs:
+            count, reps = pred_to_count(o['pred'], stride=1, step=1)
+            diff = abs(count - o['gt_count'].item())
+            obo += 1 if diff <= 1 else 0
+            mae += diff
+            df.loc[len(df)] = dict(video_name=o['video_name'],
+                                   action=o['action'][0],
+                                   split=o['split'][0],
+                                   acc=o['acc'].item(),
+                                   count=count,
+                                   gt_count=o['gt_count'].item(),
+                                   reps=reps,
+                                   diff=diff)
+        df.set_index('video_name', inplace=True)
+        df.to_csv(f'{self.trainer.default_root_dir}/test_metrics.csv')
+        self.log_dict({'OBO': obo / len(outputs), 'MAE': mae / len(outputs)})
+        return obo, mae
 
     def predict_step(self, x):
         pred = self.net(x)
         return pred.argmax(dim=1)
+
+
+def reps_to_label(reps, total, class_idx):
+    y = [0] * total
+    for start, end in zip(reps[::2], reps[1::2]):
+        mid = (start + end) // 2
+        y[start:mid] = [class_idx * 2 + 1] * (mid - start)
+        y[mid:end] = [class_idx * 2 + 2] * (end - mid)  # plus 1 because no-class is 0
+    return y
+
+
+class FeatureDataModule(LightningDataModule):
+
+    def __init__(self, cfg):
+        super().__init__()
+        self.cfg = cfg
+
+    def _dataloader(self, split, action, window, stride):
+        return FeatureDataset(self.cfg.data.json_dir,
+                              self.cfg.data.anno_path,
+                              split=split,
+                              action=action,
+                              window=window,
+                              stride=stride)
 
     def train_dataloader(self):
         train_ds = self._dataloader('train', 'all', self.cfg.data.window,
@@ -144,15 +186,6 @@ class LitModel(LightningModule):
     def test_dataloader(self):
         test_ds = TestDataset(self.cfg)
         return DataLoader(test_ds, batch_size=1, shuffle=False)
-
-
-def reps_to_label(reps, total, class_idx):
-    y = [0] * total
-    for start, end in zip(reps[::2], reps[1::2]):
-        mid = (start + end) // 2
-        y[start:mid] = [class_idx * 2 + 1] * (mid - start)
-        y[mid:end] = [class_idx * 2 + 2] * (end - mid)  # plus 1 because no-class is 0
-    return y
 
 
 class TestDataset(Dataset):
@@ -177,6 +210,8 @@ class TestDataset(Dataset):
             self.data.append({
                 'x': test_x,
                 'y': test_y,
+                'gt_count': item.count,
+                'gt_reps': item.reps,
                 'split': item.split,
                 'action': item.class_,
                 'video_name': item.video_name
@@ -213,11 +248,11 @@ def load_config():
                 'output_dim': 13,
                 'hidden_dim': 512,
                 'num_layers': 3,  # LSTM
-                'dropout': 0.25,
+                'dropout': 0.5,
                 'example_input_array': [1, 100, 12]  # batch, window, feature_dim
             },
             'optimizer': {
-                'lr': 1e-3,
+                'lr': 1e-4,
             },
             'lr_scheduler': {
                 'step': 10,
@@ -237,7 +272,7 @@ def train():
     LOGGER = [
         CSVLogger(save_dir=cfg.trainer.default_root_dir, name='csv'),
         TensorBoardLogger(save_dir=cfg.trainer.default_root_dir, name='tensorboard'),
-        # WandbLogger(save_dir=cfg.trainer.default_root_dir, project='time_series')
+        WandbLogger(save_dir=cfg.trainer.default_root_dir, project='time_series')
     ]
     CALLBACKS = [
         LearningRateMonitor(log_momentum=True),
@@ -255,18 +290,20 @@ def train():
         # fast_dev_run=True,
         # strategy=DDPStrategy(find_unused_parameters=True, process_group_backend='gloo'),
     )
-    # trainer.fit(model)
-    trainer.test(model)
+    trainer.fit(model)
+    # trainer.test(model)
 
 
 if __name__ == '__main__':
     # train()
     cfg = load_config()
     pl.seed_everything(42)
+    data_module = FeatureDataModule(cfg)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    model = LitModel(cfg)
-    model.load_from_checkpoint('exp/time_series/acc_0.598_epoch_000-v1.ckpt')
-
+    ckpt = LitModel.load_from_checkpoint('exp/time_series/acc_0.598_epoch_000-v1.ckpt')
+    cfg.merge_from_other_cfg(ckpt.cfg)
+    print(cfg)
+    print(ckpt.net)
     trainer = Trainer(**cfg.trainer)
-    trainer.test(model)
+    trainer.test(ckpt, data_module)
