@@ -36,7 +36,7 @@ class LSTMNet(nn.Module):
         self.num_layers = num_layers
         self.device = device
 
-    def forward(self, x):
+    def forward(self, x: Tensor):
         h = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to('cuda')
         c = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to('cuda')
         x, (h, c) = self.rnn(x, (h.detach(), c.detach()))
@@ -55,11 +55,7 @@ class LitModel(LightningModule):
 
     def __init__(self, cfg: CfgNode):
         super().__init__()
-        if cfg.model.checkpoint is not None:
-            print(f'Loading Lightning model from {cfg.model.checkpoint}')
-            ckpt = self.load_from_checkpoint(cfg.model.checkpoint)
-            cfg.merge_from_other_cfg(ckpt.cfg)
-        else:
+        if not hasattr(cfg.model, 'checkpoint') or cfg.model.checkpoint is None:
             self.save_hyperparameters()
         self.net = LSTMNet(cfg.model.input_dim, cfg.model.num_layers,
                            cfg.model.hidden_dim, cfg.model.output_dim, cfg.model.dropout,
@@ -148,16 +144,16 @@ class LitModel(LightningModule):
         df.set_index('name', inplace=True)
         if self.cfg.model.checkpoint is not None:
             csv_path = os.path.join(self.trainer.default_root_dir,
-                                    self.cfg.model.checkpoint)
+                                    f'{self.cfg.model.checkpoint}.csv')
         else:
             csv_path = f'{self.loggers[0].log_dir}/test_metrics.csv'
             self.log_dict({'OBO': obo / len(outputs), 'MAE': mae / len(outputs)})
         df.to_csv(csv_path)
         return obo, mae
 
-    def predict_step(self, x):
-        pred = self.net(x)
-        return pred.argmax(dim=1)
+    def predict_step(self, x, batch_idx):
+        pred = self.net(x.unsqueeze(0)).argmax(dim=1)
+        return pred
 
 
 def reps_to_label(reps, total, class_idx):
@@ -201,9 +197,8 @@ class FeatureDataModule(LightningDataModule):
 class TestDataset(Dataset):
 
     def __init__(self, cfg: CfgNode):
-        helper = RepcountHelper('', cfg.data.anno_path)
+        helper = RepcountHelper(os.path.expanduser("~/data/RepCount"), cfg.data.anno_path)
         test_data = list(helper.get_rep_data(['train', 'val', 'test'], ['all']).values())
-        total_obo, total_err, total_acc = 0, 0, 0
         self.data: List[dict] = []
         for item in test_data:
             test_x: List[List[float]] = []
@@ -213,13 +208,17 @@ class TestDataset(Dataset):
                                  cfg.data.template.format(item.video_name, 1, 1))))
             for i, v in js['scores'].items():
                 test_x.append(list(v.values()))
-            test_x = torch.tensor(test_x)  # type: ignore
-            test_y = reps_to_label(item.reps, len(test_x),
+            tx = torch.tensor(test_x)
+            # Normalize
+            # tx = (tx - tx.mean(dim=-1, keepdim=True)) / tx.std(
+            #     dim=-1, keepdim=True)
+            test_y = reps_to_label(item.reps, item.total_frames,
                                    helper.classes.index(item.class_))
-            assert len(test_x.shape) == 2, test_x.shape  # type: ignore
+            assert len(tx.shape) == 2, tx.shape
+            assert len(torch.tensor(test_y).shape) == 1, torch.tensor(test_y).shape
             self.data.append({
-                'x': test_x,
-                'y': test_y,
+                'x': tx,
+                'y': torch.tensor(test_y),
                 'gt_count': item.count,
                 'gt_reps': item.reps,
                 'split': item.split,
@@ -234,12 +233,42 @@ class TestDataset(Dataset):
         return len(self.data)
 
 
+def seq_to_windows(x: Tensor, window: int, stride: int, pad_last: bool = True) -> Tensor:
+    assert x.dim() == 2, x.shape
+    assert pad_last, "pad_last=False is not implemented"
+    t = torch.zeros(x.shape[0] + window - 1, x.shape[1])
+    if pad_last:
+        t[:x.shape[0], :] = x
+    ret = []
+    for i in range(0, x.shape[0], stride):
+        ret.append(t[i:i + window, :])
+    return torch.stack(ret)
+
+
+def evaluate():
+    cfg = load_config()
+    model, _ = setup_module(cfg)
+    model.cuda()
+    model.eval()
+    ds = TestDataset(cfg)
+    result = []
+    for item in ds:
+        print(item['x'].shape, item['y'].shape)
+        input_x = seq_to_windows(item['x'], cfg.data.window, 1)
+        assert input_x.shape[0] == item['x'].shape[0], (input_x.shape, item['x'].shape)
+        pred = model(input_x.cuda()).cpu()
+        acc = (pred.argmax(dim=-1) == item['y'][:len(pred)]).sum() / len(pred)
+        result.append(dict(name=item['video_name'], pred=pred, acc=acc.item()))
+    np.save(f'{cfg.model.checkpoint}.npy', result)
+    return result
+
+
 def load_config():
     cfg = CfgNode(
         init_dict={
             'trainer': {
                 'default_root_dir': 'exp/time_series',
-                'max_epochs': 20,
+                'max_epochs': 30,
                 'devices': 1,
                 'gpus': 1,
                 'deterministic': True,
@@ -251,7 +280,7 @@ def load_config():
                 'anno_path': os.path.expanduser('~/data/RepCount/annotation.csv'),
                 'batch_size': 32 * 1,
                 'window': 100,
-                'stride': 4,
+                'stride': 7,
             },
             'model': {
                 'input_dim': 12,
@@ -303,10 +332,15 @@ def load_config():
 
 
 def setup_module(cfg):
+    if cfg.model.checkpoint is not None:
+        print(f'Loading Lightning model from {cfg.model.checkpoint}')
+        ckpt = LitModel.load_from_checkpoint(cfg.model.checkpoint)
+        cfg.merge_from_other_cfg(ckpt.cfg)
+
+    model = LitModel(cfg)
     pl.seed_everything(42)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    model = LitModel(cfg)
     data_module = FeatureDataModule(cfg)
     return model, data_module
 
@@ -395,5 +429,6 @@ def test():
 
 if __name__ == '__main__':
     # train()
-    test()
+    # test()
+    evaluate()
     # analyze_count(f'exp/time_series/test_metrics.csv')

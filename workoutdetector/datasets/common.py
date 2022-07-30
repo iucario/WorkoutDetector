@@ -197,23 +197,27 @@ class FeatureDataset(torch.utils.data.Dataset):
         ...                          window=1, stride=1, template=template)
     """
 
-    def __init__(self,
-                 json_dir: str,
-                 anno_path: str,
-                 split: str,
-                 action: str = 'all',
-                 window: int = 100,
-                 stride: int = 20,
-                 template: str = '{}.stride_1_step_1.json') -> None:
+    def __init__(
+            self,
+            json_dir: str,
+            anno_path: str,
+            split: str,
+            normalize: bool = False,
+            action: str = 'all',
+            window: int = 100,
+            stride: int = 1,  # TODO: deprecate this
+            template: str = '{}.stride_1_step_1.json') -> None:
         super().__init__()
         self.helper = RepcountHelper('', anno_path)
         self.classes = self.helper.classes
         self.json_dir = json_dir
         self.template = template
+        self.normalize = normalize
         self.x, self.y = self.load_data(split, action, window, stride)
         self.tensor_x = torch.from_numpy(self.x).float()
 
     def reps_to_label(self, reps, total, classname):
+        """Spread intervals to frame-level labels"""
         class_idx = self.classes.index(classname)
         y = [0] * total
         for start, end in zip(reps[::2], reps[1::2]):
@@ -226,7 +230,7 @@ class FeatureDataset(torch.utils.data.Dataset):
                   split: str,
                   action: str,
                   window=100,
-                  stride=20) -> Tuple[np.ndarray, np.ndarray]:
+                  stride=1) -> Tuple[np.ndarray, np.ndarray]:
         """
         Returns:
             x (np.ndarray): [num_sample, window, 12]
@@ -238,19 +242,22 @@ class FeatureDataset(torch.utils.data.Dataset):
         for item in data:
             js = json.load(open(osj(self.json_dir,
                                     self.template.format(item.video_name))))
-            start_ids = list(map(int, list(js['scores'].keys())))
-            n = len(start_ids)
-            item_y = self.reps_to_label(item.reps, start_ids[-1] + 8, item.class_)
-            length = (n - window + 1) // stride
-            start_ids = start_ids[:n - window + 1:stride]
+            start_inds = list(map(int, list(js['scores'].keys())))
+            end_inds = [i + 7 for i in start_inds]
+            n = len(start_inds)
+            item_y = self.reps_to_label(item.reps, end_inds[-1] + 1, item.class_)
             item_x = []
             for i, v in js['scores'].items():
                 item_x.append(np.array(list(v.values())))
-            assert len(item_x) == n
-            assert len(item_y) >= n, item
-            x += [item_x[i:i + window] for i in start_ids if i + window <= n]
-            # Last frame label is the sequence label
-            y += [item_y[i + window - 1] for i in start_ids if i + window <= n]
+            assert len(item_x) == n  # length == total_frames // stride
+            assert len(item_y) >= n, item  # length == total_frames
+            for i, idx in enumerate(start_inds):
+                if idx - window < 0:
+                    continue
+                else:
+                    x.append(item_x[idx - window:idx])
+                    y.append(item_y[end_inds[i]])
+            # TODO: need tests
         x = np.stack(x, axis=0)
         y = np.array(y)  # type: ignore
         return x, y  # type: ignore
@@ -290,7 +297,7 @@ class FeatureDataset(torch.utils.data.Dataset):
         # compute transition matrix:
         transmat = np.zeros((n_states, n_states))
         for i in range(y.shape[0] - 1):
-            transmat[y[i], y[i+1]] += 1
+            transmat[y[i], y[i + 1]] += 1
         # normalize rows of transition matrix:
         divisor = np.sum(transmat, axis=1, keepdims=True)
         divisor[divisor == 0] = 1
@@ -314,7 +321,12 @@ class FeatureDataset(torch.utils.data.Dataset):
         return transmat, pi, means, cov
 
     def __getitem__(self, index: int) -> Tuple[Tensor, int]:
-        return self.tensor_x[index], self.y[index]
+        x, y = self.tensor_x[index], self.y[index]
+        if self.normalize:
+            mean = x.mean(dim=-1, keepdim=True)
+            std = x.std(dim=-1, keepdim=True)
+            x = (x - mean) / std
+        return x, y
 
     def __len__(self) -> int:
         return len(self.tensor_x)
@@ -346,12 +358,11 @@ if __name__ == '__main__':
     feat_ds = FeatureDataset(json_dir,
                              anno_path,
                              'train',
-                             'squat',
-                             window=1,
-                             stride=1,
+                             normalize=True,
+                             action='squat',
+                             window=100,
+                             stride=7,
                              template=template)
     print(len(feat_ds))
     print(feat_ds.x.shape, feat_ds.y.shape)
-
-    hmm_stats = feat_ds.hmm_stats(feat_ds.x.squeeze(1), feat_ds.y)
-    print(hmm_stats)
+    # hmm_stats = feat_ds.hmm_stats(feat_ds.x.squeeze(1), feat_ds.y)

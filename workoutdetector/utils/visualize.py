@@ -24,7 +24,7 @@ def plt_params() -> dict:
         'lines.linewidth': 0.8,
         'axes.prop_cycle': plt.cycler('color', COLORS),
         'font.size': 8,
-        'font.family': 'serif'
+        'font.family': 'monospace',
     }
     return params
 
@@ -35,7 +35,8 @@ matplotlib.RcParams.update(plt_params())
 def plot_pred(result: List[int],
               gt: List[int],
               total_frames: int,
-              info: Dict[str, Any],
+              fps: float,
+              title: str,
               step: int = 8) -> None:
     """Plot segmentation result and ground truth.
     
@@ -43,11 +44,11 @@ def plot_pred(result: List[int],
         result (List[int]): segmentation result. [start_1, end_1, start_2, ...]
         gt (List[int]): ground truth. [start_1, end_1, start_2, ...]
         total_frames (int): total number of frames.
-        info (Dict[str, Any]): info dict. Inferenced json.
+        fps (float): fps of video.
+        title (str): title of plot.
         step (int): step of prediction.
     """
 
-    fps = info.get('fps', 30)
     video_len = total_frames / fps
     max_num_ticks = 10
     plt.figure(figsize=(8, 2))
@@ -59,17 +60,16 @@ def plot_pred(result: List[int],
                np.round(np.linspace(0.0, video_len, max_num_ticks), 2))
     for i in range(0, len(gt), 2):
         rect = plt.Rectangle((gt[i], 0.5), (gt[i + 1] - gt[i]),
-                             0.5,
+                             0.2,
                              color=['C5', 'C4'][i % 4 // 2])
         plt.gca().add_patch(rect)
     for j in range(0, len(result), 2):
-        rect = plt.Rectangle((result[j], 0.0), (result[j + 1] - result[j]),
-                             0.49,
+        rect = plt.Rectangle((result[j], 0.3), (result[j + 1] - result[j]),
+                             0.19,
                              color=['C0', 'C2'][j % 4 // 2])
         plt.gca().add_patch(rect)
     # plt.vlines(result, color='C1', ymin=0.0, ymax=1.0)
-    plt.title(f'{info["video_name"]}, {info["action"]}, count={len(gt)//2},'\
-        ' Up: ground truth, Down: prediction')
+    plt.title(title)
     plt.show()
 
 

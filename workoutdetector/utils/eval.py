@@ -9,6 +9,7 @@ import pandas as pd
 import torch
 from workoutdetector.utils import pred_to_count, to_softmax
 
+
 def obo_mae(preds: List[int],
             targets: List[int],
             ratio: bool = True) -> Union[Tuple[float, int], Tuple[float, float]]:
@@ -56,18 +57,16 @@ def eval_count(preds: List[int], gt: List[int]):
     pass
 
 
-def analyze_count(csv: str, out_csv: Optional[str]) -> None:
+def analyze_count(csv: str, out_csv: bool = True) -> None:
     """Input a csv file, analyze results
     
     Args:
         csv (str): path to csv file, with columns:
             `,name,gt_count,pred_count,gt_rep,pred_rep,split,action`
-        out_csv (str or None): path to save output csv file, with columns:
-            `,action,split,mae,obo_acc,total,avg_count`
+        out_csv (bool): save results to path `{the_input_csv_name}_meta.csv`,
+            default True
     Example:
-        >>> in_csv = 'out/tsm_lightning_sparse_sample_eval.csv'
-        >>> out_csv = in_csv.replace('.csv', '_meta.csv')
-        >>> analyze_count(in_csv, out_csv)
+        >>> analyze_count('out/tsm_lightning_sparse_sample_eval.csv')
     """
 
     df = pd.read_csv(csv, index_col='name')
@@ -94,26 +93,19 @@ def analyze_count(csv: str, out_csv: Optional[str]) -> None:
             split_out[split]['avg_count'] += gt_count.sum()
 
     df_out = pd.DataFrame(
-        out, columns=['action', 'split', 'mae', 'obo_acc', 'total', 'avg_count'])
+        out, columns=['action', 'split', 'MAE', 'OBO_acc', 'total', 'avg_count'])
     # all actions per split
     for split in splits:
         print(f'{split}: {split_out[split]}')
         total = split_out[split]['total']
-        row = pd.DataFrame(
-            {
-                'action': 'all',
-                'split': split,
-                'mae': split_out[split]['mae'] / total,
-                'obo_acc': split_out[split]['obo'],
-                'total': total,
-                'avg_count': split_out[split]['avg_count'] / total
-            },
-            index=[0])
-        df_out = df_out.append(row, ignore_index=True)
-
+        df_out.loc[len(df_out)] = [
+            'all', split, split_out[split]['mae'] / total, split_out[split]['obo'], total,
+            split_out[split]['avg_count'] / total
+        ]
+    df_out['OBO_acc'] = df_out['OBO_acc'].astype(int)
     if out_csv:
-        df_out.to_csv(out_csv)
-    print(df_out)
+        df_out.to_csv(csv[:-4].replace('.csv', '_meta.csv'))
+    print(df_out.to_latex(index=False))
 
 
 def exp_moving_avg(prev: float, curr: float, alpha: float = 0.9) -> float:
@@ -145,6 +137,7 @@ def eval_one_video_heuristic():
 def eval_one_video_density():
     pass
 
+
 def load_json(fpath, softmax: bool = True) -> Tuple[dict, str]:
     with open(fpath) as fp:
         json_data = json.load(fp)
@@ -155,10 +148,12 @@ def load_json(fpath, softmax: bool = True) -> Tuple[dict, str]:
             scores[k] = to_softmax(scores[k])
     return scores, json_data['action']
 
-def hmm_infer(json_dir):
+
+def hmm_infer(scores):
     pass
 
-def infer(scores: dict, threshold: float) -> List[int]:
+
+def infer(scores: dict, threshold: float, window=10) -> List[int]:
     """Naive inference by state transition"""
     pred = []
     for v in scores.values():
@@ -170,6 +165,7 @@ def infer(scores: dict, threshold: float) -> List[int]:
     # smooth predictions
     pred = smooth_pred(pred, window)
     return pred
+
 
 def main(json_dir: str,
          anno_path: str,
@@ -212,17 +208,17 @@ def main(json_dir: str,
         scores, action = load_json(os.path.join(json_dir, f), softmax=softmax)
         gt: List[int] = anno.loc[video_name]['reps']
         gt_count = anno.loc[video_name]['count'].astype(int)
-        pred = infer(scores, threshold)
-        pred_cout, pred_rep = pred_to_count(pred, stride=stride * window, step=step)
-        preds.append(pred_cout)
+        pred = infer(scores, threshold, window)
+        pred_count, pred_rep = pred_to_count(pred, stride=stride * window, step=step)
+        preds.append(pred_count)
         gts.append(gt_count)
         split = anno.loc[video_name]['split']
-        out.append([video_name, gt_count, pred_cout, gt, pred_rep, split, action])
+        out.append([video_name, gt_count, pred_count, gt, pred_rep, split, action])
     mae, obo = obo_mae(preds, gts)
     df = pd.DataFrame(out,
                       columns=[
-                          'name', 'gt_count', 'pred_count', 'gt_rep', 'pred_rep', 'split',
-                          'action'
+                          'name', 'gt_count', 'pred_count', 'gt_reps', 'pred_reps',
+                          'split', 'action'
                       ])
     if out_csv:
         df.to_csv(out_csv)
@@ -235,7 +231,7 @@ if __name__ == '__main__':
     json_dir = f'out/{d}'
     anno_path = 'datasets/RepCount/annotation.csv'
     window = 10
-    threshold = 0.6
+    threshold = 0.66
     out_csv = f'out/{d}_window_{window}_threshold_{threshold}.csv'
     main(json_dir,
          anno_path,
@@ -245,4 +241,4 @@ if __name__ == '__main__':
          stride=1,
          step=2,
          threshold=threshold)
-    analyze_count(out_csv, out_csv.replace('.csv', '_meta.csv'))
+    analyze_count(out_csv)
