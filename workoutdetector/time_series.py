@@ -10,7 +10,7 @@ import torch
 import yaml
 from fvcore.common.config import CfgNode
 from pytorch_lightning import LightningDataModule, LightningModule, Trainer
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger, WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
 from torch import Tensor, nn
@@ -18,7 +18,7 @@ from torch.optim import Adam, lr_scheduler
 from torch.utils.data import DataLoader, Dataset
 
 from workoutdetector.datasets import FeatureDataset, RepcountHelper
-from workoutdetector.utils import pred_to_count
+from workoutdetector.utils import pred_to_count, analyze_count
 
 
 class LSTMNet(nn.Module):
@@ -55,10 +55,12 @@ class LitModel(LightningModule):
 
     def __init__(self, cfg: CfgNode):
         super().__init__()
-        cfg_dict = yaml.safe_load(cfg.dump())
-        self.save_hyperparameters()
-        if self.logger:
-            self.logger.log_hyperparams(cfg_dict)
+        if cfg.model.checkpoint is not None:
+            print(f'Loading Lightning model from {cfg.model.checkpoint}')
+            ckpt = self.load_from_checkpoint(cfg.model.checkpoint)
+            cfg.merge_from_other_cfg(ckpt.cfg)
+        else:
+            self.save_hyperparameters()
         self.net = LSTMNet(cfg.model.input_dim, cfg.model.num_layers,
                            cfg.model.hidden_dim, cfg.model.output_dim, cfg.model.dropout,
                            self.device)
@@ -123,26 +125,34 @@ class LitModel(LightningModule):
         return item
 
     def test_epoch_end(self, outputs):
+        """Evaluate OBO and MAE and save to csv file."""
+
         df = pd.DataFrame(columns=[
-            'video_name', 'action', 'split', 'acc', 'count', 'gt_count', 'reps', 'gt_reps'
+            'name', 'action', 'split', 'acc', 'count', 'gt_count', 'reps', 'gt_reps'
         ])
         obo, mae = 0, 0
         for o in outputs:
-            count, reps = pred_to_count(o['pred'], stride=1, step=1)
+            # minus 1 because 0 class means no action
+            count, reps = pred_to_count(o['pred'] - 1, stride=1, step=1)
             diff = abs(count - o['gt_count'].item())
             obo += 1 if diff <= 1 else 0
             mae += diff
-            df.loc[len(df)] = dict(video_name=o['video_name'],
+            df.loc[len(df)] = dict(name=o['video_name'][0],
                                    action=o['action'][0],
                                    split=o['split'][0],
                                    acc=o['acc'].item(),
-                                   count=count,
+                                   pred_count=count,
                                    gt_count=o['gt_count'].item(),
-                                   reps=reps,
+                                   pred_reps=reps,
                                    diff=diff)
-        df.set_index('video_name', inplace=True)
-        df.to_csv(f'{self.trainer.default_root_dir}/test_metrics.csv')
-        self.log_dict({'OBO': obo / len(outputs), 'MAE': mae / len(outputs)})
+        df.set_index('name', inplace=True)
+        if self.cfg.model.checkpoint is not None:
+            csv_path = os.path.join(self.trainer.default_root_dir,
+                                    self.cfg.model.checkpoint)
+        else:
+            csv_path = f'{self.loggers[0].log_dir}/test_metrics.csv'
+            self.log_dict({'OBO': obo / len(outputs), 'MAE': mae / len(outputs)})
+        df.to_csv(csv_path)
         return obo, mae
 
     def predict_step(self, x):
@@ -206,7 +216,7 @@ class TestDataset(Dataset):
             test_x = torch.tensor(test_x)  # type: ignore
             test_y = reps_to_label(item.reps, len(test_x),
                                    helper.classes.index(item.class_))
-            assert len(test_x.shape) == 2, test_x.shape
+            assert len(test_x.shape) == 2, test_x.shape  # type: ignore
             self.data.append({
                 'x': test_x,
                 'y': test_y,
@@ -249,7 +259,8 @@ def load_config():
                 'hidden_dim': 512,
                 'num_layers': 3,  # LSTM
                 'dropout': 0.5,
-                'example_input_array': [1, 100, 12]  # batch, window, feature_dim
+                'example_input_array': [1, 100, 12],  # batch, window, feature_dim
+                'checkpoint': 'exp/time_series/acc_0.598_epoch_000-v1.ckpt',
             },
             'optimizer': {
                 'lr': 1e-4,
@@ -258,52 +269,131 @@ def load_config():
                 'step': 10,
                 'gamma': 0.1
             },
+            'callbacks': {
+                'modelcheckpoint': {
+                    'save_top_k': 1,
+                    'save_weights_only': False,
+                    'monitor': 'val/acc',
+                    'mode': 'max',
+                    'dirpath': None,
+                },
+                'early_stopping': {
+                    'enable': False,
+                    'patience': 10,
+                }
+            },
+            'log': {
+                'log_every_n_steps': 20,
+                'csv': {
+                    'enable': True
+                },
+                'tensorboard': {
+                    'enable': True
+                },
+                'wandb': {
+                    'enable': False,
+                    'offline': False,
+                    'project': 'time_series'
+                },
+            },
+            'seed': 42,
+            'timestamp': time.strftime('%Y%m%d-%H%M%S'),
         })
     return cfg
 
 
-def train():
-    cfg = load_config()
+def setup_module(cfg):
     pl.seed_everything(42)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     model = LitModel(cfg)
+    data_module = FeatureDataModule(cfg)
+    return model, data_module
 
-    LOGGER = [
-        CSVLogger(save_dir=cfg.trainer.default_root_dir, name='csv'),
-        TensorBoardLogger(save_dir=cfg.trainer.default_root_dir, name='tensorboard'),
-        WandbLogger(save_dir=cfg.trainer.default_root_dir, project='time_series')
-    ]
-    CALLBACKS = [
-        LearningRateMonitor(log_momentum=True),
-        ModelCheckpoint(dirpath=cfg.trainer.default_root_dir,
-                        filename="acc_{val/acc:.3f}_epoch_{epoch:03d}",
-                        monitor='val/acc',
-                        mode='min',
-                        auto_insert_metric_name=False)
-    ]
+
+def setup_logger(cfg: CfgNode):
+    log_dir = os.path.join(cfg.trainer.default_root_dir, cfg.timestamp)
+    cfg_dict = cfg_dict = yaml.safe_load(cfg.dump())
+    logger: List[Any] = []
+    if cfg.log.wandb.enable:
+        wandb_logger = WandbLogger(
+            save_dir=log_dir,
+            project=cfg.log.wandb.project,
+            name=cfg.log.wandb.name,
+            offline=cfg.log.wandb.offline,
+        )
+        wandb_logger.log_hyperparams(cfg_dict)
+        # wandb_logger.watch(model, log="all")
+        logger.append(wandb_logger)
+
+    if cfg.log.tensorboard.enable:
+        tensorboard_logger = TensorBoardLogger(save_dir=log_dir,
+                                               name='tensorboard',
+                                               default_hp_metric=False)
+        tensorboard_logger.log_hyperparams(cfg_dict)
+        logger.append(tensorboard_logger)
+
+    if cfg.log.csv.enable:
+        csv_logger = CSVLogger(save_dir=log_dir, name='csv')
+        csv_logger.log_hyperparams(cfg_dict)
+        logger.append(csv_logger)
+    return logger
+
+
+def setup_callbacks(model, log_dir, cfg: CfgNode):
+    callbacks: List[Any] = []
+
+    # Learning rate monitor
+    lr_monitor = LearningRateMonitor(log_momentum=True)
+    callbacks.append(lr_monitor)
+
+    # ModelCheckpoint callback
+    if model.global_rank == 0 and not os.path.isdir(log_dir):
+        print(f'Create checkpoint directory: {log_dir}')
+        os.makedirs(log_dir)
+    cfg.callbacks.modelcheckpoint.dirpath = log_dir
+    checkpoint_callback = ModelCheckpoint(
+        **cfg.callbacks.modelcheckpoint,
+        filename="val-acc={val/acc:.3f}-epoch={epoch:03d}" + f"-{cfg.timestamp}",
+        auto_insert_metric_name=False)
+    callbacks.append(checkpoint_callback)
+
+    # EarlyStopping callback
+    if cfg.callbacks.early_stopping.enable:
+        early_stopping = EarlyStopping(monitor='train/loss',
+                                       mode='min',
+                                       patience=cfg.callbacks.early_stopping.patience)
+        callbacks.append(early_stopping)
+    return callbacks
+
+
+def train():
+    cfg = load_config()
+    cfg.model.checkpoint = None
+    model, data_module = setup_module(cfg)
+    log_dir = os.path.join(cfg.trainer.default_root_dir, cfg.timestamp)
+
+    logger = setup_logger(cfg)
+    callbacks = setup_callbacks(model, log_dir, cfg)
 
     trainer = Trainer(
         **cfg.trainer,
-        callbacks=CALLBACKS,
-        logger=LOGGER,
-        # fast_dev_run=True,
+        logger=logger,
+        callbacks=callbacks,
+        log_every_n_steps=cfg.log.log_every_n_steps,
         # strategy=DDPStrategy(find_unused_parameters=True, process_group_backend='gloo'),
     )
-    trainer.fit(model)
-    # trainer.test(model)
+    trainer.fit(model, data_module)
+
+
+def test():
+    cfg = load_config()
+    model, data_module = setup_module(cfg)
+    trainer = Trainer(devices=1, gpus=1)
+    trainer.test(model, data_module)
 
 
 if __name__ == '__main__':
     # train()
-    cfg = load_config()
-    pl.seed_everything(42)
-    data_module = FeatureDataModule(cfg)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    ckpt = LitModel.load_from_checkpoint('exp/time_series/acc_0.598_epoch_000-v1.ckpt')
-    cfg.merge_from_other_cfg(ckpt.cfg)
-    print(cfg)
-    print(ckpt.net)
-    trainer = Trainer(**cfg.trainer)
-    trainer.test(ckpt, data_module)
+    test()
+    # analyze_count(f'exp/time_series/test_metrics.csv')
