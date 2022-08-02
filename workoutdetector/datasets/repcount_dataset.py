@@ -130,7 +130,8 @@ class RepcountItem:
 
     def __str__(self):
         return (f'video: {self.video_name}\nclass: {self.class_}\n'
-            f'count: {self.count}\nreps: {self.reps}\nfps: {self.fps}')
+            f'count: {self.count}\nreps: {self.reps}\nfps: {self.fps}\n'
+            f'total_frames: {self.total_frames}')
 
     def __getitem__(self, key):
         return self.__dict__[key]
@@ -237,17 +238,13 @@ class RepcountHelper:
         for name, count in pred_reps.items():
             gt_count = items[name].count
             diff = abs(count - gt_count)
-            if gt_count > 0:
-                mae = diff / gt_count
-            else:
-                mae = 0  # Not decided how to handle 0 repetition case
             obo_acc = (diff <= 1)
-            total_mae += mae
+            total_mae += diff
             total_off_by_one += obo_acc
             pred_items[name] = RepcountItemWithPred(**items[name].__dict__,
                                                     pred_count=count,
                                                     pred_reps=[],
-                                                    mae=mae,
+                                                    mae=diff,
                                                     obo_acc=obo_acc)
         return total_mae / len(items), total_off_by_one / len(items), pred_items
 
@@ -335,7 +332,7 @@ class RepcountDataset(torch.utils.data.Dataset):  # type: ignore
                        split: str,
                        action: Optional[str] = None,
                        max_reps: int = 2) -> List[dict]:
-        """
+        """Returns a list of dict of repetitions.
 
         Args:
             split: str, train or val or test

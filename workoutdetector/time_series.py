@@ -30,8 +30,7 @@ class LSTMNet(nn.Module):
                            num_layers,
                            batch_first=True,
                            dropout=dropout)
-        self.head = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
-                                  nn.Linear(hidden_dim, output_dim))
+        self.head = nn.Linear(hidden_dim, output_dim)
         self.hidden_size = hidden_dim
         self.num_layers = num_layers
         self.device = device
@@ -46,9 +45,25 @@ class LSTMNet(nn.Module):
 
 class ConvNet(nn.Module):
 
-    def __init__(self, input_size, num_layers, hidden_size, output_size):
+    def __init__(self, in_channels, out_channels, output_dim, num_blocks, dropout):
         super(ConvNet, self).__init__()
-        self.layers = nn.Sequential()
+        block = nn.Sequential(
+            nn.Conv1d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm1d(out_channels),
+            nn.ReLU(),
+        )
+        self.layers = nn.Sequential(*[block for _ in range(num_blocks)])
+        self.dropout = nn.Dropout(dropout)
+        self.avgpool = nn.AdaptiveAvgPool1d(1)
+        self.fc = nn.Linear(out_channels, output_dim)
+
+    def forward(self, x: Tensor):
+        x = self.layers(x)
+        x = self.avgpool(x)
+        x = self.dropout(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return x
 
 
 class LitModel(LightningModule):
@@ -175,9 +190,12 @@ class FeatureDataModule(LightningDataModule):
         return FeatureDataset(self.cfg.data.json_dir,
                               self.cfg.data.anno_path,
                               split=split,
+                              normalize=self.cfg.data.normalize,
+                              softmax=self.cfg.data.softmax,
                               action=action,
                               window=window,
-                              stride=stride)
+                              stride=stride,
+                              num_classes=self.cfg.model.output_dim)
 
     def train_dataloader(self):
         train_ds = self._dataloader('train', 'all', self.cfg.data.window,
@@ -210,8 +228,11 @@ class TestDataset(Dataset):
                 test_x.append(list(v.values()))
             tx = torch.tensor(test_x)
             # Normalize
-            # tx = (tx - tx.mean(dim=-1, keepdim=True)) / tx.std(
-            #     dim=-1, keepdim=True)
+            if cfg.data.normalize:
+                tx = (tx - tx.mean(dim=-1, keepdim=True)) / tx.std(
+                dim=-1, keepdim=True)
+            if cfg.data.softmax:
+                tx = tx.softmax(dim=-1)
             test_y = reps_to_label(item.reps, item.total_frames,
                                    helper.classes.index(item.class_))
             assert len(tx.shape) == 2, tx.shape
@@ -268,7 +289,7 @@ def load_config():
         init_dict={
             'trainer': {
                 'default_root_dir': 'exp/time_series',
-                'max_epochs': 30,
+                'max_epochs': 20,
                 'devices': 1,
                 'gpus': 1,
                 'deterministic': True,
@@ -279,23 +300,25 @@ def load_config():
                 'template': '{}.stride_{}_step_{}.json',
                 'anno_path': os.path.expanduser('~/data/RepCount/annotation.csv'),
                 'batch_size': 32 * 1,
-                'window': 100,
-                'stride': 7,
+                'window': 60,
+                'stride': 20,
+                'normalize': False,
+                'softmax': True,
             },
             'model': {
                 'input_dim': 12,
-                'output_dim': 13,
+                'output_dim': 3,
                 'hidden_dim': 512,
                 'num_layers': 3,  # LSTM
                 'dropout': 0.5,
-                'example_input_array': [1, 100, 12],  # batch, window, feature_dim
-                'checkpoint': 'exp/time_series/acc_0.598_epoch_000-v1.ckpt',
+                'example_input_array': [1, 60, 12],  # batch, window, feature_dim
+                'checkpoint': None
             },
             'optimizer': {
                 'lr': 1e-4,
             },
             'lr_scheduler': {
-                'step': 10,
+                'step': 5,
                 'gamma': 0.1
             },
             'callbacks': {
@@ -320,9 +343,10 @@ def load_config():
                     'enable': True
                 },
                 'wandb': {
-                    'enable': False,
+                    'enable': True,
                     'offline': False,
-                    'project': 'time_series'
+                    'project': 'time_series',
+                    'name': None,
                 },
             },
             'seed': 42,
@@ -428,7 +452,7 @@ def test():
 
 
 if __name__ == '__main__':
-    # train()
-    # test()
-    evaluate()
+    train()
+    test()
+    # evaluate()
     # analyze_count(f'exp/time_series/test_metrics.csv')

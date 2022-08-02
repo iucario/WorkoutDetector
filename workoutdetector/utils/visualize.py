@@ -153,22 +153,12 @@ def plot_per_action(info: dict, softmax: bool = False, action_only: bool = False
     total_frames = info['total_frames']
     fps = info.get('fps', 30)
     video_len = total_frames / fps
-    ys = []
-    if softmax:
-        score_list: List[Dict[str, float]] = list(info['scores'].values())
-        od_list: List[Dict[str, float]] = []
-        for d in score_list:
-            od_list.append(to_softmax(d))
-    else:
-        od_list = list(info['scores'].values())
-    for item in od_list:
-        ys.append([item[str(j)] if str(j) in item else 0 for j in range(12)])
-    yarr = np.asarray(ys)
+    yarr = parse_json(list(info['scores'].values()), softmax)
     max_num_ticks = 10
     if action_only:
-        plt.figure(figsize=(10, 3))
+        plt.figure(figsize=(8, 2))
         plt.xlim(0, total_frames)
-        plt.ylim(0, 1)
+        plt.ylim(-0.1, 1.1)
         idx = CLASSES.index(info['action'])
         plt.plot(yarr[:, idx * 2:idx * 2 + 2])
         plt.xticks(np.linspace(0, total_frames, max_num_ticks),
@@ -188,6 +178,19 @@ def plot_per_action(info: dict, softmax: bool = False, action_only: bool = False
     plt.ylabel('Softmax score')
     plt.show()
 
+def parse_json(scores: List[dict], softmax: bool = False) -> np.ndarray:
+    ys = []
+    if softmax:
+        score_list: List[Dict[str, float]] = scores
+        od_list: List[Dict[str, float]] = []
+        for d in score_list:
+            od_list.append(to_softmax(d))
+    else:
+        od_list = scores
+    for item in od_list:
+        ys.append([item[str(j)] if str(j) in item else 0 for j in range(12)])
+    yarr = np.asarray(ys)
+    return yarr
 
 def to_softmax(d: Union[Dict[str, float], OrderedDict[str, float]]) -> Dict[str, float]:
     """Raw score to softmax score.

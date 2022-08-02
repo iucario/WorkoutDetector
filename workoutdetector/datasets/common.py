@@ -12,7 +12,7 @@ from torch import Tensor
 from torchvision.io import read_image, read_video
 from workoutdetector.datasets import RepcountHelper
 from workoutdetector.datasets.transform import sample_frames
-
+import torch.nn.functional as F
 
 class FrameDataset(torch.utils.data.Dataset):
     """Frame dataset for video. 
@@ -182,12 +182,51 @@ class ImageDataset(torch.utils.data.Dataset):
         return ret
 
 
+def reps_to_label(reps: List[int], total: int, class_idx: int):
+    """Spread interval to label.
+        Set class_idx to 0 to get 3 classes.
+    """
+    y = [0] * total
+    for start, end in zip(reps[::2], reps[1::2]):
+        mid = (start + end) // 2 + 1
+        y[start:mid] = [class_idx * 2 + 1] * (mid - start)
+        y[mid:end+1] = [class_idx * 2 + 2] * (end +1 - mid)  # plus 1 because no-class is 0
+    assert len(y) == total, f'len(y) = {len(y)} != total {total}'
+    return y
+
+
+def seq_to_windows(x: Tensor, window: int, stride: int, pad_last: bool = True) -> Tensor:
+    assert x.dim() == 2, x.shape
+    assert pad_last, "pad_last=False is not implemented"
+    t = torch.zeros(x.shape[0] + window - 1, x.shape[1])
+    if pad_last:
+        t[:x.shape[0], :] = x
+    ret = []
+    for i in range(0, x.shape[0], stride):
+        ret.append(t[i:i + window, :])
+    assert len(ret) == math.ceil(x.shape[0] / stride), \
+        f'{len(ret)} != {math.ceil(x.shape[0] / stride)}'
+    return torch.stack(ret)
+
+
 class FeatureDataset(torch.utils.data.Dataset):
     """Read JSON file containing action scores and return a time series dataset
     
     dict_keys(['video_name', 'model', 'stride', 'step', 'length', 'fps', 
         'input_shape', 'checkpoint', 'total_frames', 'ground_truth', 'action', 'scores'])
 
+    Args:
+        json_dir (str): directory containing json files of action scores
+        anno_path (str): path to annotation file
+        split (str): train, val, test
+        normalize (bool): whether to normalize scores to mean 0 and std 1
+        softmax (bool): whether to apply softmax to scores
+        action (str): action name
+        window (int): window size
+        stride (int): stride size
+        template (str): template for json file name
+        num_classes (int): number of classes. If 3 classes, 0 is no action, 1 and 2 are 
+            the two states of action.
     Example:
         >>> json_dir = os.path.expanduser(
         ...     '~/projects/WorkoutDetector/out/acc_0.841_epoch_26_20220711-191616_1x1')
@@ -206,25 +245,19 @@ class FeatureDataset(torch.utils.data.Dataset):
             action: str = 'all',
             window: int = 100,
             stride: int = 1,  # TODO: deprecate this
-            template: str = '{}.stride_1_step_1.json') -> None:
+            template: str = '{}.stride_1_step_1.json',
+            num_classes: int = 3,
+            softmax: bool = False) -> None:
         super().__init__()
         self.helper = RepcountHelper('', anno_path)
         self.classes = self.helper.classes
         self.json_dir = json_dir
         self.template = template
         self.normalize = normalize
+        self.num_classes = num_classes
+        self.softmax = softmax
         self.x, self.y = self.load_data(split, action, window, stride)
         self.tensor_x = torch.from_numpy(self.x).float()
-
-    def reps_to_label(self, reps, total, classname):
-        """Spread intervals to frame-level labels"""
-        class_idx = self.classes.index(classname)
-        y = [0] * total
-        for start, end in zip(reps[::2], reps[1::2]):
-            mid = (start + end) // 2
-            y[start:mid] = [class_idx * 2 + 1] * (mid - start)
-            y[mid:end] = [class_idx * 2 + 2] * (end - mid)  # plus 1 because no-class is 0
-        return y
 
     def load_data(self,
                   split: str,
@@ -238,23 +271,24 @@ class FeatureDataset(torch.utils.data.Dataset):
         """
         data = list(self.helper.get_rep_data([split], [action]).values())
         x = []  # action scores
-        y: List[int] = []  # labels + 1 no-class = 13 classes
+        y: List[int] = []  # labels + 1 no-class = 13 classes. Or can be set to 3.
         for item in data:
             js = json.load(open(osj(self.json_dir,
                                     self.template.format(item.video_name))))
             start_inds = list(map(int, list(js['scores'].keys())))
             end_inds = [i + 7 for i in start_inds]
             n = len(start_inds)
-            item_y = self.reps_to_label(item.reps, end_inds[-1] + 1, item.class_)
+            class_idx = self.classes.index(item.class_)
+            if self.num_classes == 3:
+                class_idx = 0
+            item_y = reps_to_label(item.reps, js['total_frames'], class_idx)
             item_x = []
             for i, v in js['scores'].items():
                 item_x.append(np.array(list(v.values())))
             assert len(item_x) == n  # length == total_frames // stride
             assert len(item_y) >= n, item  # length == total_frames
             for i, idx in enumerate(start_inds):
-                if idx - window < 0:
-                    continue
-                else:
+                if idx >= window:
                     x.append(item_x[idx - window:idx])
                     y.append(item_y[end_inds[i]])
             # TODO: need tests
@@ -288,11 +322,9 @@ class FeatureDataset(torch.utils.data.Dataset):
         n_samples, n_feats = x.shape
 
         # compute pi
-        pi = np.zeros((n_states,))
-        for i, u_label in enumerate(unique_labels):
-            pi[i] = np.count_nonzero(y == i)
-        # normalize prior probabilities
-        pi = pi / pi.sum()
+        pi = np.zeros(n_states,)
+        for i in range(unique_labels):
+            pi[i] = np.sum(y == i) / y.shape[0]
 
         # compute transition matrix:
         transmat = np.zeros((n_states, n_states))
@@ -322,6 +354,8 @@ class FeatureDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index: int) -> Tuple[Tensor, int]:
         x, y = self.tensor_x[index], self.y[index]
+        if self.softmax:
+            x = F.softmax(x, dim=-1)
         if self.normalize:
             mean = x.mean(dim=-1, keepdim=True)
             std = x.std(dim=-1, keepdim=True)
@@ -358,11 +392,15 @@ if __name__ == '__main__':
     feat_ds = FeatureDataset(json_dir,
                              anno_path,
                              'train',
-                             normalize=True,
+                             normalize=False,
                              action='squat',
                              window=100,
                              stride=7,
-                             template=template)
+                             template=template,
+                             softmax=True)
     print(len(feat_ds))
     print(feat_ds.x.shape, feat_ds.y.shape)
     # hmm_stats = feat_ds.hmm_stats(feat_ds.x.squeeze(1), feat_ds.y)
+    print(feat_ds[0][0][0])
+
+    
