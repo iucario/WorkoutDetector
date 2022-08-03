@@ -54,10 +54,10 @@ def test_reps_to_label():
 
 def test_seq_to_windows():
     x = torch.arange(10).reshape(10, 1) + 1
-    w = seq_to_windows(x, window=4, stride=3, pad_last=True)
+    w, _ = seq_to_windows(x, window=4, stride=3, pad_last=True)
     assert w.shape == (4, 4, 1), f'{w.shape}'
 
-    w = seq_to_windows(x, window=20, stride=10, pad_last=True)
+    w, _ = seq_to_windows(x, window=20, stride=10, pad_last=True)
     assert w.shape == (1, 20, 1), f'{w.shape}'
 
 
@@ -73,15 +73,15 @@ def test_FeatureDatasest():
                                normalize=False,
                                num_classes=num_classes,
                                softmax=False,
-                               stride=1,
+                               stride=17,
                                window=window)
     assert len(feat_data.tensor_x) == len(feat_data.y), \
         f'x {len(feat_data.tensor_x)} != y {len(feat_data.y)}'
-    assert feat_data.tensor_x.shape[-2:] == (window, num_classes), \
-        f'x.shape {feat_data.tensor_x.shape} != ({window}, {num_classes})'
+    assert feat_data.tensor_x.shape[-2:] == (window, 12), \
+        f'x.shape {feat_data.tensor_x.shape} != (-1, {window}, {num_classes})'
 
 
 if __name__ == '__main__':
     # test_reps_to_label()
-    test_seq_to_windows()
-    # test_FeatureDatasest()
+    # test_seq_to_windows()
+    test_FeatureDatasest()

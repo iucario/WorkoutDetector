@@ -14,6 +14,7 @@ from workoutdetector.datasets import RepcountHelper
 from workoutdetector.datasets.transform import sample_frames
 import torch.nn.functional as F
 
+
 class FrameDataset(torch.utils.data.Dataset):
     """Frame dataset for video. 
     label.txt has the following format:
@@ -189,24 +190,30 @@ def reps_to_label(reps: List[int], total: int, class_idx: int):
     y = [0] * total
     for start, end in zip(reps[::2], reps[1::2]):
         mid = (start + end) // 2 + 1
+        # class index plus 1 because no-class is 0
         y[start:mid] = [class_idx * 2 + 1] * (mid - start)
-        y[mid:end+1] = [class_idx * 2 + 2] * (end +1 - mid)  # plus 1 because no-class is 0
+        y[mid:end + 1] = [class_idx * 2 + 2] * (end + 1 - mid)
     assert len(y) == total, f'len(y) = {len(y)} != total {total}'
     return y
 
 
-def seq_to_windows(x: Tensor, window: int, stride: int, pad_last: bool = True) -> Tensor:
+def seq_to_windows(x: Tensor,
+                   window: int,
+                   stride: int,
+                   pad_last: bool = True) -> Tuple[Tensor, List[int]]:
+    """Returns windows and last frame indices."""
     assert x.dim() == 2, x.shape
     assert pad_last, "pad_last=False is not implemented"
     t = torch.zeros(x.shape[0] + window - 1, x.shape[1])
     if pad_last:
         t[:x.shape[0], :] = x
-    ret = []
+    ret, inds = [], []
     for i in range(0, x.shape[0], stride):
         ret.append(t[i:i + window, :])
+        inds.append(i + window - 1)
     assert len(ret) == math.ceil(x.shape[0] / stride), \
         f'{len(ret)} != {math.ceil(x.shape[0] / stride)}'
-    return torch.stack(ret)
+    return torch.stack(ret), inds
 
 
 class FeatureDataset(torch.utils.data.Dataset):
@@ -257,20 +264,20 @@ class FeatureDataset(torch.utils.data.Dataset):
         self.num_classes = num_classes
         self.softmax = softmax
         self.x, self.y = self.load_data(split, action, window, stride)
-        self.tensor_x = torch.from_numpy(self.x).float()
+        self.tensor_x = self.x
 
     def load_data(self,
                   split: str,
                   action: str,
                   window=100,
-                  stride=1) -> Tuple[np.ndarray, np.ndarray]:
+                  stride=1) -> Tuple[Tensor, List[int]]:
         """
         Returns:
             x (np.ndarray): [num_sample, window, 12]
             y (np.ndarray): [num_sample,] labels of int
         """
         data = list(self.helper.get_rep_data([split], [action]).values())
-        x = []  # action scores
+        x = Tensor([])  # action scores
         y: List[int] = []  # labels + 1 no-class = 13 classes. Or can be set to 3.
         for item in data:
             js = json.load(open(osj(self.json_dir,
@@ -282,32 +289,35 @@ class FeatureDataset(torch.utils.data.Dataset):
             if self.num_classes == 3:
                 class_idx = 0
             item_y = reps_to_label(item.reps, js['total_frames'], class_idx)
-            item_x = []
-            for i, v in js['scores'].items():
+            item_x: List[np.ndarray] = []
+            for _, v in js['scores'].items():
                 item_x.append(np.array(list(v.values())))
-            assert len(item_x) == n  # length == total_frames // stride
-            assert len(item_y) >= n, item  # length == total_frames
-            for i, idx in enumerate(start_inds):
-                if idx >= window:
-                    x.append(item_x[idx - window:idx])
-                    y.append(item_y[end_inds[i]])
+            assert len(
+                item_x
+            ) == n, f'{len(item_x)} != n {n}'  # math.ceil(total_frames // stride)
+            assert len(item_y) >= n, item  # total_frames
+            tx, y_inds = seq_to_windows(Tensor(np.array(item_x)),
+                                        window,
+                                        stride,
+                                        pad_last=True)
+            x = torch.cat((x, tx), dim=0)
+            y += [item_y[i] if i < len(item_y) else 0 for i in y_inds]
             # TODO: need tests
-        x = np.stack(x, axis=0)
-        y = np.array(y)  # type: ignore
         return x, y  # type: ignore
 
-    def hmm_stats(self, x, y):
+    def hmm_stats(self, x: np.ndarray, y: np.ndarray, cov_type: str = 'diag'):
         """Calculate transition matrix and initial pi and means and covariances
             for hmmlearn.hmm.GaussianHMM
 
         Args:
             x (np.ndarray): [num_sample, feature_dim]
-            y (np.ndarray): [num_sample,] labels of int
+            y (np.ndarray): [num_sample,] labels, int
+            cov_type (str): 'diag' or 'full'
         Returns:
             transition_matrix (np.ndarray): [num_states, num_states]
             pi (np.ndarray): [num_states,]
-            means (np.ndarray): [feature_dim,]
-            covariances (np.ndarray): [feature_dim,]
+            means (np.ndarray): [num_states, feature_dim]
+            covariances (np.ndarray): [num_states, feature_dim]
         Example:
             >>> hmm_stats = feat_ds.hmm_stats(feat_ds.x.squeeze(1), feat_ds.y)
         """
@@ -323,7 +333,7 @@ class FeatureDataset(torch.utils.data.Dataset):
 
         # compute pi
         pi = np.zeros(n_states,)
-        for i in range(unique_labels):
+        for i in unique_labels:
             pi[i] = np.sum(y == i) / y.shape[0]
 
         # compute transition matrix:
@@ -341,12 +351,19 @@ class FeatureDataset(torch.utils.data.Dataset):
                 means[i, :] = np.nanmean(x[y == i, :], axis=0)
         means[np.isnan(means)] = 0
 
-        cov = np.zeros((n_states, n_feats))
+        if cov_type == 'full':
+            cov = np.zeros((n_states, n_feats, n_feats))
+        elif cov_type == 'diag':
+            cov = np.zeros((n_states, n_feats))
+        else:
+            raise ValueError(f'cov_type must be "diag" or "full", not {cov_type}')
         with np.errstate(divide='ignore'):
             for i in range(n_states):
-                # cov[i, :, :] = np.cov(x[y == i, :].T)
-                # use line above if HMM using full gaussian distributions are to be used
-                cov[i, :] = np.std(x[y == i, :], axis=0)
+                if cov_type == 'full':
+                    cov[i, :, :] = np.cov(x[y == i, :].T)
+                elif cov_type == 'diag':
+                    cov[i, :] = np.std(x[y == i, :], axis=0)
+
         cov[np.isnan(cov)] = 0
         assert transmat.shape == (n_states, n_states), f'transmat {transmat.shape}'
         assert pi.shape == (n_states,), f'pi {pi.shape}'
@@ -394,13 +411,11 @@ if __name__ == '__main__':
                              'train',
                              normalize=False,
                              action='squat',
-                             window=100,
-                             stride=7,
+                             window=10,
+                             stride=70,
                              template=template,
                              softmax=True)
     print(len(feat_ds))
-    print(feat_ds.x.shape, feat_ds.y.shape)
+    print(feat_ds.x.shape, len(feat_ds.y))
     # hmm_stats = feat_ds.hmm_stats(feat_ds.x.squeeze(1), feat_ds.y)
     print(feat_ds[0][0][0])
-
-    

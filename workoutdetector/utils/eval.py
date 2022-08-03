@@ -227,11 +227,11 @@ def main(json_dir: str,
 
 
 if __name__ == '__main__':
-    d = '0720_stride_1_step_2'
+    d = 'acc_0.841_epoch_26_20220711-191616_1x1'
     json_dir = f'out/{d}'
     anno_path = 'datasets/RepCount/annotation.csv'
     window = 10
-    threshold = 0.66
+    threshold = 0.5
     out_csv = f'out/{d}_window_{window}_threshold_{threshold}.csv'
     main(json_dir,
          anno_path,
@@ -239,6 +239,6 @@ if __name__ == '__main__':
          softmax=True,
          window=window,
          stride=1,
-         step=2,
+         step=1,
          threshold=threshold)
     analyze_count(out_csv)
