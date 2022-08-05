@@ -3,4 +3,4 @@ docker run --rm -it \
   --shm-size=16gb \
   --volume="$PWD:/work" \
   --volume="/home/$USER/data:/home/user/data:ro" \
-  my/dev:latest python3 tmp/multi_gpu.py
+  my/dev:latest python3 trainer.py

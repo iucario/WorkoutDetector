@@ -7,7 +7,7 @@ import torch
 import torchvision.transforms.functional as TF
 from fvcore.common.config import CfgNode
 from torchvision.io import read_image
-from workoutdetector.trainer import DataModule, train
+from workoutdet.trainer import DataModule, train
 
 
 def _check_data(loader: torch.utils.data.DataLoader, num_class: int = 12):

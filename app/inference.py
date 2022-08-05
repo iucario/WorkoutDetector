@@ -15,8 +15,8 @@ from fastapi import WebSocket
 from PIL import Image
 from torch import Tensor
 from torchvision.io import read_video
-from workoutdetector.trainer import LitModel
-from workoutdetector.utils import pred_to_count
+from workoutdet.trainer import LitModel
+from workoutdet.utils import pred_to_count
 
 warnings.filterwarnings('ignore')
 onnxruntime.set_default_logger_severity(3)

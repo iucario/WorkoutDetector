@@ -13,7 +13,8 @@ setup(
         'pytorch-lightning',
         'tqdm',
         'fvcore',
-        'einops'
+        'einops',
+        'hmmlearn'
     ],
     homepage='https://github.com/iucario/WorkoutDetector',
 )

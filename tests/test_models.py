@@ -3,8 +3,7 @@ import random
 import sys
 import torch
 from torch.utils.data import DataLoader
-from workoutdetector.models.tsm import create_model
-from workoutdetector.datasets import DebugDataset, Pipeline
+from workoutdet.tsm import create_model
 import torch.nn as nn
 from torch.nn import CrossEntropyLoss
 from torch import optim

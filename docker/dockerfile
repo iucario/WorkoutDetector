@@ -1,17 +1,17 @@
 FROM nvidia/cuda:11.3.1-cudnn8-devel-ubuntu20.04
 
-ARG UID=2200
-ARG GID=2200
+ARG UID=1000
+ARG GID=1000
 ARG PYTHON_VERSION=3.9.12
-ARG PYTORCH_VERSION=1.10.2
+ARG PYTORCH_VERSION=1.12.1
 ARG PYTORCH_VERSION_SUFFIX=+cu113
 ARG TORCHVISION_VERSION=0.11.3
 ARG TORCHVISION_VERSION_SUFFIX=+cu113
-ARG TORCHAUDIO_VERSION=0.10.2
+ARG TORCHAUDIO_VERSION=0.12.1
 ARG TORCHAUDIO_VERSION_SUFFIX=+cu113
 ARG PYTORCH_DOWNLOAD_URL=https://download.pytorch.org/whl/cu113/torch_stable.html
 
-ARG IMAGE_TAG=1.10.2-py3.9.12-cuda11.3.1-devel-ubuntu20.04
+ARG IMAGE_TAG=${PYTORCH_VERSION}-py${PYTHON_VERSION}-cuda11.3.1-devel-ubuntu20.04
 ENV NVIDIA_DRIVER_CAPABILITIES ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
 
 # Fix Nvidia key
@@ -31,7 +31,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Timezone
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends &&\
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends &&\
     DEBIAN_FRONTEND=noninteractive apt-get install -yq tzdata && \
     rm /etc/localtime && \
     ln -fs /usr/share/zoneinfo/Asia/Tokyo /etc/localtime    
@@ -44,14 +45,6 @@ RUN cd /tmp && \
     libc6-dev libbz2-dev libffi-dev zlib1g-dev && \
     sudo apt install -y python3-pip && \
     sudo apt install python-is-python3
-
-# wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz && \
-# tar -xvf Python-${PYTHON_VERSION}.tgz && \
-# cd Python-${PYTHON_VERSION} && \
-# ./configure --enable-optimizations && \
-# make && make install && \
-# cd .. && rm -r Python-${PYTHON_VERSION} && \
-
 
 # Pytorch
 RUN pip install \
@@ -72,9 +65,10 @@ RUN mkdir /work
 WORKDIR /work
 
 # Create a non-root user and switch to it
-RUN adduser --disabled-password --gecos '' --shell /bin/bash user \
-    && chown -R ${UID}:${GID} /work
+RUN groupadd -g $GID -o user
+RUN useradd -m -u $UID -g $GID -o -s /bin/bash user
 RUN echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-user
+RUN chown -R user /work
 USER user
 RUN export $PATH=$PATH:/home/user/.local/bin
 
@@ -82,18 +76,6 @@ RUN export $PATH=$PATH:/home/user/.local/bin
 ENV HOME=/home/user
 RUN mkdir $HOME/.cache $HOME/.config \
     && chmod -R 777 $HOME
-
-# Set up the Conda environment
-# ENV CONDA_AUTO_UPDATE_CONDA=false \
-#     PATH=$HOME/miniconda/bin:$PATH
-# COPY environment.yml /app/environment.yml
-# RUN curl -sLo ~/miniconda.sh https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh \
-#     && chmod +x ~/miniconda.sh \
-#     && ~/miniconda.sh -b -p ~/miniconda \
-#     && rm ~/miniconda.sh \
-#     && conda env update -n base -f /app/environment.yml \
-#     && rm /app/environment.yml \
-#     && conda clean -ya
 
 # Install requirements from PyPI.
 # RUN pip install -r requirements.txt
@@ -111,22 +93,8 @@ RUN pip install pytorch_lightning \
     opencv-contrib-python \
     opencv-contrib-python-headless \
     pytorchvideo \
-    yt-dlp
-
-# Zsh and oh-my-zsh
-RUN sudo apt-get update && \
-    sudo apt-get install -y zsh && \
-    sudo apt install git-core curl fonts-powerline -y && \
-    sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh)" 
-
-# Install OpenMMLab.
-RUN pip install openmim && \
-    PATH=$PATH:/home/user/.local/bin && \
-    mim install mmcv-full==1.5.0 && \
-    mim install mmdet && \
-    mim install mmtrack && \
-    mim install mmpose && \
-    pip install git+https://github.com/open-mmlab/mmaction2.git
+    yt-dlp \
+    hmmlearn
 
 # Set the default command to zsh
-CMD ["zsh"]
+CMD ["bash"]
