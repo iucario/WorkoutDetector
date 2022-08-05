@@ -1,12 +1,10 @@
 import json
 import os
 from collections import Counter
-from typing import Dict, List, Optional, OrderedDict, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import torch
 
 from workoutdet.predict import pred_to_count
 from workoutdet.utils import to_softmax
@@ -28,39 +26,8 @@ def obo_mae(preds: List[int],
         return mae / len(preds), off_by_one
 
 
-def eval_count(preds: List[int], gt: List[int]):
-    """Evaluates counting accuracy
-    
-    Args:
-        preds (list of int): predicted reps. [start_1, end_1, ...]
-        gt (list of int): ground truth reps
-    Returns:
-        Tuple[float]: Recall and precision
-    Metrics:
-        - OBO (off by one) accuracy
-        - MAE: mean averaged error
-        * True positive: count when repetition occurs
-        * False positive: count when no repetition occurs
-        - Recall: TP / ground truth counts
-        - Precision: TP / predicted counts
-    Example::
-
-        >>> preds = [1, 3, 5, 7]
-        >>> gt = [0, 2, 4, 6]
-        >>> eval_count(preds, gt)
-        (1.0, 1.0)
-
-        >>> preds = [1, 3, 5, 7]
-        >>> gt = [0, 5, 7, 9]
-        >>> eval_count(preds, gt)
-        (0.5, 0.5)
-    """
-    # TODO: how to define true positive and false positive?
-    pass
-
-
-def analyze_count(csv: str, out_csv: bool = True) -> None:
-    """Input a csv file, analyze results
+def count_stats(csv: str, out_csv: bool = True) -> None:
+    """Input a csv file, analyze results. Accuracy, etc.
     
     Args:
         csv (str): path to csv file, with columns:
@@ -68,7 +35,7 @@ def analyze_count(csv: str, out_csv: bool = True) -> None:
         out_csv (bool): save results to path `{the_input_csv_name}_meta.csv`,
             default True
     Example:
-        >>> analyze_count('out/tsm_lightning_sparse_sample_eval.csv')
+        >>> count_stats('out/tsm_sparse_sample_eval.csv')
     """
 
     df = pd.read_csv(csv, index_col='name')
@@ -110,34 +77,13 @@ def analyze_count(csv: str, out_csv: bool = True) -> None:
     print(df_out.to_latex(index=False))
 
 
-def exp_moving_avg(prev: float, curr: float, alpha: float = 0.9) -> float:
-    """Exponential moving average."""
-    return alpha * curr + (1 - alpha) * prev
-
-
-def smooth_pred(pred: List[int], window: int) -> List[int]:
-    """Select the most frequent predicted labels in non-overlapping windows.
-    Test on different values and select the best for evaluation.
-    Prior related works did this. They selected the best stride.
-    """
+def major_vote(pred: List[int], window: int) -> List[int]:
+    """Return the most frequent predicted labels in non-overlapping windows."""
     pred_smooth = []
     for i in range(0, len(pred), window):
         counter = Counter(pred[i:min(i + window, len(pred))])
         pred_smooth.append(counter.most_common(1)[0][0])
     return pred_smooth
-
-
-def true_seg_only(pred: List[int]):
-    """Only the segments that has valid action are evaluated."""
-    pass
-
-
-def eval_one_video_heuristic():
-    pass
-
-
-def eval_one_video_density():
-    pass
 
 
 def load_json(fpath, softmax: bool = True) -> Tuple[dict, str]:
@@ -151,12 +97,8 @@ def load_json(fpath, softmax: bool = True) -> Tuple[dict, str]:
     return scores, json_data['action']
 
 
-def hmm_infer(scores):
-    pass
-
-
 def infer(scores: dict, threshold: float, window=10) -> List[int]:
-    """Naive inference by state transition"""
+    """Naive inference by counting state transition"""
     pred = []
     for v in scores.values():
         class_id, score = max(v.items(), key=lambda x: x[1])
@@ -165,13 +107,13 @@ def infer(scores: dict, threshold: float, window=10) -> List[int]:
         else:
             pred.append(-1)
     # smooth predictions
-    pred = smooth_pred(pred, window)
+    pred = major_vote(pred, window)
     return pred
 
 
 def main(json_dir: str,
          anno_path: str,
-         out_csv: Optional[str],
+         out_csv: Optional[str] = None,
          softmax: bool = True,
          threshold: float = 0.5,
          stride: int = 1,
@@ -186,12 +128,16 @@ def main(json_dir: str,
         out_csv (str or None): path to save output csv file, with columns:
             `,name,gt_count,pred_count,gt_rep,pred_rep,split,action`
         softmax (bool): whether to apply softmax
+        threshold (float): frames with score under threshold will be skipped
+        stride (int): stride of each evaluation
+        step (int): step of frames to evaluate
+        window (int): majority vote window size
     Example:
-        >>> json_dir = 'out/tsm_lightning_sparse_sample'
+        >>> json_dir = 'out/tsm_sparse_sample'
         >>> anno_path = 'data/RepCount/annotation.csv'
-        >>> out_csv = 'out/tsm_lightning_sparse_sample_eval.csv'
+        >>> out_csv = 'out/tsm_sparse_sample_eval.csv'
         >>> main(json_dir, anno_path, out_csv)
-        Done. csv file saved to out/tsm_lightning_sparse_sample_eval.csv
+        Done. csv file saved to out/tsm_sparse_sample_eval.csv
         =====Mean absolute error: 4.0141, OBO acc: 0.2293=====
     """
 
@@ -243,4 +189,4 @@ if __name__ == '__main__':
          stride=1,
          step=1,
          threshold=threshold)
-    analyze_count(out_csv)
+    count_stats(out_csv)

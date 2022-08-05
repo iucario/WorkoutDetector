@@ -68,7 +68,7 @@ WORKDIR /work
 RUN groupadd -g $GID -o user
 RUN useradd -m -u $UID -g $GID -o -s /bin/bash user
 RUN echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-user
-RUN chown -R user /work
+RUN chown -R user .
 USER user
 RUN export $PATH=$PATH:/home/user/.local/bin
 

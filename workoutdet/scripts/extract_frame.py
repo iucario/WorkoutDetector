@@ -36,6 +36,3 @@ if __name__ == '__main__':
     data_root = os.path.expanduser('~/data/RepCount/videos/')
     dest_dir = os.path.expanduser('~/data/RepCount/rawframes/')
     extract_all(data_root, dest_dir)
-    # for video in os.listdir(data_root):
-    #     video_path = os.path.join(data_root, video)
-    #     extract(video_path, dest_dir)

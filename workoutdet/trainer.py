@@ -310,12 +310,12 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--cfg",
         dest="cfg_file",
         help="Path to the config file",
-        default=osj("workoutdetector/configs/repcount_12_tsm.yaml"),
+        default=osj("workoutdetector/configs/repcount.yaml"),
         type=str,
     )
     parser.add_argument(
         "opts",
-        help="See workoutdetector/configs/repcount_12_tsm.yaml for all options",
+        help="See workoutdetector/configs/repcount.yaml for all options",
         default=None,
         nargs=argparse.REMAINDER,
     )
@@ -328,7 +328,7 @@ def load_config(args) -> CfgNode:
     Args:
         args (argument): arguments includes `cfg_file`.
     """
-    cfg = CfgNode(yaml.safe_load(open('workoutdetector/repcount_12_tsm.yaml')))
+    cfg = CfgNode(yaml.safe_load(open('workoutdetector/repcount.yaml')))
     cfg.merge_from_file(args.cfg_file)
     if args.opts is not None:
         cfg.merge_from_list(args.opts)

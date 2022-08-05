@@ -1,9 +1,9 @@
 from setuptools import setup
 
 setup(
-    name='workoutdetector',
+    name='workoutdet',
     version='0.0.1',
-    description='WorkoutDetector',
+    description='Workout Detector',
     packages=[],
     install_requires=[
         'torch',

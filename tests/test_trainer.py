@@ -18,7 +18,7 @@ def _check_data(loader: torch.utils.data.DataLoader, num_class: int = 12):
 
 
 def test_DataModule():
-    config = 'workoutdetector/configs/repcount_12_tsm.yaml'
+    config = 'workoutdetector/configs/repcount.yaml'
     cfg = CfgNode(new_allowed=True)
     cfg.merge_from_file(config)
     cfg.trainer.fast_dev_run = True

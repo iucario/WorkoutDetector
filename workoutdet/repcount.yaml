@@ -33,7 +33,7 @@ model:
   fc_lr5: true
   temporal_pool: false
   non_local: false
-  checkpoint: checkpoints/finetune/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth
+  checkpoint: checkpoints/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth
 
 data:
   dataset_type: FrameDataset

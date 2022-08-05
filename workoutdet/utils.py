@@ -7,260 +7,97 @@ import torch.nn.functional as F
 from matplotlib.collections import LineCollection
 
 CLASSES = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
+from typing import Dict, List
 
-import base64
-import math
-import os
-import os.path as osp
-from dataclasses import dataclass
-from os.path import join as osj
-from typing import Dict, List, Optional, Tuple
-
+import matplotlib
 import numpy as np
-import pandas as pd
 import torch
-from torch import Tensor
-from torchvision.datasets.utils import (download_and_extract_archive, verify_str_arg)
+
+params = {
+    'figure.dpi': 300,
+    'figure.figsize': (8, 5),
+    'figure.autolayout': True,
+    'lines.linewidth': 1,
+    'axes.prop_cycle': plt.cycler('color', list(plt.get_cmap('tab20').colors)),
+    'font.size': 10,
+    'font.family': 'sans-serif',
+}
 
 
-def sample_frames(total: int,
-                  num: int,
-                  offset: int = 0,
-                  random: bool = True) -> List[int]:
-    """Uniformly sample `num` frames from video, randomly.
-    
-    Args:
-        total: int, total frames, 
-        num: int, number of frames to sample
-        offset: int, offset from start of video
-        random: bool, whether to sample randomly, default True.
-            If False, always select the first frame in segments.
-    Returns: 
-        list of frame indices starting from offset
-    Examples:
-        >>> sample_frames(total=4, num=8, offset=0, random=False)
-        [0, 0, 1, 1, 2, 2, 3, 3]
-        >>> sample_frames(total=10, num=8, offset=0, random=False)
-        [0, 1, 2, 3, 4, 5, 6, 7]
-        >>> sample_frames(total=40, num=8, offset=0, random=False)
-        [0, 5, 10, 15, 20, 25, 30, 35]
-        >>> sample_frames(total=40, num=8, offset=0, random=True)
-        [2, 6, 13, 18, 24, 29, 32, 36]
-        >>> sample_frames(total=40, num=8, offset=20, random=False)
-        [20, 25, 30, 35, 40, 45, 50, 55]
-    """
+@matplotlib.rc_context(params)
+def plot_raw_output(val_x: np.ndarray, val_y: np.ndarray, pred: np.ndarray,
+                    baseline: np.ndarray, class_idx: int, title: str) -> None:
+    fig, ax = plt.subplots(4, 1, figsize=(7, 4), dpi=400)
+    ax[0].plot(pred, 'C2', label='HMM')
+    ax[1].plot(val_y, 'C0', label='true')
+    for i in range(4):
+        if i != 2:
+            ax[i].set_ylim(-0.1, 2.1)
+        if i < 3:
+            ax[i].set_xticks([])
+    ax[0].text(-len(val_y) * 0.15, 1, 'HMM', color='C2', fontsize=9)
+    ax[1].text(-len(val_y) * 0.15, 1, 'True', color='C0', fontsize=9)
+    ax[2].text(-len(val_y) * 0.15, 1, 'Input', fontsize=9)
+    ax[3].text(-len(val_y) * 0.15, 1, 'Argmax', color='C12', fontsize=9)
+    colors = ['C15'] * val_x.shape[1]
+    colors[class_idx * 2:class_idx * 2 + 2] = ['C0', 'C2']
+    for i, line in enumerate(val_x.T):
+        ax[2].plot(line, color=colors[i], alpha=0.8)
 
-    if total < num:
-        # repeat frames if total < num
-        repeats = math.ceil(num / total)
-        data = [x for x in range(total) for _ in range(repeats)]
-        total = len(data)
-    else:
-        data = list(range(total))
-    interval = total // num
-    indices = np.arange(0, total, interval)[:num]
-    if random:
-        for i, x in enumerate(indices):
-            rand = np.random.randint(0, interval)
-            if i == num - 1:
-                upper = total
-                rand = np.random.randint(0, upper - x)
-            else:
-                upper = min(interval * (i + 1), total)
-            indices[i] = (x + rand) % upper
-    assert len(indices) == num, f'len(indices)={len(indices)}'
-    for i in range(1, len(indices)):
-        assert indices[i] > indices[i - 1], f'indices[{i}]={indices[i]}'
-    assert num == len(indices), f'num={num}'
-    return [data[i] + offset for i in indices]
+    ax[3].plot(baseline, 'C12', label='Argmax')
+    ax[-1].set_xlabel('Frame index')
+    ax[0].set_title(title)
+    plt.tight_layout()
+    plt.show()
 
 
-def eval_count(preds: List[int], targets: List[int]) -> Tuple[float, float]:
-    """Evaluate count prediction. By mean absolute error and off-by-one error."""
-
-    mae = 0.0
-    off_by_one = 0.0
-    for pred, target in zip(preds, targets):
-        mae += abs(pred - target)
-        off_by_one += (abs(pred - target) == 1)
-    return mae / len(preds), off_by_one / len(preds)
-
-
-@dataclass
-class RepcountItem:
-    """RepCount dataset video item"""
-
-    video_path: str  # the absolute video path
-    frames_path: str  # the absolute rawframes path
-    total_frames: int
-    class_: str
-    count: int
-    reps: List[int]  # start_1, end_1, start_2, end_2, ...
-    split: str
-    video_name: str
-    fps: float = 30.0
-    ytb_id: Optional[str] = None  # YouTube id
-    ytb_start_sec: Optional[int] = None  # YouTube start sec
-    ytb_end_sec: Optional[int] = None  # YouTube end sec
-
-    def __str__(self):
-        return (f'video: {self.video_name}\nclass: {self.class_}\n'
-                f'count: {self.count}\nreps: {self.reps}\nfps: {self.fps}\n'
-                f'total_frames: {self.total_frames}')
-
-    def __getitem__(self, key):
-        return self.__dict__[key]
-
-    def __iter__(self):
-        return iter(self.__dict__.items())
-
-
-def get_rep_data(anno_path: str,
-                 data_root: str = None,
-                 split: List[str] = ['test'],
-                 action: List[str] = ['situp']) -> Dict[str, RepcountItem]:
-    """Return the RepCount dataset items
-    Args:
-        anno_path (str): the annotation file path
-        data_root (str): the data root path, e.g. 'data/RepCount'
-        split (List[str]): list of the split names
-        action (List[str]): list of the action names. If ['all'], all actions are used.
-
-    Returns:
-        dict of name: RepcountItem
-    """
-    assert len(split) > 0, 'split must be specified, e.g. ["train", "val"]'
-    assert len(action) > 0, 'action must be specified, e.g. ["pull_up", "squat"]'
-    data_root = '' if data_root is None else data_root
-    split = [x.lower() for x in split]
-    action = [x.lower() for x in action]
-    if 'all' in action:
-        action = CLASSES
-    df = pd.read_csv(anno_path, index_col=0)
-    df = df[df['split'].isin(split)]
-    df = df[df['class_'].isin(action)]
-    df = df.reset_index(drop=True)
-    ret = {}
-    for idx, row in df.iterrows():
-        name = row['name']
-        name_no_ext = name.split('.')[0]
-        class_ = row['class_']
-        split_ = row['split']
-        video_path = os.path.join(data_root, 'videos', split_, name)
-        frame_path = os.path.join(data_root, 'rawframes', split_, name_no_ext)
-        total_frames = -1
-        if os.path.isdir(frame_path):  # TODO: this relies on rawframe dir. Not good.
-            total_frames = len(os.listdir(frame_path))
-        video_id = row['vid']
-        count = int(row['count'])
-        if count > 0:
-            reps = [int(x) for x in row['reps'].split()]
-        else:
-            reps = []
-        item = RepcountItem(video_path, frame_path, total_frames, class_, count, reps,
-                            split_, name, row.fps, video_id, row['start'], row['end'])
-        ret[name] = item
-    return ret
-
-
-def get_video_list(anno_path: str,
-                   split: str,
-                   action: Optional[str] = None,
-                   max_reps: int = 2) -> List[dict]:
-    """Returns a list of dict of repetitions.
-
-    Args:
-        split: str, train or val or test
-        action: str, action class name. If none, all actions are used.
-        max_reps: int, limit the number of repetitions per video.
-            If less than 1, all repetitions are used.
-
-    Returns:
-        list of dict: videos, 
-            {
-                video_path: path to raw frames dir, relative to `root`
-                start: start_frame_index, start from 1,
-                end: end_frame_index
-                length: end_frame_index - start_frame_index + 1
-                class: action class,
-                label: 0 or 1
-            }
-    """
-    df = pd.read_csv(anno_path)
-    if action is not None:
-        df = df[df['class_'] == action]
-    videos = []
-    for row in df.itertuples():
-        name = row.name.split('.')[0]
-        count = row.count
-        if count > 0:
-            reps = list(map(int, row.reps.split()))[:max_reps * 2]
-            for start, end in zip(reps[0::2], reps[1::2]):
-                start += 1  # plus 1 because img index starts from 1
-                end += 1  # but annotated frame index starts from 0
-                mid = (start + end) // 2
-                videos.append({
-                    'video_path': os.path.join('RepCount/rawframes', split, name),
-                    'start': start,
-                    'end': mid,
-                    'length': mid - start + 1,
-                    'class': row.class_,
-                    'label': 0
-                })
-                videos.append({
-                    'video_path': os.path.join('RepCount/rawframes', split, name),
-                    'start': mid + 1,
-                    'end': end,
-                    'length': end - mid,
-                    'class': row.class_,
-                    'label': 1
-                })
-    return videos
-
-
-class RepcountDataset(torch.utils.data.Dataset):
-    """Repcount dataset
-    https://github.com/SvipRepetitionCounting/TransRAC
-    
-    Args:
-        root: str, root dir
-        split: str, train or val or test
-    
-    Properties:
-        classes: list of str, class names
-        df: pandas.DataFrame, annotation data
-        split: str, train or val or test
-        transform: callable, transform for rawframes
-    
-    Notes:
-        File tree::
-
-            |- RepCount
-            |   |- rawframes
-            |   |   |- train
-            |   |   |     |- video_name/img_00001.jpg
-            |   |   |- val
-            |   |   |- test
-            |   |- videos
-            |       |- train
-            |       ...
-
-        The annotation csv file has columns:
-            name: video name, e.g. 'video_1.mp4'
-            class: action class name, e.g. 'squat'
-            vid: YouTube video id of length 11
-            start: start frame index
-            end: end frame index
-            count: repetition count
-            reps: repetition indices, in format `[s1, e1, s2, e2, ...]`
-
-        The annotation csv file is expected to be in:
-        `{PROJ_ROOT}/datasets/RepCount/annotations.csv`
-
-    """
-    _URL_VIDEO = 'https://1drv.ms/u/s!AiohV3HRf-34ipk0i1y2P1txpKYXFw'
-    _URL_ANNO = 'https://1drv.ms/f/s!AiohV3HRf-34i_V9MWtdu66tCT2pGQ'
-    _URL_RAWFRAME = 'https://1drv.ms/u/s!AiohV3HRf-34ipwACYfKSHhkZzebrQ'
+@matplotlib.rc_context(params)
+def plot_hmm(result: List[int],
+             gt: List[int],
+             orig_reps: List[int],
+             total_frames: int,
+             fps: float,
+             title: str,
+             show: bool = True,
+             save_path: str = None) -> None:
+    video_len = total_frames / fps
+    max_num_ticks = 10
+    plt.figure(figsize=(7, 2))
+    plt.xlabel('Second', fontsize=10)
+    plt.yticks([])
+    plt.ylim(0, 1)
+    offset = total_frames // 10
+    plt.xlim(-offset * 1.1, total_frames + 5)
+    h = 0.2
+    plt.xticks(np.linspace(0, total_frames, max_num_ticks),
+               np.round(np.linspace(0.0, video_len, max_num_ticks), 2),
+               fontsize=10)
+    # background
+    rect = plt.Rectangle((0, h), total_frames, 0.6, color='w')
+    plt.gca().add_patch(rect)
+    for i in range(0, len(gt), 2):
+        rect = plt.Rectangle((gt[i], 0.6), (gt[i + 1] - gt[i]), h, color='C1')
+        plt.gca().add_patch(rect)
+    plt.vlines(gt, color='C0', linewidth=2, ymin=0.6, ymax=0.8)
+    for j in range(0, len(result), 2):
+        rect = plt.Rectangle((result[j], 0.4), (result[j + 1] - result[j]),
+                             h - 0.01,
+                             color='C2')
+        plt.gca().add_patch(rect)
+    for i in range(0, len(orig_reps), 2):
+        rect = plt.Rectangle((orig_reps[i], 0.2), (orig_reps[i + 1] - orig_reps[i]),
+                             h - 0.01,
+                             color='C5')
+        plt.gca().add_patch(rect)
+    plt.title(title)
+    plt.text(-offset, 0.65, 'True', color='C0', fontsize=9)
+    plt.text(-offset, 0.45, 'HMM', color='C2', fontsize=9)
+    plt.text(-offset, 0.25, 'Argmax', color='C4', fontsize=9)
+    if show:
+        plt.show()
+    if save_path is not None:
+        plt.savefig(save_path)
+        plt.close()
 
 
 def parse_json_score(scores: List[dict], softmax: bool = False) -> np.ndarray:
@@ -292,14 +129,14 @@ def to_softmax(d: Union[Dict[str, float], OrderedDict[str, float]]) -> Dict[str,
 
 
 def plt_params() -> dict:
-    COLORS = list(plt.get_cmap('Tab20').colors)
+    colors = list(plt.get_cmap('Tab20').colors)
     plt.style.use('seaborn-dark')
     params = {
         'figure.dpi': 300,
         'figure.figsize': (7, 4),
         'figure.autolayout': True,
         'lines.linewidth': 1,
-        'axes.prop_cycle': plt.cycler('color', COLORS),
+        'axes.prop_cycle': plt.cycler('color', colors),
         'font.size': 8,
         'font.family': 'sans-serif',
     }
@@ -375,8 +212,8 @@ def plot_all(gt_reps: np.ndarray,
         ys.append([item[str(j)] if str(j) in item else 0 for j in range(12)])
     yarr = np.asarray(ys)
     counts = len(gt_reps) // 2
-    GT_CLASS_INDEX = CLASSES.index(info['action'])
-    COLORS = list(plt.get_cmap('Set3').colors)
+    gt_class_idx = CLASSES.index(info['action'])
+    colors = list(plt.get_cmap('Set3').colors)
     max_num_ticks = 10
     plt.plot(yarr, marker='.', linestyle='None')
     plt.xticks(np.linspace(0, total_frames, max_num_ticks),
@@ -386,28 +223,27 @@ def plot_all(gt_reps: np.ndarray,
     plt.title(f"{info['video_name']} {info['action']} count={counts}")
     plt.ylim(0, 1.1)
     plt.vlines(x=gt_reps[0::2] // stride,
-               color=COLORS[GT_CLASS_INDEX * 2],
+               color=colors[gt_class_idx * 2],
                ymin=0.51,
                ymax=1.0)
     plt.vlines(x=gt_reps[1::2] // stride,
-               color=COLORS[GT_CLASS_INDEX * 2 + 1],
+               color=colors[gt_class_idx * 2 + 1],
                ymin=0.0,
                ymax=0.49)
     plt.legend(np.array(CLASSES).repeat(2))
 
     # Indicator
     segs = []
-    HEIGHT = 1.01
+    height = 1.01
     for i in range(len(gt_reps[::2])):
         start = gt_reps[i * 2]
         end = gt_reps[i * 2 + 1]
         mid = (start + end) // 2
-        segs.append([(start // stride, HEIGHT), (mid // stride, HEIGHT)])
-        segs.append([(mid // stride, HEIGHT), (end // stride, HEIGHT)])
-    lc = LineCollection(
-        segs,
-        colors=[COLORS[GT_CLASS_INDEX * 2], COLORS[GT_CLASS_INDEX * 2 + 1]],
-        linewidths=1)
+        segs.append([(start // stride, height), (mid // stride, height)])
+        segs.append([(mid // stride, height), (end // stride, height)])
+    lc = LineCollection(segs,
+                        colors=[colors[gt_class_idx * 2], colors[gt_class_idx * 2 + 1]],
+                        linewidths=1)
     plt.gca().add_collection(lc)
     plt.show()
 

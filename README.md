@@ -2,6 +2,11 @@
 
 Detects workouts and counts repetitions in videos.
 
+## Requirements
+
+- Data: [RepCount](https://github.com/SvipRepetitionCounting/TransRAC)
+- Weights: [TSM](https://hanlab.mit.edu/projects/tsm/models/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth)
+
 ## Installation
 
 ```
@@ -46,57 +51,71 @@ docker run --rm -it \
 
 ## Repetition counting
 
-Method is naive. The transition of states is counted as one repetition. 
+Method is naive. The transition of states is counted as one repetition.
 Hidden markov model is used to count repetitions.
 
 ### Evaluation
 
 1. Inference videos and save results to a directory. Results of each video will be saved in a JSON file.
-   `workoutdetector/predict.py`
+   `workoutdet/predict.py`
+
    ```python
-   ckpt = 'checkpoints/model.onnx'
-   model = onnxruntime.InferenceSession(ckpt, providers=['CUDAExecutionProvider'])
-   inference_dataset(model, ['train', 'val', 'test'], out_dir='out/tsm_rep_scores', checkpoint=ckpt)
+   ckpt = 'checkpoints/model.ckpt'
+   out_dir = 'out/tsm_rep_scores'
+   main(ckpt, out_dir, stride=1, step=1, rank=0, world_size=1)
    ```
-   Scores of each video are saved in `out/tsm_rep_scores/video.mp4.score.json`.
-2. Evaluating mean absolute error and off-by-one accuracy
-   `workoutdetector/utils/eval_count.py`
+
+   Scores of each video will be saved in `out/tsm_rep_scores/{video}.stride_1_step_1.json`.
+
+2. Counting repetitions using hidden markov model
+   `workoutdet/hmm.py`
+
+   ```python
+   anno_path = 'datasets/RepCount/annotation.csv'
+   json_dir = 'json'
+   hmm_eval(anno_path, json_dir)
+   ```
+   Will save results to 'hmm_result.csv' and print the results.
+
+3. Or counting repetitions using the naive method
+   `workoutdet/evaluate.py`
    ```python
    json_dir = 'out/tsm_rep_scores'
-   anno_path = 'data/RepCount/annotation.csv'
+   anno_path = 'datasets/RepCount/annotation.csv'
    out_csv = 'out/tsm_rep_scores.csv'
-   main(json_dir, anno_path, out_csv, softmax=True)
-   analyze_count(out_csv, out_csv.replace('.csv', '_meta.csv'))
+   main(json_dir, anno_path, out_csv, window=10, stride=1, step=1, threshold=0.5, softmax=True)
+   count_stats(out_csv, out_csv.replace('.csv', '_meta.csv'))
    ```
-   Results of every video are saved in `out/tsm_rep_scores.csv`.
-   Metrics are saved in `out/tsm_rep_scores_meta.csv`.
-3. Visualization
-   `notebooks/rep_analysis.ipynb`
+   Results of every video will be saved in `out/tsm_rep_scores.csv`.
+   Metrics will be saved in `out/tsm_rep_scores_meta.csv`.
 
 ## Train an action recognition model
 
-### Extract video frames
+### Prepare data
+1. Extract video frames
+   `workoutdet/scripts/extract_frame.py`
 
-Extract frames to `data/{dataset}/rawframes/{split}/{video_name}/img_{frame_id}.jpg`
+2. Build label files
+   `workoutdet/scripts/build_label_file.py`
 
 ### Train video with TSM
 
 1. Build label files
    `scripts/build_label_files.py`
 
-   ```
+   ```python
     anno_file = 'datasets/RepCount/annotation.csv'
     data_root = os.path.join(PROJ_ROOT, 'data')
     dst_dir = os.path.join(data_root, 'Binary')
     build_with_start(data_root, anno_file, dst_dir)
    ```
 
-2. Download weights pretrained on SSV2:
+2. Download weights pretrained on Something-Something-v2:
    https://hanlab.mit.edu/projects/tsm/models/TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth
 3. Modify config file
-   `configs/repcount_12_tsm.yaml`
+   `configs/repcount.yaml`
 4. Train
-   `python workoutdetector/trainer.py --cfg workoutdetector/configs/tsm.yaml`
+   `python workoutdet/trainer.py --cfg workoutdet/repcount.yaml`
 
 - Configs
   Best weigths are saved in directory `{cfg.trainer.default_root_dir}/checkpoints`,
@@ -112,3 +131,6 @@ Extract frames to `data/{dataset}/rawframes/{split}/{video_name}/img_{frame_id}.
 This project uses pretrained models from:
 
 - [TSM](https://hanlab.mit.edu/projects/tsm/)
+
+Data from:
+- [RepCount](https://github.com/SvipRepetitionCounting/TransRAC)

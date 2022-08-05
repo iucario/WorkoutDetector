@@ -1,9 +1,5 @@
 import base64
-import os
 from os.path import join as osj
-
-import pandas as pd
-import yt_dlp
 
 
 def parse_onedrive(link: str) -> str:

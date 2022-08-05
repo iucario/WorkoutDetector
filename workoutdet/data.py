@@ -3,15 +3,16 @@ import math
 import os
 import os.path as osp
 from os.path import join as osj
-from typing import Callable, List, Optional, Tuple
-
+from typing import Callable, Dict, List, Optional, Tuple
+import pandas as pd
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import Tensor
 from torchvision.io import read_image
+from dataclasses import dataclass
 
-from workoutdet.utils import CLASSES, get_rep_data, sample_frames
+CLASSES = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
 
 
 class FrameDataset(torch.utils.data.Dataset):
@@ -297,6 +298,190 @@ class FeatureDataset(torch.utils.data.Dataset):
 
     def __len__(self) -> int:
         return len(self.tensor_x)
+
+
+def sample_frames(total: int,
+                  num: int,
+                  offset: int = 0,
+                  random: bool = True) -> List[int]:
+    """Uniformly sample `num` frames from video, randomly.
+    
+    Args:
+        total: int, total frames, 
+        num: int, number of frames to sample
+        offset: int, offset from start of video
+        random: bool, whether to sample randomly, default True.
+            If False, always select the first frame in segments.
+    Returns: 
+        list of frame indices starting from offset
+    Examples:
+        >>> sample_frames(total=4, num=8, offset=0, random=False)
+        [0, 0, 1, 1, 2, 2, 3, 3]
+        >>> sample_frames(total=10, num=8, offset=0, random=False)
+        [0, 1, 2, 3, 4, 5, 6, 7]
+        >>> sample_frames(total=40, num=8, offset=0, random=False)
+        [0, 5, 10, 15, 20, 25, 30, 35]
+        >>> sample_frames(total=40, num=8, offset=0, random=True)
+        [2, 6, 13, 18, 24, 29, 32, 36]
+        >>> sample_frames(total=40, num=8, offset=20, random=False)
+        [20, 25, 30, 35, 40, 45, 50, 55]
+    """
+
+    if total < num:
+        # repeat frames if total < num
+        repeats = math.ceil(num / total)
+        data = [x for x in range(total) for _ in range(repeats)]
+        total = len(data)
+    else:
+        data = list(range(total))
+    interval = total // num
+    indices = np.arange(0, total, interval)[:num]
+    if random:
+        for i, x in enumerate(indices):
+            rand = np.random.randint(0, interval)
+            if i == num - 1:
+                upper = total
+                rand = np.random.randint(0, upper - x)
+            else:
+                upper = min(interval * (i + 1), total)
+            indices[i] = (x + rand) % upper
+    assert len(indices) == num, f'len(indices)={len(indices)}'
+    for i in range(1, len(indices)):
+        assert indices[i] > indices[i - 1], f'indices[{i}]={indices[i]}'
+    assert num == len(indices), f'num={num}'
+    return [data[i] + offset for i in indices]
+
+
+@dataclass
+class RepcountItem:
+    """RepCount dataset video item"""
+
+    video_path: str  # the absolute video path
+    frames_path: str  # the absolute rawframes path
+    total_frames: int
+    class_: str
+    count: int
+    reps: List[int]  # start_1, end_1, start_2, end_2, ...
+    split: str
+    video_name: str
+    fps: float = 30.0
+    ytb_id: Optional[str] = None  # YouTube id
+    ytb_start_sec: Optional[int] = None  # YouTube start sec
+    ytb_end_sec: Optional[int] = None  # YouTube end sec
+
+    def __str__(self):
+        return (f'video: {self.video_name}\nclass: {self.class_}\n'
+                f'count: {self.count}\nreps: {self.reps}\nfps: {self.fps}\n'
+                f'total_frames: {self.total_frames}')
+
+    def __getitem__(self, key):
+        return self.__dict__[key]
+
+    def __iter__(self):
+        return iter(self.__dict__.items())
+
+
+def get_rep_data(anno_path: str,
+                 data_root: str = None,
+                 split: List[str] = ['test'],
+                 action: List[str] = ['situp']) -> Dict[str, RepcountItem]:
+    """Return the RepCount dataset items
+    Args:
+        anno_path (str): the annotation file path
+        data_root (str): the data root path, e.g. 'data/RepCount'
+        split (List[str]): list of the split names
+        action (List[str]): list of the action names. If ['all'], all actions are used.
+
+    Returns:
+        dict of name: RepcountItem
+    """
+    assert len(split) > 0, 'split must be specified, e.g. ["train", "val"]'
+    assert len(action) > 0, 'action must be specified, e.g. ["pull_up", "squat"]'
+    data_root = '' if data_root is None else data_root
+    split = [x.lower() for x in split]
+    action = [x.lower() for x in action]
+    if 'all' in action:
+        action = CLASSES
+    df = pd.read_csv(anno_path, index_col=0)
+    df = df[df['split'].isin(split)]
+    df = df[df['class_'].isin(action)]
+    df = df.reset_index(drop=True)
+    ret = {}
+    for idx, row in df.iterrows():
+        name = row['name']
+        name_no_ext = name.split('.')[0]
+        class_ = row['class_']
+        split_ = row['split']
+        video_path = os.path.join(data_root, 'videos', split_, name)
+        frame_path = os.path.join(data_root, 'rawframes', split_, name_no_ext)
+        total_frames = -1
+        if os.path.isdir(frame_path):  # TODO: this relies on rawframe dir. Not good.
+            total_frames = len(os.listdir(frame_path))
+        video_id = row['vid']
+        count = int(row['count'])
+        if count > 0:
+            reps = [int(x) for x in row['reps'].split()]
+        else:
+            reps = []
+        item = RepcountItem(video_path, frame_path, total_frames, class_, count, reps,
+                            split_, name, row.fps, video_id, row['start'], row['end'])
+        ret[name] = item
+    return ret
+
+
+def get_video_list(anno_path: str,
+                   split: str,
+                   action: Optional[str] = None,
+                   max_reps: int = 2) -> List[dict]:
+    """Returns a list of dict of repetitions.
+
+    Args:
+        split: str, train or val or test
+        action: str, action class name. If none, all actions are used.
+        max_reps: int, limit the number of repetitions per video.
+            If less than 1, all repetitions are used.
+
+    Returns:
+        list of dict: videos, 
+            {
+                video_path: path to raw frames dir, relative to `root`
+                start: start_frame_index, start from 1,
+                end: end_frame_index
+                length: end_frame_index - start_frame_index + 1
+                class: action class,
+                label: 0 or 1
+            }
+    """
+    df = pd.read_csv(anno_path)
+    if action is not None:
+        df = df[df['class_'] == action]
+    videos = []
+    for row in df.itertuples():
+        name = row.name.split('.')[0]
+        count = row.count
+        if count > 0:
+            reps = list(map(int, row.reps.split()))[:max_reps * 2]
+            for start, end in zip(reps[0::2], reps[1::2]):
+                start += 1  # plus 1 because img index starts from 1
+                end += 1  # but annotated frame index starts from 0
+                mid = (start + end) // 2
+                videos.append({
+                    'video_path': os.path.join('RepCount/rawframes', split, name),
+                    'start': start,
+                    'end': mid,
+                    'length': mid - start + 1,
+                    'class': row.class_,
+                    'label': 0
+                })
+                videos.append({
+                    'video_path': os.path.join('RepCount/rawframes', split, name),
+                    'start': mid + 1,
+                    'end': end,
+                    'length': end - mid,
+                    'class': row.class_,
+                    'label': 1
+                })
+    return videos
 
 
 def reps_to_label(reps: List[int], total: int, class_idx: int):
