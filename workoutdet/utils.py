@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, OrderedDict, Union
 
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -7,11 +8,6 @@ import torch.nn.functional as F
 from matplotlib.collections import LineCollection
 
 CLASSES = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
-from typing import Dict, List
-
-import matplotlib
-import numpy as np
-import torch
 
 params = {
     'figure.dpi': 300,
@@ -19,7 +15,7 @@ params = {
     'figure.autolayout': True,
     'lines.linewidth': 1,
     'axes.prop_cycle': plt.cycler('color', list(plt.get_cmap('tab20').colors)),
-    'font.size': 10,
+    'font.size': 8,
     'font.family': 'sans-serif',
 }
 
@@ -35,10 +31,10 @@ def plot_raw_output(val_x: np.ndarray, val_y: np.ndarray, pred: np.ndarray,
             ax[i].set_ylim(-0.1, 2.1)
         if i < 3:
             ax[i].set_xticks([])
-    ax[0].text(-len(val_y) * 0.15, 1, 'HMM', color='C2', fontsize=9)
-    ax[1].text(-len(val_y) * 0.15, 1, 'True', color='C0', fontsize=9)
-    ax[2].text(-len(val_y) * 0.15, 1, 'Input', fontsize=9)
-    ax[3].text(-len(val_y) * 0.15, 1, 'Argmax', color='C12', fontsize=9)
+    ax[0].text(-len(val_y) * 0.15, 1, 'HMM')
+    ax[1].text(-len(val_y) * 0.15, 1, 'True')
+    ax[2].text(-len(val_y) * 0.15, 1, 'Input')
+    ax[3].text(-len(val_y) * 0.15, 1, 'Argmax')
     colors = ['C15'] * val_x.shape[1]
     colors[class_idx * 2:class_idx * 2 + 2] = ['C0', 'C2']
     for i, line in enumerate(val_x.T):
@@ -63,15 +59,16 @@ def plot_hmm(result: List[int],
     video_len = total_frames / fps
     max_num_ticks = 10
     plt.figure(figsize=(7, 2))
-    plt.xlabel('Second', fontsize=10)
+    plt.xlabel('Second')
     plt.yticks([])
     plt.ylim(0, 1)
     offset = total_frames // 10
     plt.xlim(-offset * 1.1, total_frames + 5)
     h = 0.2
-    plt.xticks(np.linspace(0, total_frames, max_num_ticks),
-               np.round(np.linspace(0.0, video_len, max_num_ticks), 2),
-               fontsize=10)
+    plt.xticks(
+        np.linspace(0, total_frames, max_num_ticks),
+        np.round(np.linspace(0.0, video_len, max_num_ticks), 2),
+    )
     # background
     rect = plt.Rectangle((0, h), total_frames, 0.6, color='w')
     plt.gca().add_patch(rect)
@@ -85,14 +82,15 @@ def plot_hmm(result: List[int],
                              color='C2')
         plt.gca().add_patch(rect)
     for i in range(0, len(orig_reps), 2):
-        rect = plt.Rectangle((orig_reps[i], 0.2), (orig_reps[i + 1] - orig_reps[i]),
+        rect = plt.Rectangle((orig_reps[i], 0.2),
+                             (orig_reps[i + 1] - orig_reps[i]),
                              h - 0.01,
                              color='C5')
         plt.gca().add_patch(rect)
     plt.title(title)
-    plt.text(-offset, 0.65, 'True', color='C0', fontsize=9)
-    plt.text(-offset, 0.45, 'HMM', color='C2', fontsize=9)
-    plt.text(-offset, 0.25, 'Argmax', color='C4', fontsize=9)
+    plt.text(-offset, 0.65, 'True', color='C0')
+    plt.text(-offset, 0.45, 'HMM', color='C2')
+    plt.text(-offset, 0.25, 'Argmax', color='C4')
     if show:
         plt.show()
     if save_path is not None:
@@ -115,7 +113,9 @@ def parse_json_score(scores: List[dict], softmax: bool = False) -> np.ndarray:
     return np.asarray(arr)
 
 
-def to_softmax(d: Union[Dict[str, float], OrderedDict[str, float]]) -> Dict[str, float]:
+def to_softmax(
+        d: Union[Dict[str, float], OrderedDict[str,
+                                               float]]) -> Dict[str, float]:
     """Raw score to softmax score.
     
     Args:
@@ -128,21 +128,7 @@ def to_softmax(d: Union[Dict[str, float], OrderedDict[str, float]]) -> Dict[str,
     return dict(zip(d.keys(), softmax_d.numpy()))
 
 
-def plt_params() -> dict:
-    colors = list(plt.get_cmap('Tab20').colors)
-    plt.style.use('seaborn-dark')
-    params = {
-        'figure.dpi': 300,
-        'figure.figsize': (7, 4),
-        'figure.autolayout': True,
-        'lines.linewidth': 1,
-        'axes.prop_cycle': plt.cycler('color', colors),
-        'font.size': 8,
-        'font.family': 'sans-serif',
-    }
-    return params
-
-
+@matplotlib.rc_context(params)
 def plot_pred(result: List[int],
               gt: List[int],
               total_frames: int,
@@ -184,6 +170,7 @@ def plot_pred(result: List[int],
     plt.show()
 
 
+@matplotlib.rc_context(params)
 def plot_all(gt_reps: np.ndarray,
              info: Dict[str, Any],
              softmax: bool = False,
@@ -241,14 +228,18 @@ def plot_all(gt_reps: np.ndarray,
         mid = (start + end) // 2
         segs.append([(start // stride, height), (mid // stride, height)])
         segs.append([(mid // stride, height), (end // stride, height)])
-    lc = LineCollection(segs,
-                        colors=[colors[gt_class_idx * 2], colors[gt_class_idx * 2 + 1]],
-                        linewidths=1)
+    lc = LineCollection(
+        segs,
+        colors=[colors[gt_class_idx * 2], colors[gt_class_idx * 2 + 1]],
+        linewidths=1)
     plt.gca().add_collection(lc)
     plt.show()
 
 
-def plot_per_action(info: dict, softmax: bool = False, action_only: bool = False) -> None:
+@matplotlib.rc_context(params)
+def plot_per_action(info: dict,
+                    softmax: bool = False,
+                    action_only: bool = False) -> None:
     """Plot prediction for each action.
     
     Args:

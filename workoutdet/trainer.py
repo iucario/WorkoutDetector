@@ -15,7 +15,8 @@ from pytorch_lightning.callbacks import (EarlyStopping, LearningRateMonitor,
                                          ModelCheckpoint)
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger, WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
-from torch import Tensor, nn
+from torch import Tensor
+from torch import nn as nn
 from torch.utils.data import DataLoader, Dataset
 
 from workoutdet.data import FrameDataset
@@ -31,7 +32,8 @@ class LitModel(LightningModule):
         self.save_hyperparameters()
         self.model = create_model(**cfg.model)
         if cfg.model.get('example_input_array') is not None:
-            self.example_input_array = torch.randn(cfg.model.example_input_array)
+            self.example_input_array = torch.randn(
+                cfg.model.example_input_array)
         self.loss_module = nn.CrossEntropyLoss()
         self.cfg = cfg
         self.best_val_acc = 0.0
@@ -125,7 +127,10 @@ class DataModule(LightningDataModule):
         is_train: bool, train or test. Default True
     """
 
-    def __init__(self, cfg: CfgNode, is_train: bool = True, num_class: int = 2) -> None:
+    def __init__(self,
+                 cfg: CfgNode,
+                 is_train: bool = True,
+                 num_class: int = 2) -> None:
         super().__init__()
         self.cfg = cfg
         self.num_class = num_class
@@ -154,15 +159,17 @@ class DataModule(LightningDataModule):
             assert ds[0]
         print("Data check passed.")
 
-    def build_loader(self, anno_path: str, prefix: str, is_test: bool) -> DataLoader:
+    def build_loader(self, anno_path: str, prefix: str,
+                     is_test: bool) -> DataLoader:
         dataset = FrameDataset(
-            data_root=cfg.data_root,
+            data_root=self.cfg.data_root,
             anno_path=anno_path,
             data_prefix=prefix,
-            num_segments=cfg.num_segments,
-            filename_tmpl=cfg.filename_tmpl,
-            transform=self.train_transform if not is_test else self.test_transform,
-            anno_col=cfg.anno_col,
+            num_segments=self.cfg.num_segments,
+            filename_tmpl=self.cfg.filename_tmpl,
+            transform=self.train_transform
+            if not is_test else self.test_transform,
+            anno_col=self.cfg.anno_col,
             is_test=is_test,
         )
         return DataLoader(
@@ -248,22 +255,24 @@ def setup_callbacks(model, log_dir, cfg: CfgNode) -> list:
     cfg.callbacks.modelcheckpoint.dirpath = log_dir
     checkpoint_callback = ModelCheckpoint(
         **cfg.callbacks.modelcheckpoint,
-        filename="val-acc={val/acc:.3f}-epoch={epoch:03d}" + f"-{cfg.timestamp}",
+        filename="val-acc={val/acc:.3f}-epoch={epoch:03d}" +
+        f"-{cfg.timestamp}",
         auto_insert_metric_name=False)
     callbacks.append(checkpoint_callback)
 
     # EarlyStopping callback
     if cfg.callbacks.early_stopping.enable:
-        early_stopping = EarlyStopping(monitor='train/loss',
-                                       mode='min',
-                                       patience=cfg.callbacks.early_stopping.patience)
+        early_stopping = EarlyStopping(
+            monitor='train/loss',
+            mode='min',
+            patience=cfg.callbacks.early_stopping.patience)
         callbacks.append(early_stopping)
     return callbacks
 
 
 def train(cfg: CfgNode) -> None:
     cfg.model.checkpoint = None
-    data_module = DataModule(cfg)
+    data_module = DataModule(cfg.data)
     model = setup_module(cfg)
 
     log_dir = os.path.join(cfg.trainer.default_root_dir, cfg.timestamp)
@@ -281,9 +290,11 @@ def train(cfg: CfgNode) -> None:
 
 
 def test(cfg: CfgNode) -> None:
-    data_module = DataModule(cfg)
+    data_module = DataModule(cfg.data)
     model = setup_module(cfg)
-    trainer = Trainer(default_root_dir=cfg.trainer.default_root_dir, devices=1, gpus=1)
+    trainer = Trainer(default_root_dir=cfg.trainer.default_root_dir,
+                      devices=1,
+                      gpus=1)
     trainer.test(model, data_module)
 
 
@@ -310,12 +321,12 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--cfg",
         dest="cfg_file",
         help="Path to the config file",
-        default=osj("workoutdetector/configs/repcount.yaml"),
+        default=osj("workoutdet/repcount.yaml"),
         type=str,
     )
     parser.add_argument(
         "opts",
-        help="See workoutdetector/configs/repcount.yaml for all options",
+        help="See workoutdet/repcount.yaml for all options",
         default=None,
         nargs=argparse.REMAINDER,
     )
@@ -328,7 +339,7 @@ def load_config(args) -> CfgNode:
     Args:
         args (argument): arguments includes `cfg_file`.
     """
-    cfg = CfgNode(yaml.safe_load(open('workoutdetector/repcount.yaml')))
+    cfg = CfgNode(yaml.safe_load(open('workoutdet/repcount.yaml')))
     cfg.merge_from_file(args.cfg_file)
     if args.opts is not None:
         cfg.merge_from_list(args.opts)

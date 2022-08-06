@@ -1,10 +1,12 @@
-from workoutdet.data import FeatureDataset, reps_to_label, seq_to_windows
-import torch
 import os
 import os.path as osp
 from os.path import join as osj
+
+import torch
 from fvcore.common.config import CfgNode
 from torch.utils.data import DataLoader
+
+from workoutdet.data import FeatureDataset, reps_to_label, seq_to_windows
 
 
 def test_reps_to_label():
@@ -52,6 +54,6 @@ def test_FeatureDatasest():
 
 
 if __name__ == '__main__':
-    # test_reps_to_label()
+    test_reps_to_label()
     # test_seq_to_windows()
-    test_FeatureDatasest()
+    # test_FeatureDatasest()

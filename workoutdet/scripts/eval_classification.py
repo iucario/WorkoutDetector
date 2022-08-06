@@ -4,23 +4,30 @@ import torch
 import yaml
 from fvcore.common.config import CfgNode
 from tqdm import tqdm
+
 from workoutdet.trainer import LitModel
 
 classes_1 = [
     'situp 1', 'situp 2', 'push_up 1', 'push_up 2', 'pull_up 1', 'pull_up 2',
-    'jump_jack 1', 'jump_jack 2', 'squat 1', 'squat 2', 'front_raise 1', 'front_raise 2',
-    'all'
+    'jump_jack 1', 'jump_jack 2', 'squat 1', 'squat 2', 'front_raise 1',
+    'front_raise 2', 'all'
 ]
-classes_2 = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise', 'all_6']
+classes_2 = [
+    'situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise', 'all_6'
+]
 
 
-def create_dataloader(cfg: CfgNode, dataset: str) -> torch.utils.data.DataLoader:
+def create_dataloader(cfg: CfgNode,
+                      dataset: str) -> torch.utils.data.DataLoader:
     """Create dataloader for the given dataset."""
     assert dataset in ('train', 'val', 'test')
     config = cfg.clone().data
     config.test.anno = config.get(dataset).anno  # use test transform
     ds = build_dataset(config, dataset)
-    loader = torch.utils.data.DataLoader(ds, batch_size=1, shuffle=False, num_workers=0)
+    loader = torch.utils.data.DataLoader(ds,
+                                         batch_size=1,
+                                         shuffle=False,
+                                         num_workers=0)
     return loader
 
 
@@ -30,12 +37,16 @@ def calculate_acc(class_acc_1: list, class_total_1: list, class_acc_2: list,
     # 12 class acc
     l1 = [x / y for x, y in zip(class_acc_1, class_total_1)]
     l1.append(sum(class_acc_1) / sum(class_total_1))
-    result = dict(zip(classes_1, l1), class_acc=class_acc_1, class_total=class_total_1)
+    result = dict(zip(classes_1, l1),
+                  class_acc=class_acc_1,
+                  class_total=class_total_1)
     # 6 class acc
     l2 = [x / y for x, y in zip(class_acc_2, class_total_2)]
     l2.append(sum(class_acc_2) / sum(class_total_2))
     result.update(
-        dict(zip(classes_2, l2), class_acc_2=class_acc_2, class_total_2=class_total_2))
+        dict(zip(classes_2, l2),
+             class_acc_2=class_acc_2,
+             class_total_2=class_total_2))
     return result
 
 
@@ -69,7 +80,8 @@ def eval_torch_12(checkpoint: str, output_file: str) -> None:
                 class_acc_2[y // 2] += 1
             class_total_2[y // 2] += 1
 
-        d = calculate_acc(class_acc_1, class_total_1, class_acc_2, class_total_2)
+        d = calculate_acc(class_acc_1, class_total_1, class_acc_2,
+                          class_total_2)
         result[split] = d
     print(result)
     with open(output_file, 'a') as f:

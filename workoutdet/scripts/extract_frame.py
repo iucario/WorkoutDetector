@@ -1,4 +1,5 @@
 import os
+
 import cv2
 
 
@@ -30,7 +31,9 @@ def extract_all(data_dir: str, dest_dir: str):
 
     for split in os.listdir(data_dir):
         for video in os.listdir(os.path.join(data_dir, split)):
-            extract(os.path.join(data_dir, split, video), os.path.join(dest_dir, split))
+            extract(os.path.join(data_dir, split, video),
+                    os.path.join(dest_dir, split))
+
 
 if __name__ == '__main__':
     data_root = os.path.expanduser('~/data/RepCount/videos/')

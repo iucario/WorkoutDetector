@@ -1,16 +1,18 @@
-from collections import OrderedDict
+import os
 import random
 import sys
-import torch
-from torch.utils.data import DataLoader
-from workoutdet.tsm import create_model
-import torch.nn as nn
-from torch.nn import CrossEntropyLoss
-from torch import optim
-from einops import rearrange
+from collections import OrderedDict
+
 import pandas as pd
-import os
+import torch
+import torch.nn as nn
+from einops import rearrange
+from torch import optim
+from torch.nn import CrossEntropyLoss
+from torch.utils.data import DataLoader
 from torchvision.io import read_video
+
+from workoutdet.tsm import create_model
 
 
 class Test_TSM:
@@ -72,8 +74,8 @@ class Test_TSM:
             f"y.shape = {y.shape}. Expected {(batch, num_class)}"
 
         # check weights
-        state_dict = torch.load(self.ckpt_path,
-                                map_location=torch.device('cpu')).get('state_dict')
+        state_dict = torch.load(
+            self.ckpt_path, map_location=torch.device('cpu')).get('state_dict')
         base_dict = OrderedDict(
             ('.'.join(k.split('.')[1:]), v) for k, v in state_dict.items())
         for k, v in pretrained.state_dict().items():
@@ -97,8 +99,8 @@ class Test_TSM:
         P = Pipeline()
         acc = 0
         for video_id in video_ids:
-            gt_label = data_df.loc[data_df['video_id'] == video_id.split('.')[0],
-                                   'class'].values[0]
+            gt_label = data_df.loc[data_df['video_id'] ==
+                                   video_id.split('.')[0], 'class'].values[0]
             video = read_video(os.path.join(data_root, video_id))[0]
             inp = P.transform_read_video(video)
             out = model(inp.cuda()).cpu()

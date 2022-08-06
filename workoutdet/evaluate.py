@@ -10,9 +10,10 @@ from workoutdet.predict import pred_to_count
 from workoutdet.utils import to_softmax
 
 
-def obo_mae(preds: List[int],
-            targets: List[int],
-            ratio: bool = True) -> Union[Tuple[float, int], Tuple[float, float]]:
+def obo_mae(
+        preds: List[int],
+        targets: List[int],
+        ratio: bool = True) -> Union[Tuple[float, int], Tuple[float, float]]:
     """Evaluate count prediction. By mean absolute error and off-by-one error."""
 
     mae = 0.0
@@ -62,13 +63,15 @@ def count_stats(csv: str, out_csv: bool = True) -> None:
             split_out[split]['avg_count'] += gt_count.sum()
 
     df_out = pd.DataFrame(
-        out, columns=['action', 'split', 'MAE', 'OBO_acc', 'total', 'avg_count'])
+        out,
+        columns=['action', 'split', 'MAE', 'OBO_acc', 'total', 'avg_count'])
     # all actions per split
     for split in splits:
         print(f'{split}: {split_out[split]}')
         total = split_out[split]['total']
         df_out.loc[len(df_out)] = [
-            'all', split, split_out[split]['mae'] / total, split_out[split]['obo'], total,
+            'all', split, split_out[split]['mae'] / total,
+            split_out[split]['obo'], total,
             split_out[split]['avg_count'] / total
         ]
     df_out['OBO_acc'] = df_out['OBO_acc'].astype(int)
@@ -157,16 +160,19 @@ def main(json_dir: str,
         gt: List[int] = anno.loc[video_name]['reps']
         gt_count = anno.loc[video_name]['count'].astype(int)
         pred = infer(scores, threshold, window)
-        pred_count, pred_rep = pred_to_count(pred, stride=stride * window, step=step)
+        pred_count, pred_rep = pred_to_count(pred,
+                                             stride=stride * window,
+                                             step=step)
         preds.append(pred_count)
         gts.append(gt_count)
         split = anno.loc[video_name]['split']
-        out.append([video_name, gt_count, pred_count, gt, pred_rep, split, action])
+        out.append(
+            [video_name, gt_count, pred_count, gt, pred_rep, split, action])
     mae, obo = obo_mae(preds, gts)
     df = pd.DataFrame(out,
                       columns=[
-                          'name', 'gt_count', 'pred_count', 'gt_reps', 'pred_reps',
-                          'split', 'action'
+                          'name', 'gt_count', 'pred_count', 'gt_reps',
+                          'pred_reps', 'split', 'action'
                       ])
     if out_csv:
         df.to_csv(out_csv)

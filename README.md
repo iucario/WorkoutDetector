@@ -89,6 +89,8 @@ Hidden markov model is used to count repetitions.
    Results of every video will be saved in `out/tsm_rep_scores.csv`.
    Metrics will be saved in `out/tsm_rep_scores_meta.csv`.
 
+The scores used in the report can be downloaded at [OneDrive](https://1drv.ms/u/s!AiohV3HRf-34jJsMGdIyz_O3Q0sCmg)
+
 ## Train an action recognition model
 
 ### Prepare data
@@ -125,6 +127,8 @@ Hidden markov model is used to count repetitions.
   Tensorboard logs are in `{cfg.log.output_dir}/{cfg.log.name}/version_{num}`.
 
   Wandb logs are in `{cfg.log.output_dir}/wandb`.
+
+The model trained on the 12 classes can be downloaded at [OneDrive](https://1drv.ms/u/s!AiohV3HRf-34jJsN5RA7vN0kCMxj6g)
 
 ## Acknowledgements
 

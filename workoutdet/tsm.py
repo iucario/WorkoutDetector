@@ -5,12 +5,13 @@
 # Modified by: me
 
 from collections import OrderedDict
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch import nn
-from torch.nn.init import constant_, normal_
 import torchvision
+from torch import nn as nn
+from torch.nn.init import constant_, normal_
 
 
 class TemporalShift(nn.Module):
@@ -27,7 +28,10 @@ class TemporalShift(nn.Module):
         self.inplace = inplace
 
     def forward(self, x):
-        x = self.shift(x, self.n_segment, fold_div=self.fold_div, inplace=self.inplace)
+        x = self.shift(x,
+                       self.n_segment,
+                       fold_div=self.fold_div,
+                       inplace=self.inplace)
         return self.net(x)
 
     @staticmethod
@@ -40,7 +44,7 @@ class TemporalShift(nn.Module):
         if inplace:
             # out = InplaceShift.apply(x, fold)
             raise NotImplementedError
-        else: # TODO: use Conv1D
+        else:  # TODO: use Conv1D
             out = torch.zeros_like(x)
             out[:, :-1, :fold] = x[:, 1:, :fold]  # shift left
             out[:, 1:, fold:2 * fold] = x[:, :-1, fold:2 * fold]  # shift right
@@ -94,8 +98,12 @@ class TemporalPool(nn.Module):
     def temporal_pool(x, n_segment):
         nt, c, h, w = x.size()
         n_batch = nt // n_segment
-        x = x.view(n_batch, n_segment, c, h, w).transpose(1, 2)  # n, c, t, h, w
-        x = F.max_pool3d(x, kernel_size=(3, 1, 1), stride=(2, 1, 1), padding=(1, 0, 0))
+        x = x.view(n_batch, n_segment, c, h, w).transpose(1,
+                                                          2)  # n, c, t, h, w
+        x = F.max_pool3d(x,
+                         kernel_size=(3, 1, 1),
+                         stride=(2, 1, 1),
+                         padding=(1, 0, 0))
         x = x.transpose(1, 2).contiguous().view(nt // 2, c, h, w)
         return x
 
@@ -106,7 +114,9 @@ def make_temporal_shift(net: nn.Module,
                         place='blockres',
                         temporal_pool=False):
     if temporal_pool:
-        n_segment_list = [n_segment, n_segment // 2, n_segment // 2, n_segment // 2]
+        n_segment_list = [
+            n_segment, n_segment // 2, n_segment // 2, n_segment // 2
+        ]
     else:
         n_segment_list = [n_segment] * 4
     assert n_segment_list[-1] > 0
@@ -263,7 +273,8 @@ class TSM(nn.Module):
         # print('=> base model: {}'.format(base_model))
 
         if 'resnet' in base_model:
-            self.base_model = getattr(torchvision.models, base_model)(pretrained=True)
+            self.base_model = getattr(torchvision.models,
+                                      base_model)(pretrained=True)
             if self.is_shift:
                 # print('Adding temporal shift...')
                 make_temporal_shift(self.base_model,

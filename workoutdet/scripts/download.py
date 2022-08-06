@@ -27,11 +27,11 @@ class Downloader:
     }
     _WEIGHTS = {
         'ssv2_videomae_pretrain_base_patch16_224_frame_16x2_tube_mask_ratio_0.9_e2400.pth':
-            '34jJNTPAlz0XrR9CQM_A',
+        '34jJNTPAlz0XrR9CQM_A',
         'TSM_somethingv2_RGB_resnet50_shift8_blockres_avg_segment8_e45.pth':
-            '34jIdNWFvaFEZb6BpC6g',
+        '34jIdNWFvaFEZb6BpC6g',
         'tdn_sthv2_r50_8x1x1.pth':
-            '34jIdRXV1Kogylklw5lA'
+        '34jIdRXV1Kogylklw5lA'
     }
 
     def __init__(self, root: str):
@@ -60,8 +60,9 @@ class Downloader:
         """Returns download and extraction shell command."""
         link = self.get_dataset('repcountA')
         cmd = [
-            f'wget -O /tmp/content.tar {link}', f'tar xf /tmp/content.tar /tmp/',
-            f'rm /tmp/content.tar', f'mv /tmp/LLSP/video {osj(path, "videos")}',
+            f'wget -O /tmp/content.tar {link}',
+            f'tar xf /tmp/content.tar /tmp/', f'rm /tmp/content.tar',
+            f'mv /tmp/LLSP/video {osj(path, "videos")}',
             f'mv {osj(path, "videos/valid")} {osj(path, "videos/val")}'
         ]
         return '\n'.join(cmd)

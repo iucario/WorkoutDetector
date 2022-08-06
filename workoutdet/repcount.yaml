@@ -39,6 +39,7 @@ data:
   dataset_type: FrameDataset
   data_root: /home/user/data
   num_segments: 8
+  num_frames: 1
   filename_tmpl: 'img_{:05}.jpg'
   anno_col: 4
   batch_size: 4

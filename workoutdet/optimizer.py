@@ -46,8 +46,9 @@ def build_optim(cfg: CfgNode, model: nn.Module,
                           eps=cfg.optimizer.eps,
                           weight_decay=cfg.optimizer.weight_decay)
     else:
-        raise NotImplementedError(f'Not implemented optimizer: {cfg.optimizer.method}',
-                                  f'Supported optimizers: {["tsn", "sgd", "adamw"]}')
+        raise NotImplementedError(
+            f'Not implemented optimizer: {cfg.optimizer.method}',
+            f'Supported optimizers: {["tsn", "sgd", "adamw"]}')
 
     if POLICY == 'tdn':
         assert 'n_iter_per_epoch' in kwargs, \
@@ -63,8 +64,9 @@ def build_optim(cfg: CfgNode, model: nn.Module,
                            step_size=cfg.lr_scheduler.step,
                            gamma=cfg.lr_scheduler.gamma)
     else:
-        raise NotImplementedError(f'Not implemented lr schedular: {cfg.lr_schedular}',
-                                  f'Supported lr schedulers: {["tdn", "steplr"]}')
+        raise NotImplementedError(
+            f'Not implemented lr schedular: {cfg.lr_schedular}',
+            f'Supported lr schedulers: {["tdn", "steplr"]}')
     return optimizer, scheduler
 
 
@@ -85,12 +87,15 @@ def get_scheduler(optimizer: torch.optim.Optimizer,
     if "cosine" in lr_scheduler:
         scheduler = CosineAnnealingLR(optimizer=optimizer,
                                       eta_min=0.00001,
-                                      T_max=(epochs - warmup_epoch) * n_iter_per_epoch)
+                                      T_max=(epochs - warmup_epoch) *
+                                      n_iter_per_epoch)
     elif "step" in lr_scheduler:
-        scheduler = MultiStepLR(
-            optimizer=optimizer,
-            gamma=gamma,
-            milestones=[(m - warmup_epoch) * n_iter_per_epoch for m in lr_steps])
+        scheduler = MultiStepLR(optimizer=optimizer,
+                                gamma=gamma,
+                                milestones=[
+                                    (m - warmup_epoch) * n_iter_per_epoch
+                                    for m in lr_steps
+                                ])
     else:
         raise NotImplementedError(f"scheduler {lr_scheduler} not supported")
 
@@ -98,7 +103,8 @@ def get_scheduler(optimizer: torch.optim.Optimizer,
         scheduler = GradualWarmupScheduler(optimizer,
                                            multiplier=warmup_multiplier,
                                            after_scheduler=scheduler,
-                                           warmup_epoch=warmup_epoch * n_iter_per_epoch)
+                                           warmup_epoch=warmup_epoch *
+                                           n_iter_per_epoch)
 
     return scheduler
 
@@ -118,8 +124,8 @@ def tsn_optim_policies(model: nn.Module) -> List[dict]:
     conv_cnt = 0
     bn_cnt = 0
     for m in model.modules():
-        if isinstance(m, torch.nn.Conv2d) or isinstance(m, torch.nn.Conv1d) or isinstance(
-                m, torch.nn.Conv3d):
+        if isinstance(m, torch.nn.Conv2d) or isinstance(
+                m, torch.nn.Conv1d) or isinstance(m, torch.nn.Conv3d):
             ps = list(m.parameters())
             conv_cnt += 1
             if conv_cnt == 1:
@@ -155,8 +161,8 @@ def tsn_optim_policies(model: nn.Module) -> List[dict]:
         elif len(m._modules) == 0:
             if len(list(m.parameters())) > 0:
                 raise ValueError(
-                    "New atomic module type: {}. Need to give it a learning policy".
-                    format(type(m)))
+                    "New atomic module type: {}. Need to give it a learning policy"
+                    .format(type(m)))
 
     if model.fc_lr5:  # fine_tuning for UCF/HMDB
         return [
@@ -280,8 +286,8 @@ class GradualWarmupScheduler(_LRScheduler):
         else:
             return [
                 base_lr / self.multiplier *
-                ((self.multiplier - 1.) * self.last_epoch / self.warmup_epoch + 1.)
-                for base_lr in self.base_lrs
+                ((self.multiplier - 1.) * self.last_epoch / self.warmup_epoch +
+                 1.) for base_lr in self.base_lrs
             ]
 
     def step(self, epoch=None):

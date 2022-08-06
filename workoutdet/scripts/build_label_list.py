@@ -2,7 +2,7 @@ import os
 import os.path as osp
 from os.path import join as osj
 
-from workoutdet.utils import get_video_list
+from workoutdet.data import get_video_list
 
 
 def build_with_start(data_root: str, anno_file: str, dst_dir: str) -> None:

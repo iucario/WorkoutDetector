@@ -7,6 +7,7 @@ import torch
 import torchvision.transforms.functional as TF
 from fvcore.common.config import CfgNode
 from torchvision.io import read_image
+
 from workoutdet.trainer import DataModule, train
 
 
@@ -29,10 +30,13 @@ def test_DataModule():
     cfg.data.val.anno = osp.expanduser('~/data/Binary/all-val.txt')
     cfg.data.test.anno = osp.expanduser('~/data/Binary/all-test.txt')
 
-    assert osp.exists(cfg.data.data_root), f"{cfg.data.data_root} does not exist"
-    assert osp.exists(cfg.data.train.anno), f"{cfg.data.train.anno} does not exist"
+    assert osp.exists(
+        cfg.data.data_root), f"{cfg.data.data_root} does not exist"
+    assert osp.exists(
+        cfg.data.train.anno), f"{cfg.data.train.anno} does not exist"
     assert osp.exists(cfg.data.val.anno), f"{cfg.data.val.anno} does not exist"
-    assert osp.exists(cfg.data.test.anno), f"{cfg.data.test.anno} does not exist"
+    assert osp.exists(
+        cfg.data.test.anno), f"{cfg.data.test.anno} does not exist"
 
     num_class = cfg.model.num_class
 

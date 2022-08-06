@@ -16,17 +16,21 @@ from torch import Tensor
 from torchvision.io import read_video
 
 PROJ_ROOT = os.path.dirname(os.path.abspath(__file__))
-REPCOUNT_ANNO_PATH = os.path.join(PROJ_ROOT, 'datasets/RepCount', 'annotation.csv')
+REPCOUNT_ANNO_PATH = os.path.join(PROJ_ROOT, 'datasets/RepCount',
+                                  'annotation.csv')
 
 warnings.filterwarnings('ignore')
 onnxruntime.set_default_logger_severity(3)
 
 rep_12_labels = [
     'situp 1', 'situp 2', 'push_up 1', 'push_up 2', 'pull_up 1', 'pull_up 2',
-    'jump_jack 1', 'jump_jack 2', 'squat 1', 'squat 2', 'front_raise 1', 'front_raise 2'
+    'jump_jack 1', 'jump_jack 2', 'squat 1', 'squat 2', 'front_raise 1',
+    'front_raise 2'
 ]
 
-rep_6_labels = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
+rep_6_labels = [
+    'situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise'
+]
 
 rep_12_ckpt = 'checkpoints/repcount-12/rep_12_20220705_220720.onnx'
 ort_session = onnxruntime.InferenceSession(rep_12_ckpt,
@@ -39,7 +43,8 @@ transform = T.Compose([
 ])
 
 
-def onnx_inference(x: Tensor, labels: List[str] = rep_12_labels) -> Dict[str, float]:
+def onnx_inference(x: Tensor,
+                   labels: List[str] = rep_12_labels) -> Dict[str, float]:
     """Inference with ONNX Runtime. Output format is for gr.Label
     
     Args: 
@@ -82,7 +87,8 @@ def sample_frames(data: np.ndarray, num: int = 8) -> np.ndarray:
     return ret
 
 
-def inference_video_reps(video: str, model_type: str = 'image') -> Tuple[int, str]:
+def inference_video_reps(video: str,
+                         model_type: str = 'image') -> Tuple[int, str]:
     """Counting repetitions from one video.
     
     Args:
@@ -102,9 +108,10 @@ def create_video(video, scores: List[OrderedDict]) -> str:
     width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
     height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
     fps = cap.get(cv2.CAP_PROP_FPS)
-    tmpfile = os.path.join(PROJ_ROOT, 'exp', video.split('/')[-1].split('.')[0] + '.webm')
-    output_video = cv2.VideoWriter(tmpfile, cv2.VideoWriter_fourcc(*'vp80'), fps,
-                                   (int(width), int(height)))
+    tmpfile = os.path.join(PROJ_ROOT, 'exp',
+                           video.split('/')[-1].split('.')[0] + '.webm')
+    output_video = cv2.VideoWriter(tmpfile, cv2.VideoWriter_fourcc(*'vp80'),
+                                   fps, (int(width), int(height)))
 
     for i, score in enumerate(scores):
         ret, frame = cap.read()
@@ -118,8 +125,8 @@ def create_video(video, scores: List[OrderedDict]) -> str:
         else:
             color = (255, 0, 0)
         cv2.putText(frame, f'{label}: {score[label]}',
-                    (int(width * 0.2), int(height * 0.2)), cv2.FONT_HERSHEY_SIMPLEX, 1,
-                    color, 2)
+                    (int(width * 0.2), int(height * 0.2)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
         output_video.write(frame)
     cap.release()
     output_video.release()
@@ -138,21 +145,24 @@ def main(video: str, model_type: str, name: str) -> gr.Label:
 if __name__ == '__main__':
 
     example_dir = 'data/RepCount/rep_video/test'
-    example_videos = [os.path.join(example_dir, x) for x in os.listdir(example_dir)]
+    example_videos = [
+        os.path.join(example_dir, x) for x in os.listdir(example_dir)
+    ]
 
     demo = gr.Interface(
         fn=main,
         inputs=[
             gr.Video(source='upload'),
             gr.Radio(label='Model',
-                     choices=['repcount 12 classes', 'action recognition 6 classes'],
+                     choices=[
+                         'repcount 12 classes', 'action recognition 6 classes'
+                     ],
                      value='repcount 12 classes'),
             gr.Text(),
         ],
         outputs=["label"],
-        examples=[
-            [v, 'repcount 12 classes', os.path.basename(v)] for v in example_videos
-        ],
+        examples=[[v, 'repcount 12 classes',
+                   os.path.basename(v)] for v in example_videos],
         title="WorkoutDetector demo",
         live=False,
     )

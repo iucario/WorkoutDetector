@@ -2,15 +2,16 @@ import json
 import math
 import os
 import os.path as osp
+from dataclasses import dataclass
 from os.path import join as osj
 from typing import Callable, Dict, List, Optional, Tuple
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn.functional as F
 from torch import Tensor
 from torchvision.io import read_image
-from dataclasses import dataclass
 
 CLASSES = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
 
@@ -104,7 +105,8 @@ class FrameDataset(torch.utils.data.Dataset):
         start_index = video_info['start_index'] if self.anno_col == 4 else 1
         total_frames = video_info['total_frames']
         label = video_info['label']
-        samples = sample_frames(total_frames, self.num_segments, start_index, self.random)
+        samples = sample_frames(total_frames, self.num_segments, start_index,
+                                self.random)
         for i in samples:
             frame_path = os.path.join(frame_dir, self.tmpl.format(i))
             frame = read_image(frame_path)
@@ -193,13 +195,17 @@ class FeatureDataset(torch.utils.data.Dataset):
             y (np.ndarray): [num_sample,] labels of int
         """
         data = list(
-            get_rep_data(self.anno_path, data_root=None, split=[split],
+            get_rep_data(self.anno_path,
+                         data_root=None,
+                         split=[split],
                          action=[action]).values())
         x = Tensor([])  # action scores
-        y: List[int] = []  # labels + 1 no-class = 13 classes. Or can be set to 3.
+        y: List[int] = [
+        ]  # labels + 1 no-class = 13 classes. Or can be set to 3.
         for item in data:
-            js = json.load(open(osj(self.json_dir,
-                                    self.template.format(item.video_name))))
+            js = json.load(
+                open(osj(self.json_dir,
+                         self.template.format(item.video_name))))
             start_inds = list(map(int, list(js['scores'].keys())))
             n = len(start_inds)
             class_idx = CLASSES.index(item.class_)
@@ -249,7 +255,7 @@ class FeatureDataset(torch.utils.data.Dataset):
         n_samples, n_feats = x.shape
 
         # compute pi
-        pi = np.zeros(n_states,)
+        pi = np.zeros(n_states, )
         for i in unique_labels:
             pi[i] = np.sum(y == i) / y.shape[0]
 
@@ -273,7 +279,8 @@ class FeatureDataset(torch.utils.data.Dataset):
         elif cov_type == 'diag':
             cov = np.zeros((n_states, n_feats))
         else:
-            raise ValueError(f'cov_type must be "diag" or "full", not {cov_type}')
+            raise ValueError(
+                f'cov_type must be "diag" or "full", not {cov_type}')
         with np.errstate(divide='ignore'):
             for i in range(n_states):
                 if cov_type == 'full':
@@ -282,8 +289,9 @@ class FeatureDataset(torch.utils.data.Dataset):
                     cov[i, :] = np.std(x[y == i, :], axis=0)
 
         cov[np.isnan(cov)] = 0
-        assert transmat.shape == (n_states, n_states), f'transmat {transmat.shape}'
-        assert pi.shape == (n_states,), f'pi {pi.shape}'
+        assert transmat.shape == (n_states,
+                                  n_states), f'transmat {transmat.shape}'
+        assert pi.shape == (n_states, ), f'pi {pi.shape}'
         return transmat, pi, means, cov
 
     def __getitem__(self, index: int) -> Tuple[Tensor, int]:
@@ -396,7 +404,8 @@ def get_rep_data(anno_path: str,
         dict of name: RepcountItem
     """
     assert len(split) > 0, 'split must be specified, e.g. ["train", "val"]'
-    assert len(action) > 0, 'action must be specified, e.g. ["pull_up", "squat"]'
+    assert len(
+        action) > 0, 'action must be specified, e.g. ["pull_up", "squat"]'
     data_root = '' if data_root is None else data_root
     split = [x.lower() for x in split]
     action = [x.lower() for x in action]
@@ -415,7 +424,8 @@ def get_rep_data(anno_path: str,
         video_path = os.path.join(data_root, 'videos', split_, name)
         frame_path = os.path.join(data_root, 'rawframes', split_, name_no_ext)
         total_frames = -1
-        if os.path.isdir(frame_path):  # TODO: this relies on rawframe dir. Not good.
+        if os.path.isdir(
+                frame_path):  # TODO: this relies on rawframe dir. Not good.
             total_frames = len(os.listdir(frame_path))
         video_id = row['vid']
         count = int(row['count'])
@@ -423,8 +433,9 @@ def get_rep_data(anno_path: str,
             reps = [int(x) for x in row['reps'].split()]
         else:
             reps = []
-        item = RepcountItem(video_path, frame_path, total_frames, class_, count, reps,
-                            split_, name, row.fps, video_id, row['start'], row['end'])
+        item = RepcountItem(video_path, frame_path, total_frames, class_,
+                            count, reps, split_, name, row.fps, video_id,
+                            row['start'], row['end'])
         ret[name] = item
     return ret
 
@@ -466,20 +477,32 @@ def get_video_list(anno_path: str,
                 end += 1  # but annotated frame index starts from 0
                 mid = (start + end) // 2
                 videos.append({
-                    'video_path': os.path.join('RepCount/rawframes', split, name),
-                    'start': start,
-                    'end': mid,
-                    'length': mid - start + 1,
-                    'class': row.class_,
-                    'label': 0
+                    'video_path':
+                    os.path.join('RepCount/rawframes', split, name),
+                    'start':
+                    start,
+                    'end':
+                    mid,
+                    'length':
+                    mid - start + 1,
+                    'class':
+                    row.class_,
+                    'label':
+                    0
                 })
                 videos.append({
-                    'video_path': os.path.join('RepCount/rawframes', split, name),
-                    'start': mid + 1,
-                    'end': end,
-                    'length': end - mid,
-                    'class': row.class_,
-                    'label': 1
+                    'video_path':
+                    os.path.join('RepCount/rawframes', split, name),
+                    'start':
+                    mid + 1,
+                    'end':
+                    end,
+                    'length':
+                    end - mid,
+                    'class':
+                    row.class_,
+                    'label':
+                    1
                 })
     return videos
 
@@ -494,7 +517,7 @@ def reps_to_label(reps: List[int], total: int, class_idx: int):
         # class index plus 1 because no-class is 0
         y[start:mid] = [class_idx * 2 + 1] * (mid - start)
         y[mid:end + 1] = [class_idx * 2 + 2] * (end + 1 - mid)
-    assert len(y) == total, f'len(y) = {len(y)} != total {total}'
+    assert len(y) == total, f'len(y) = {len(y)} != total {total}\n{reps}'
     return y
 
 
@@ -536,7 +559,8 @@ if __name__ == '__main__':
     # plt.show()
 
     json_dir = os.path.expanduser(
-        '~/projects/WorkoutDetector/out/acc_0.841_epoch_26_20220711-191616_1x1')
+        '~/projects/WorkoutDetector/out/acc_0.841_epoch_26_20220711-191616_1x1'
+    )
     template = '{}.stride_1_step_1.json'
     anno_path = os.path.expanduser("~/data/RepCount/annotation.csv")
 

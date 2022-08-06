@@ -1,29 +1,31 @@
 import json
-from typing import List, Tuple
-import numpy as np
 import os
+from typing import List, Tuple
+
+import numpy as np
+import pandas as pd
 from hmmlearn import hmm
+
+from workoutdet.data import FeatureDataset, get_rep_data, reps_to_label
 from workoutdet.evaluate import major_vote
 from workoutdet.predict import pred_to_count
-from workoutdet.data import get_rep_data, reps_to_label, FeatureDataset
-import pandas as pd
+
+CLASSES = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
 
 
-def hmm_infer(model: hmm.GaussianHMM,
-              x: np.ndarray,
+def hmm_infer(model: hmm.GaussianHMM, x: np.ndarray, total_frames: int,
               gt_reps: List[int],
-              class_idx: int,
-              window: int = 1) -> Tuple[int, int, float, List[int]]:
+              class_idx: int) -> Tuple[int, int, float, List[int]]:
     """Predicts repetitions from one video using HMM.
        Set class_idx to 0 to predict 3 classes.
     """
-    gt_labels = reps_to_label(gt_reps, len(x),
+    gt_labels = reps_to_label(gt_reps, total_frames,
                               class_idx=class_idx)  # set to 0 for 3 states
-    y = model.predict(x)
-    acc = (y == gt_labels[:len(y)]).sum() / len(gt_labels)
+    pred = model.predict(x)
+    acc = (pred == gt_labels[:len(pred)]).sum() / len(gt_labels)
     gt_count = len(gt_reps) // 2
-    pred_smoothed = major_vote(y - 1, window=window)  # minus 1 because no-class is 0
-    count, reps = pred_to_count(pred_smoothed, stride=1 * 1, step=1)
+    count, reps = pred_to_count(pred - 1, stride=1 * 1,
+                                step=1)  # -1 because 0 is null-class
     diff = abs(count - gt_count)
     obo = 1 if (diff <= 1) else 0
     return obo, diff, acc, reps
@@ -33,19 +35,23 @@ def hmm_eval_subset(model: hmm.GaussianHMM,
                     split: str,
                     action: str,
                     anno_path: str,
-                    data_root: str,
                     json_dir: str,
+                    is_binary: bool = True,
+                    data_root: str = '',
                     template: str = '{}.stride_1_step_1.json') -> dict:
-    test_data = list(get_rep_data(anno_path, data_root, [split], [action]).values())
+    test_data = list(
+        get_rep_data(anno_path, data_root, [split], [action]).values())
     total_obo, total_err, total_acc, gt_total_count = 0, 0, 0, 0
     for item in test_data:
         test_x = []
-        js = json.load(open(os.path.join(json_dir, template.format(item.video_name))))
+        js = json.load(
+            open(os.path.join(json_dir, template.format(item.video_name))))
         for i, v in js['scores'].items():
             test_x.append(np.array(list(v.values())))
         test_x = np.array(test_x)
-
-        obo, err, acc, reps = hmm_infer(model, test_x, item.reps, 0, window=1)
+        class_idx = 0 if is_binary else CLASSES.index(action)
+        obo, err, acc, reps = hmm_infer(model, test_x, js['total_frames'],
+                                        item.reps, class_idx)
         total_obo += obo
         total_err += err
         total_acc += acc
@@ -66,11 +72,13 @@ def hmm_train(action, feat_ds):
 
     print(action, feat_ds.x.shape, 'num y', np.unique(feat_ds.y))
     # softmax_x = F.softmax(torch.from_numpy(feat_ds.x), dim=1).numpy()
-    transmat, pi, means, cov = feat_ds.hmm_stats(feat_ds.x.numpy(), np.array(feat_ds.y),
-                                                 'full')
+    transmat, pi, means, cov = feat_ds.hmm_stats(feat_ds.x.numpy(),
+                                                 np.array(feat_ds.y), 'full')
     # print(transmat, pi, means, cov)
     n_states = len(np.unique(feat_ds.y))
-    model = hmm.GaussianHMM(n_components=n_states, n_iter=300, covariance_type='full')
+    model = hmm.GaussianHMM(n_components=n_states,
+                            n_iter=300,
+                            covariance_type='full')
     model.transmat_ = transmat
     model.startprob_ = pi.T
     model.means_ = means
@@ -83,7 +91,9 @@ def hmm_train(action, feat_ds):
 def hmm_eval(anno_path: str, json_dir: str) -> None:
 
     result = []
-    classes = ['situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise']
+    classes = [
+        'situp', 'push_up', 'pull_up', 'jump_jack', 'squat', 'front_raise'
+    ]
 
     for action in classes:
         feat_ds = FeatureDataset(json_dir,
@@ -94,16 +104,19 @@ def hmm_eval(anno_path: str, json_dir: str) -> None:
                                  stride=1)
         model = hmm_train(action, feat_ds)
         for split in ['train', 'val', 'test']:
-            result.append(hmm_eval_subset(model, split, action))
+            result.append(
+                hmm_eval_subset(model, split, action, anno_path, json_dir))
 
     df = pd.DataFrame(result)
     df_train = df[df.split == 'train']
     df_val = df[df.split == 'val']
     df_test = df[df.split == 'test']
     all_obo = df.groupby('split').OBO.sum()
-    train_mae = (df_train.MAE * df_train.num_videos).sum() / df_train.num_videos.sum()
+    train_mae = (df_train.MAE *
+                 df_train.num_videos).sum() / df_train.num_videos.sum()
     val_mae = (df_val.MAE * df_val.num_videos).sum() / df_val.num_videos.sum()
-    test_mae = (df_test.MAE * df_test.num_videos).sum() / df_test.num_videos.sum()
+    test_mae = (df_test.MAE *
+                df_test.num_videos).sum() / df_test.num_videos.sum()
     all_num = df.groupby('split').num_videos.sum()
     df_summary = pd.DataFrame({
         'split': ['train', 'val', 'test'],
@@ -118,5 +131,5 @@ def hmm_eval(anno_path: str, json_dir: str) -> None:
 
 if __name__ == '__main__':
     anno_path = 'datasets/RepCount/annotation.csv'
-    json_dir = 'json'
+    json_dir = 'out/acc_0.841_epoch_26_20220711-191616_1x1'
     hmm_eval(anno_path, json_dir)

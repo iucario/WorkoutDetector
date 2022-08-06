@@ -13,7 +13,9 @@ from workoutdet.data import get_rep_data
 from workoutdet.trainer import LitModel
 
 
-def pred_to_count(preds: List[int], stride: int, step: int = 1) -> Tuple[int, List[int]]:
+def pred_to_count(preds: List[int],
+                  stride: int,
+                  step: int = 1) -> Tuple[int, List[int]]:
     """Convert a list of predictions to a repetition count.
     
     Args:
@@ -109,7 +111,12 @@ class TestDataset(torch.utils.data.Dataset):
         if self.transform is not None:
             frames = self.transform(frames)
         t, c, h, w = frames.shape
-        frames = rearrange(frames, f'T C H W -> {self.shape}', T=t, C=c, H=h, W=w)
+        frames = rearrange(frames,
+                           f'T C H W -> {self.shape}',
+                           T=t,
+                           C=c,
+                           H=h,
+                           W=w)
         return frames, i
 
     def __len__(self) -> int:
@@ -117,10 +124,15 @@ class TestDataset(torch.utils.data.Dataset):
 
 
 @torch.no_grad()
-def predict_one_video(model, path: str, out_path: str, stride: int, step: int, transform,
-                      total_frames: int, reps: List[int], class_name: str, device: str):
+def predict_one_video(model, path: str, out_path: str, stride: int, step: int,
+                      transform, total_frames: int, reps: List[int],
+                      class_name: str, device: str):
     """Predict one video and save scores to JSON file."""
-    ds = TestDataset(path, stride=stride, step=step, length=8, transform=transform)
+    ds = TestDataset(path,
+                     stride=stride,
+                     step=step,
+                     length=8,
+                     transform=transform)
     loader = torch.utils.data.DataLoader(ds, batch_size=1, shuffle=False)
     video_name = path.split('.')[0] + '.mp4'
     res_dict = dict(
@@ -141,7 +153,8 @@ def predict_one_video(model, path: str, out_path: str, stride: int, step: int, t
         start_index = i.item()
         with torch.no_grad():
             pred: Tensor = model(x.to(device))
-            scores[start_index] = dict((j, v.item()) for j, v in enumerate(pred[0]))
+            scores[start_index] = dict(
+                (j, v.item()) for j, v in enumerate(pred[0]))
         # print(scores[start_index])
     res_dict['scores'] = scores
 
@@ -182,13 +195,14 @@ def main(ckpt: str,
         os.makedirs(out_dir)
 
     for item in list(data.values())[rank * part_size:end]:
-        out_path = os.path.join(out_dir,
-                                f'{item.video_name}.stride_{stride}_step_{step}.json')
+        out_path = os.path.join(
+            out_dir, f'{item.video_name}.stride_{stride}_step_{step}.json')
         if os.path.exists(out_path):
             print(f'{out_path} already exists. Skip.')
             continue
-        predict_one_video(model, item.video_path, out_path, stride, step, transform,
-                          item.total_frames, item.reps, item.class_, device)
+        predict_one_video(model, item.video_path, out_path, stride, step,
+                          transform, item.total_frames, item.reps, item.class_,
+                          device)
 
 
 if __name__ == '__main__':
